@@ -18,7 +18,8 @@
 #   compare                SLURM job body: compare_modes.R on run_quant and run_align
 #   e3-manual SAMPLE       SLURM job body: the align steps of one sample by hand, with /usr/bin/time -v
 #   e3-align SAMPLE KIND   SLURM job body: qrnamap align --task-id 0 for one sample (index copied
-#                          from run_align); KIND scratch|gpfs sets --tmpdir
+#                          from run_align); KIND scratch|gpfs sets --tmpdir. With CGROUP_READOUT=1
+#                          it prints the memory cgroup limit, peak and memory.stat at the end
 set -euo pipefail
 
 REPO="${REPO:-/bigdata/stajichlab/jstajich/projects/qRNAmap/.claude/worktrees/harden-cli}"
@@ -161,6 +162,20 @@ e3-align)
     "$QRNAMAP" align --samples "$O/sheet.tsv" --reference "$REF" --gff "$GFF" --out "$O" \
         --strandedness "$STRAND" --threads 1 --tmpdir "$T" --task-id 0 --samples-per-task 1
     rm -rf "$T" "$O/index"
+    if [ "${CGROUP_READOUT:-0}" = 1 ]; then
+        # Memory cgroup (v1) of this step and of the job, read at the end of the job.
+        echo "== /proc/self/cgroup"; cat /proc/self/cgroup
+        cg=$(awk -F: '$2 ~ /memory/ {print $3; exit}' /proc/self/cgroup)
+        jc=$(echo "$cg" | sed -n 's#^\(.*/job_[0-9]*\)/.*#\1#p')
+        for c in "$cg" "$jc"; do
+            d="/sys/fs/cgroup/memory$c"
+            echo "== cgroup $d"
+            for f in memory.limit_in_bytes memory.max_usage_in_bytes memory.usage_in_bytes memory.failcnt; do
+                [ -r "$d/$f" ] && echo "$f $(cat "$d/$f")"
+            done
+            [ -r "$d/memory.stat" ] && grep -E '^(total_cache|total_rss|total_dirty|total_writeback) ' "$d/memory.stat"
+        done
+    fi
     echo "end $(date -Is)"
     ;;
 *)

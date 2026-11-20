@@ -20,3 +20,6 @@ sacct MaxRSS, qrnamap align --tmpdir on /bigdata (GPFS), job 32308384 (KB)	39392
 elapsed, job 32308383 (scratch) / 32308384 (GPFS)	6:28 / 7:18	sacct
 gene counts of 32308383 and 32308384	identical (cmp of decompressed genecounts)	cmp
 sacct MaxRSS, qrnamap align --tmpdir $SCRATCH with --mem 4G, job 32309177 on x01 (KB)	4192060 (COMPLETED 0:0, 10:32; counts identical to 32308383)	sacct, cmp
+sacct MaxRSS, qrnamap align --tmpdir $SCRATCH with --mem 4G, job 32309900 on c17 (KB)	4191164 (COMPLETED 0:0, 19:26; counts identical to 32308383)	sacct, cmp
+job 32309900 job cgroup memory.limit_in_bytes / memory.max_usage_in_bytes / failcnt (bytes)	4294967296 / 4294967296 / 0	CGROUP_READOUT=1 at job end
+job 32309900 step cgroup memory.max_usage_in_bytes (bytes)	4291751936 (= sacct MaxRSS x 1024)	CGROUP_READOUT=1 at job end

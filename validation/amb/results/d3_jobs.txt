@@ -1,0 +1,44 @@
+=== d3-32309901.out (COMPLETED 0:0 c17)
+SCRATCH=UNSET
+HPCC_MODULES=UNSET
+LOADEDMODULES=UNSET
+/var/spool/slurmd/job32309901/slurm_script: line 4: type: module: not found
+user=
+jobid=32309901
+=== d3-32310007.out (FAILED 2:0 r44)
+/var/spool/slurmd/job32310007/slurm_script: line 4: module: command not found
+SCRATCH=UNSET
+TMPDIR=/tmp
+ls: cannot access '/nonexistent': No such file or directory
+=== d3-32310041.out (COMPLETED 0:0 r47)
+before: SCRATCH=UNSET TMPDIR=/tmp
+ERROR: can't read "uasked": no such variable
+      while executing
+  "if {$mode eq {load} && $uasked != 0} {
+  
+        # produced log entry (formatted as a JSON record)
+        execLogger "{ \"user\": \"[get-env USER]\", \"mo..."
+      (procedure "logModfileInterp" line 14)
+      invoked from within
+  "logModfileInterp {execute-modulefile /etc/environment-modules/initrc /etc/environment-modules/initrc /etc/environment-modules/initrc /etc/environment-..."
+      (leave trace on "execute-modulefile $absfpath $absfpath $absfpath $ab...")
+      (procedure "cmdModuleSource" line 1)
+      invoked from within
+  "cmdModuleSource load /etc/environment-modules/initrc"
+      (procedure "cmdModuleAutoinit" line 64)
+      invoked from within
+  "cmdModuleAutoinit"
+      (procedure "module" line 333)
+      invoked from within
+  "{*}$execcmdlist"
+  Please report this issue at https://github.com/cea-hpc/modules/issues
+HPCC_MODULES=/opt/linux/rocky/8.x/x86_64/pkgs
+module load exit 0
+SCRATCH=/scratch/jstajich/32310041
+TMPDIR=/scratch/jstajich/32310041
+drwx------ 2 jstajich stajichlab 6 Nov 20 10:39 /scratch/jstajich/32310041
+=== probe_scratch.32308141.out (FAILED 2:0 r47)
+SCRATCH=UNSET
+PATH=/opt/linux/rocky/8.x/x86_64/pkgs/slurm/24.11.1/bin:/usr/bin:/bin
+no-tools
+ls: cannot access '/nonexistent': No such file or directory

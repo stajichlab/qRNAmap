@@ -17,7 +17,13 @@ Files:
 - `collect_amb.py`: the per-sample table of E2 (`results/per_sample.tsv`).
 - `compare_modes.R`: a copy of `validation/compare_modes.R` (same logic): count and DE agreement.
 - `results/`: `ena_runs.tsv`, `e0_fastq_counts.tsv`, `strand_check.tsv`, `per_sample.tsv`,
-  `mode_agreement.tsv`, `de_overlap.tsv`, `e3_memory.tsv`, `jobs.tsv` (sacct of every job).
+  `mode_agreement.tsv`, `de_overlap.tsv`, `e3_memory.tsv`, `jobs.tsv` (sacct of every job),
+  `geo_gsm2125075_processing.txt` and `geo_gse80357_supplementary.txt` (GEO text lines, see Data),
+  `d3_jobs.txt` (verbatim outputs of the D3 jobs).
+
+A `grep` for `/scratch` or `BASH_SOURCE` in `run_amb.sh` finds them only in comment lines (the
+header says the script does not use them). The jobs use `"${SCRATCH:?}"`; no path under `/scratch`
+is written in the code.
 
 ## Data
 
@@ -47,7 +53,16 @@ only treatment, the AMB+LF treatment and their corresponding matching controls, 
 Library prep kit v2 (Illumina) with a poly-A pulldown was used". For the LF-only runs it names a
 different kit, "TruSeq Stranded mRNA-seq prep kit". The record does not say whether the TruSeq RNA
 v2 kit is stranded. That it is not stranded is my knowledge of the kit, not a value from the record.
-The authors counted with HTSeq `-s no` (unstranded).
+The authors counted with HTSeq `-s no -m union -t CDS -i gene_id` (unstranded). Source: the
+`!Sample_data_processing` line of the GEO sample page GSM2125075 ("Matched control for AMB only rep
+1"), saved in `results/geo_gsm2125075_processing.txt` (fetched 2026-11-20). The same file has the
+`!Sample_extract_protocol_ch1` lines with the kit text quoted above.
+
+Published tables. The sample page GSM2125075 has `!Sample_supplementary_file_1 = NONE`. The series
+page GSE80357 lists three supplementary files (`results/geo_gse80357_supplementary.txt`):
+`GSE80357_average_cpm_per_treatment_group.csv.gz`, `GSE80357_counts_of_mapped_reads.csv.gz` and
+`GSE80357_log_fold_change_and_FDR_values.csv.gz`. So the authors' counts and DE values are
+published at the series level. I did not download them and did not compare with them.
 
 Sample sheet `$DATA/samples.tsv`: columns `sample fastq1 fastq2 condition replicate`; `condition`
 is `Control` or `AmpB`; `replicate` is `r1` to `r3` (from `Rep1` to `Rep3` of `samples_AMB.tsv`).
@@ -120,8 +135,7 @@ sacct after the failure (`sacct -j ... --format=JobID,JobName,State,ExitCode,Ela
   No such file or directory (os error 2)`. This is the up-front FASTQ check, as intended.
 - E1a prepare log: `/var/spool/slurmd/job32308072/slurm_script: line 17: SCRATCH: SCRATCH is not
   set: this job needs node-local scratch`. The job failed at the `${SCRATCH:?}` line, before the
-  FASTQ check. See defect D3. A probe job (32308141, `--wrap 'echo ${SCRATCH:-UNSET}'`, submitted
-  from `env -i` with `LOADEDMODULES=workspace/scratch`) also printed `SCRATCH=UNSET`.
+  FASTQ check. See defect D3.
 
 Result: with `--kill-on-invalid-dep=yes`, a failed prepare job made SLURM cancel the array and final
 jobs (2 of 2 attempts). The flag works on this cluster.
@@ -160,16 +174,24 @@ $DATA/run_MODE --strandedness unstranded --threads 1 --contrast condition,AmpB,C
 --samples-per-task K --partition short --mem-gb M --time 02:00:00`. The design is the default
 `~ condition`. `--samples-per-task 6` (quant) gives 1 array task; `3` (align) gives 2 tasks.
 
-`--mem-gb` and `--time` are placeholders, set from the yeast measurements with a margin: quant 8 GB
+`--mem-gb` and `--time` are placeholders, set from the yeast measurements (`validation/README.md`,
+section "Per-sample results" and "Bundling samples per task") with a margin: quant 8 GB
 (yeast quant MaxRSS about 0.11 GB); align 32 GB (yeast 1,329 to 1,338 bytes per pair x about 10
 million pairs = about 13.4 GB per sample); `--time 02:00:00` (the `short` limit; yeast maxima x
 the AMB pair counts gave about 46 min for the quant task and about 57 min per align task).
 
 Submission: `run_amb.sh submit-login $DATA/run_MODE`, a fresh login shell (`env -i HOME USER
-PATH=/usr/bin:/bin bash -l`). In that shell `kallisto`, `hisat2-align-s`, `hisat2-build-s` and
-`featureCounts` were NOT found, and `Rscript` was the cluster module R 4.5.2
-(`/opt/linux/rocky/8.x/x86_64/pkgs/R/4.5.2/bin/Rscript`), not the pixi R. I did not use the
-`env -i` shell of E1a here, because jobs submitted from it get no `$SCRATCH` (D3).
+PATH=/usr/bin:/bin bash -l`). The site profile and my profile put these on that shell's PATH
+(logged in `$DATA/logs/submit_MODE.log`): `~/.local/bin`, `~/.cargo/bin`, `~/.codon/bin`,
+`~/go/bin`, `~/bin`, `~/.pixi/bin` (the pixi program itself, not the project env), miniconda3
+py39_4.12.0 (`condabin` and `bin`), and the module directories of R 4.5.2, pandoc, texlive, java,
+hpcc_user_utils, openmpi and slurm, then `/usr/share/Modules/bin`, `/usr/bin`, `/bin` and others.
+The project env `<worktree>/.pixi/envs/default/bin` was not on it. I probed five tools with
+`command -v`: `kallisto`, `hisat2-align-s`, `hisat2-build-s` and `featureCounts` were NOT found;
+`Rscript` was the cluster module R 4.5.2 (`/opt/linux/rocky/8.x/x86_64/pkgs/R/4.5.2/bin/Rscript`),
+not the pixi R. I did not probe `hisat2-build`, `python` or `zstd` (the align `prepare.sbatch`
+also checks `hisat2-build` and `python`; the miniconda directory has a `python` and a `zstd`).
+I did not use the `env -i` shell of E1a here, because jobs submitted from it get no `$SCRATCH` (D3).
 
 Baked PATH result: all 6 E2 jobs COMPLETED with exit 0:0. The prepare jobs ran `kallisto index` and
 `hisat2-build`; the array tasks ran kallisto, `hisat2-align-s` and featureCounts; the final jobs ran
@@ -259,9 +281,10 @@ NA padj excluded (`results/de_overlap.tsv`):
 | in both with the same log2FC sign | 1,954 of 1,956 |
 | Spearman of log2FC, genes with a log2FC in both | 0.926467 |
 
-No criterion was set for these numbers. I do not call them good or bad. There is no ground truth:
-the GEO record lists no supplementary count table, and the authors counted CDS with HTSeq while
-qRNAmap counts exons with featureCounts or kallisto. I did not compare with the authors' results.
+No criterion was set for these numbers. I do not call them good or bad. There is no ground truth.
+The authors' counts and DE values are published at the series level (see Data), but they are
+another pipeline's output, not a truth: the authors counted CDS with HTSeq, while qRNAmap counts
+exons with featureCounts or kallisto. I did not compare with the authors' results.
 
 ### Bundling (measured)
 
@@ -331,22 +354,61 @@ What the measurements show:
 
 Hypotheses:
 
-- A (accounting counts the page cache of the staged FASTQ and SAM in `$SCRATCH`): supported by every
-  measurement above. The high MaxRSS is page cache of the files written to local scratch, not
-  process memory.
-- B (`$SCRATCH` is memory-backed, tmpfs): contradicted for nodes r46 and x01 (xfs on NVMe). The other nodes
-  were not checked; the yeast align tasks ran on c07, which was not checked.
+- A (accounting counts the page cache of the staged FASTQ and SAM in `$SCRATCH`): supported. What
+  was shown: (1) in one job (32308382), sacct MaxRSS x 1024 equals the step cgroup's
+  `memory.max_usage_in_bytes` to the byte; (2) in that job, `total_cache` matches the bytes of the
+  staged FASTQ plus SAM to within 338,109 bytes, while `total_rss` was 954,368 bytes and the
+  largest process RSS was 41,208 KB; (3) with `--tmpdir` on GPFS, MaxRSS was 39,392 KB. GPFS keeps
+  its file data in its own pagepool, which the job cgroup does not charge, so the GPFS run is a
+  control for the cache of the local xfs scratch only. It does not show what happens on other
+  local file systems.
+- B (`$SCRATCH` is memory-backed, tmpfs): contradicted for nodes r46 and x01 (xfs on NVMe) and c17 (xfs on `/dev/sda5`). The
+  other nodes were not checked. The yeast align tasks ran on c07 (`validation/README.md`,
+  "Per-sample results"); c07 was not checked.
 - C (one process holds the data): contradicted. HISAT2 41,208 KB, featureCounts 36,144 KB.
 
-Bytes per pair for Control_2: 13,386,948,608 / 10,302,142 = 1,299 bytes per pair (yeast: 1,329 to
-1,338).
+Bytes per pair for Control_2: 13,386,948,608 / 10,302,142 = 1,299 bytes per pair. Yeast: 1,329 to
+1,338 bytes per pair, from the align MaxRSS and the pair counts in `validation/README.md`
+("Per-sample results" and "Data").
 
-Memory limit below the peak: job 32309177 ran the same `run_amb.sh e3-align Control_2 scratch` with
-`--mem 4G`. It ran on node x01 (`$SCRATCH` there: xfs on `/dev/nvme0n1p6`). It COMPLETED with exit
-0:0 in 10:32, MaxRSS 4,192,060 KB (the 4G limit is 4,194,304 KB). Its gene counts are identical to
-those of job 32308383 (`cmp`). So the 13 GB page-cache peak did not need a 13 GB `--mem` in this one
-run: the cgroup kept usage at the limit and the job finished. The elapsed time (10:32 against 6:28)
-came from another node, so the run does not show whether the limit slowed the job.
+Memory limit below the peak. Two runs of the same work (`run_amb.sh e3-align Control_2 scratch`,
+`--tmpdir` on `$SCRATCH`) with `--mem 4G`:
+
+| job | node, `$SCRATCH` device | state | elapsed | TotalCPU | sacct MaxRSS | cgroup readout | gene counts vs 32308383 |
+|---|---|---|---|---|---|---|---|
+| 32309177 | x01, xfs on `/dev/nvme0n1p6` | COMPLETED 0:0 | 10:32 | 10:23 (sacct `cpu=`) | 4,192,060 KB | none (this run printed no cgroup values) | identical (`cmp`) |
+| 32309900 | c17, xfs on `/dev/sda5` | COMPLETED 0:0 | 19:26 | 18:55 | 4,191,164 KB | see below | identical (`cmp`) |
+
+Cgroup readout of job 32309900 (`CGROUP_READOUT=1`; read at the end of the job, AFTER the
+scratch files were deleted, so the cache values are end values, not the peak):
+
+| cgroup | memory.limit_in_bytes | memory.max_usage_in_bytes | memory.failcnt | total_cache | total_rss | total_dirty | total_writeback |
+|---|---|---|---|---|---|---|---|
+| job (`.../job_32309900`) | 4,294,967,296 | 4,294,967,296 | 0 | 3,977,216 | 2,396,160 | 0 | 0 |
+| step (`.../step_batch/task_0`) | 9,223,372,036,854,771,712 (no own limit) | 4,291,751,936 | 0 | 3,964,928 | 1,044,480 | 0 | 0 |
+
+sacct MaxRSS of 32309900 x 1024 = 4,291,751,936 bytes = the step's `memory.max_usage_in_bytes`
+(the same equality as in job 32308382).
+
+What was observed: with a 4 GiB job limit, the job cgroup's peak usage reached the limit exactly
+(4,294,967,296 bytes), the job completed, and the gene counts are identical to the 32 GiB run.
+The same work wrote about 13.3 GB of files in scratch (job 32308382). The kernel reclaims clean
+page cache when a cgroup reaches its limit. In the 32 GiB jobs there was no memory pressure, so the
+cache stayed charged and the peak reached 13 GB. The 4 GiB runs are consistent with that: the
+13 GB peak of the 32 GiB jobs is not a memory need of the job. This is an inference from these
+values; I did not observe the reclaim itself.
+
+Limits of this evidence:
+- One run with a limit readout (32309900, c17) and one without (32309177, x01). For 32309177 the
+  enforcement of the limit is inferred from ReqMem 4G, `ConstrainRAMSpace=yes` and a MaxRSS 2,244 KB
+  below 4,194,304 KB; it was not read.
+- Dirty-page and writeback stalls were not tested. The end readout shows `total_dirty` 0 and
+  `total_writeback` 0, but only after the files were deleted.
+- Run time: 6:28 (32 GiB, r46), 10:32 (4 GiB, x01) and 19:26 (4 GiB, c17). The nodes differ and so
+  does the load (r46 ran 5 of my jobs at once). So the effect of the limit on run time cannot be
+  attributed. Job 32309900 used 18:55 CPU in 19:26 elapsed (sstat at about 18:40 showed AveCPU
+  18:15), so it was mostly on CPU, not waiting.
+- Limits below 4 GiB were not tested.
 
 ## Defects found
 
@@ -355,36 +417,131 @@ Verified on real jobs in E2 (baked PATH worked). The cancel of dependent jobs af
 was observed (E1).
 
 D2 (from the yeast run): explained by E3: the align MaxRSS is page cache of the scratch files
-counted by the cgroup accounting, not process memory. Not changed in code. One run with `--mem 4G`
-completed with identical counts (job 32309177). Open: a limit below 4 GB, other nodes, and the
-effect of the limit on run time.
+counted by the cgroup accounting, not process memory. Not changed in code. Two runs with
+`--mem 4G` completed with identical counts (jobs 32309177 and 32309900; the second has a cgroup
+readout: job limit 4,294,967,296 bytes, peak usage at the limit, failcnt 0). Open: limits below
+4 GiB, dirty-page/writeback stalls, other nodes, and the effect of the limit on run time.
 
 D3 (new). **The generated SLURM scripts need `$SCRATCH`, which on this cluster comes from the
-submitting shell's module environment.** The jobs inherit the environment of `sbatch` (default
-`--export=ALL`). The SLURM task prolog
-(`/opt/linux/rhel/8.x/x86_64/pkgs/slurm/24.11.1/scripts/task-prolog.sh`) runs `modulecmd bash
-reload`, and the module `workspace/scratch` sets `SCRATCH=/scratch/$USER/$SLURM_JOB_ID`. When the
-submit shell has no loaded modules, the job gets no `SCRATCH` and every generated job fails at its
-first line `: "${SCRATCH:?...}"`.
+submitting shell's environment.** The jobs inherit the environment of `sbatch` (default
+`--export=ALL`). From a bare `env -i` shell, the generated jobs have no `SCRATCH` and fail at their
+`: "${SCRATCH:?...}"` line.
+
+Primary evidence (E1a):
 - Failing command: `env -i HOME="$HOME" USER="$USER" PATH="<slurm bin>:/usr/bin:/bin" bash $DATA/e1/run_quant/slurm/submit.sh`
-- Message (job 32308072): `/var/spool/slurmd/job32308072/slurm_script: line 17: SCRATCH: SCRATCH is not set: this job needs node-local scratch`
-- Minimal reproduction without qrnamap: from the same `env -i` shell,
-  `sbatch -p short -t 00:02:00 --mem 100M --wrap 'echo SCRATCH=${SCRATCH:-UNSET}'` prints
-  `SCRATCH=UNSET` (job 32308141 had `LOADEDMODULES=workspace/scratch` set as well; the module reload
-  failed because the module needs `HPCC_MODULES`). From a login shell (`bash -l`) the jobs get
-  `SCRATCH` (E1b, E2).
-- Effect: the job fails fast and with a clear message; with `--kill-on-invalid-dep=yes` the
-  dependent jobs are cancelled (E1a). No wrong output. The R28 note in the scripts ("the jobs do not
-  depend on the PATH of the shell that runs submit.sh") is true for PATH, but the jobs still depend
-  on the submit environment for `$SCRATCH`. Not fixed (no CLI change in this task).
+- Message in the log of prepare job 32308072: `/var/spool/slurmd/job32308072/slurm_script: line 17: SCRATCH: SCRATCH is not set: this job needs node-local scratch`
+- From a fresh login shell (`env -i ... bash -l`), the same kind of jobs got `SCRATCH` (E1b, E2).
+
+Earlier probe (job 32308141, FAILED 2:0). Submitted from `env -i HOME USER PATH=<slurm
+bin>:/usr/bin:/bin MODULEPATH=<login value> LOADEDMODULES=workspace/scratch
+_LMFILES_=<path of that modulefile>` with `--wrap 'echo "SCRATCH=${SCRATCH:-UNSET}"; echo
+"PATH=$PATH"; command -v kallisto Rscript || echo no-tools; ls -ld "${SCRATCH:-/nonexistent}"'`.
+Output: `SCRATCH=UNSET`, `PATH=/opt/linux/rocky/8.x/x86_64/pkgs/slurm/24.11.1/bin:/usr/bin:/bin`,
+`no-tools`, `ls: cannot access '/nonexistent': No such file or directory`. The job failed (2:0)
+because of that `ls`.
+
+D3 reproduction, 2026-11-20. Each job was submitted from
+`env -i HOME="$HOME" PATH="$(dirname "$(command -v sbatch)"):/usr/bin:/bin" sbatch --parsable
+--partition=short --time=00:02:00 --mem=100M --wait --output=$DATA/d3/d3-%j.out --wrap '<command>'`.
+Outputs verbatim (also in `results/d3_jobs.txt`):
+
+Job 1 (32309901, c17, COMPLETED 0:0). Command: `echo SCRATCH=${SCRATCH:-UNSET}; echo
+HPCC_MODULES=${HPCC_MODULES:-UNSET}; echo LOADEDMODULES=${LOADEDMODULES:-UNSET}; type module 2>&1 |
+head -1; echo user=$USER; echo jobid=$SLURM_JOB_ID`
+
+```
+SCRATCH=UNSET
+HPCC_MODULES=UNSET
+LOADEDMODULES=UNSET
+/var/spool/slurmd/job32309901/slurm_script: line 4: type: module: not found
+user=
+jobid=32309901
+```
+
+Job 2 (32310007, r44, FAILED 2:0). Command: `source /etc/profile.d/hpcc_modules.sh 2>&1 | head -3;
+module load workspace/scratch 2>&1 | head -5; echo SCRATCH=${SCRATCH:-UNSET}; echo
+TMPDIR=${TMPDIR:-UNSET}; ls -ld "${SCRATCH:-/nonexistent}" 2>&1`
+
+```
+/var/spool/slurmd/job32310007/slurm_script: line 4: module: command not found
+SCRATCH=UNSET
+TMPDIR=/tmp
+ls: cannot access '/nonexistent': No such file or directory
+```
+
+Job 2 does not test the fix. `source ... | head -3` runs `source` in the subshell of the pipe, so
+its exports are lost. And `module` is a shell function defined by `/etc/profile.d/modules.sh`,
+which job 2 did not source. So I ran one more job.
+
+Job 3 (32310041, r47, COMPLETED 0:0), my variant, same submit command. Command: `echo before:
+SCRATCH=${SCRATCH:-UNSET} TMPDIR=${TMPDIR:-UNSET}; source /etc/profile.d/modules.sh; source
+/etc/profile.d/hpcc_modules.sh; echo HPCC_MODULES=${HPCC_MODULES:-UNSET}; module load
+workspace/scratch; echo "module load exit $?"; echo SCRATCH=${SCRATCH:-UNSET}; echo
+TMPDIR=${TMPDIR:-UNSET}; ls -ld "${SCRATCH:-/nonexistent}" 2>&1`
+
+```
+before: SCRATCH=UNSET TMPDIR=/tmp
+ERROR: can't read "uasked": no such variable
+      while executing
+  "if {$mode eq {load} && $uasked != 0} {
+  ... (17 more lines of a Tcl trace from the environment-modules autoinit, ending with
+  "Please report this issue at https://github.com/cea-hpc/modules/issues"; full text in
+  results/d3_jobs.txt)
+HPCC_MODULES=/opt/linux/rocky/8.x/x86_64/pkgs
+module load exit 0
+SCRATCH=/scratch/jstajich/32310041
+TMPDIR=/scratch/jstajich/32310041
+drwx------ 2 jstajich stajichlab 6 Nov 20 10:39 /scratch/jstajich/32310041
+```
+
+What the three jobs show:
+- A job submitted from a bare environment has no `SCRATCH`, no `HPCC_MODULES`, no
+  `LOADEDMODULES`, no `module` function and no `USER`. `TMPDIR` is `/tmp`.
+- The per-job directory `/scratch/$USER/$SLURM_JOB_ID` existed in job 3. The SLURM prolog
+  (`/opt/linux/rhel/8.x/x86_64/pkgs/slurm/24.11.1/scripts/prolog.sh`) creates it
+  (`mkdir -p -m 700 ${SCRATCH}`); the modulefile only sets variables. So in a bare job the
+  directory exists and only the variable is missing.
+- In such a job, `source /etc/profile.d/modules.sh; source /etc/profile.d/hpcc_modules.sh; module
+  load workspace/scratch` set `SCRATCH` and `TMPDIR` to that directory (job 3). The module init
+  printed a Tcl error trace to the output, but `module load` returned 0.
+- The modulefile (`/opt/linux/rocky/8.x/x86_64/modules/workspace/scratch`) reads
+  `$::env(HPCC_MODULES)` and sets `SCRATCH /scratch/${user}/${slurm_job_id}`;
+  `/etc/profile.d/hpcc_modules.sh` exports `HPCC_MODULES`. I read both files. The SLURM task
+  prolog (`/opt/linux/rhel/8.x/x86_64/pkgs/slurm/24.11.1/scripts/task-prolog.sh`) runs
+  `modulecmd bash reload`. That the reload re-exports only what the submitter's `LOADEDMODULES`
+  lists is the reviewer's reading of these files; job 1 is consistent with it (no
+  `LOADEDMODULES`, no `SCRATCH`), but no job tested it directly. The earlier probe 32308141 had
+  `LOADEDMODULES=workspace/scratch` but no `HPCC_MODULES` and still got no `SCRATCH`; that the
+  missing `HPCC_MODULES` caused this is also the reviewer's reading (a login-node test of
+  `modulecmd bash reload` without `HPCC_MODULES` printed `Module ERROR: no such variable
+  ... $::env(HPCC_MODULES)`, but this was not tested inside a job).
+
+Fix options (none implemented; no CLI change in this task):
+- (i) The generated scripts run a guarded `source /etc/profile.d/modules.sh;
+  source /etc/profile.d/hpcc_modules.sh; module load workspace/scratch` before the `${SCRATCH:?}`
+  check, only when `SCRATCH` is unset and the files exist. Job 3 shows this sets `SCRATCH` in a
+  job from a bare environment on this cluster. It needs `modules.sh` too (job 2). It is site
+  specific, and the module init prints a Tcl error trace.
+- (ii) Document that `submit.sh` must run from a login shell. E1b and E2 show this works. It keeps
+  a dependency on the submit environment.
+- (iii) Other: fall back to `$TMPDIR` or `--tmpdir` when `SCRATCH` is unset. Not tested; in a bare
+  job `TMPDIR` was `/tmp` (jobs 1 to 3), whose size and file system I did not check.
+- Do not hardcode `/scratch/$USER/...` in the scripts.
+
+Effect: the job fails fast with a clear message, and `--kill-on-invalid-dep=yes` cancels the
+dependent jobs (E1a). No wrong output. The R28 note in the scripts ("the jobs do not depend on the
+PATH of the shell that runs submit.sh") is true for PATH, but the jobs still depend on the submit
+environment for `$SCRATCH`.
 
 ## Not measured
 
 - No ground truth: the numbers show agreement between the two modes, not accuracy. No comparison
-  with the authors' HTSeq counts (none published on the GEO sample pages) or their DE results.
+  with the authors' HTSeq counts or DE values. These are on the series page GSE80357
+  (`GSE80357_counts_of_mapped_reads.csv.gz`, `GSE80357_log_fold_change_and_FDR_values.csv.gz`),
+  not on the sample page GSM2125075 (`NONE`). I did not download them.
 - Local mode (`qrnamap run` without `--slurm`) on this data.
 - `--threads` above 1; `--keep-sam` in a CLI run; `--shrink`.
-- `$SCRATCH` file system type on nodes other than r46 and x01 (the yeast align node c07 was not checked).
+- `$SCRATCH` file system type on nodes other than r46, x01 and c17 (the yeast align node c07 was not checked).
 - Process RSS of the `qrnamap` process itself during staging (only the tools were wrapped in
   `/usr/bin/time -v`).
 - Why the later samples of each align task took longer than the first (r46 was shared with my

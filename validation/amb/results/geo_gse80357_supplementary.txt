@@ -1,0 +1,23 @@
+# Source: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE80357&targ=self&form=text&view=brief (fetched 2026-11-20T10:39:56-08:00)
+!Series_title = Transcriptome and network analyses in Saccharomyces cerevisiae reveal that amphotericin B and lactoferrin synergy disrupt metal homeostasis and stress response
+!Series_sample_id = GSM2125072
+!Series_sample_id = GSM2125073
+!Series_sample_id = GSM2125074
+!Series_sample_id = GSM2125075
+!Series_sample_id = GSM2125076
+!Series_sample_id = GSM2125077
+!Series_sample_id = GSM2125078
+!Series_sample_id = GSM2125079
+!Series_sample_id = GSM2125080
+!Series_sample_id = GSM2125081
+!Series_sample_id = GSM2125082
+!Series_sample_id = GSM2125083
+!Series_sample_id = GSM2125084
+!Series_sample_id = GSM2125085
+!Series_sample_id = GSM2125086
+!Series_sample_id = GSM2125087
+!Series_sample_id = GSM2125088
+!Series_sample_id = GSM2125089
+!Series_supplementary_file = ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE80nnn/GSE80357/suppl/GSE80357_average_cpm_per_treatment_group.csv.gz
+!Series_supplementary_file = ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE80nnn/GSE80357/suppl/GSE80357_counts_of_mapped_reads.csv.gz
+!Series_supplementary_file = ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE80nnn/GSE80357/suppl/GSE80357_log_fold_change_and_FDR_values.csv.gz
