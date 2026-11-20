@@ -59,7 +59,7 @@ impl fmt::Display for DeError {
                 "group '{group}' has {n} sample(s); DESeq2 needs at least 2 per tested group"
             ),
             DeError::AllZeroSample(s) => write!(f, "sample '{s}' has all counts equal to zero"),
-            DeError::NotFullRank(m) => write!(f, "the design is not full rank. R said:\n{m}"),
+            DeError::NotFullRank(m) => write!(f, "R reports a rank-deficient design. R said:\n{m}"),
             DeError::LevelNotInData { factor, level } => {
                 write!(f, "level '{level}' of factor '{factor}' occurs in no sample")
             }
@@ -265,6 +265,7 @@ pub fn deseq2_script(
         q(&format!("{},{},{}", contrast.factor, contrast.level, contrast.reference))
     ));
     line("    paste(\"test: Wald\"),");
+    line("    paste(\"vst: blind=FALSE\"),");
     line("    paste(\"shrink:\", shrink_label)");
     line("  ), paste0(args[3], \".versions.txt\"))");
     line("}");
@@ -282,12 +283,15 @@ pub fn deseq2_script(
         match m {
             Shrink::Apeglm => {
                 line(&format!(
-                    "coef_name <- paste0({}, \"_\", {}, \"_vs_\", {})",
+                    "expected_coef <- make.names(paste0({}, \"_\", {}, \"_vs_\", {}))",
                     q(&contrast.factor),
                     q(&contrast.level),
                     q(&contrast.reference)
                 ));
-                line("if (!(coef_name %in% resultsNames(dds))) stop(\"apeglm needs the coefficient named in resultsNames(dds)\")");
+                line("if (!(expected_coef %in% resultsNames(dds))) {");
+                line("  stop(\"apeglm: no coefficient named \", expected_coef, \"; available: \", paste(resultsNames(dds), collapse = \", \"))");
+                line("}");
+                line("coef_name <- expected_coef");
                 line("shrunk <- lfcShrink(dds, coef = coef_name, type = \"apeglm\", quiet = TRUE)");
             }
             Shrink::Normal => {

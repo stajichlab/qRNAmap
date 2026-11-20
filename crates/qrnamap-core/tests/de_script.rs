@@ -173,3 +173,17 @@ fn numeric_contrast_factor_refused() {
     let c = Contrast { factor: "age".into(), level: "3".into(), reference: "4".into() };
     assert_eq!(check_design(&sh, &c, &matrix(&sh)).unwrap_err(), DeError::ContrastNotFactor("age".into()));
 }
+
+#[test]
+fn apeglm_coefficient_is_matched_through_make_names() {
+    let s = script("~ condition", Some(Shrink::Apeglm));
+    assert!(s.contains("make.names(paste0(\"condition\", \"_\", \"treated\", \"_vs_\", \"control\"))"), "{s}");
+    assert!(s.contains("resultsNames(dds)"));
+    assert!(s.contains("paste(resultsNames(dds), collapse"), "{s}");
+}
+
+#[test]
+fn script_records_vst_blind_false() {
+    let s = script("~ condition", None);
+    assert!(s.contains("vst: blind=FALSE"));
+}

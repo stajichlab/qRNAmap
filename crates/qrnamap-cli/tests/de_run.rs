@@ -77,7 +77,7 @@ fn synth(names: &[&str; 6]) -> CountMatrix {
 const FASTQ: &str = "/data/secret_reads";
 
 /// Sample sheet with `condition`, plus extra columns as (header, six values).
-fn sheet_text(names: &[&str; 6], extra: &[(&str, [&str; 6])]) -> String {
+fn sheet_text(names: &[&str; 6], extra: &[(&str, [&str; 6])], lv: (&str, &str)) -> String {
     let mut s = String::from("sample\tfastq1\tfastq2\tcondition");
     for (h, _) in extra {
         s.push('\t');
@@ -85,7 +85,7 @@ fn sheet_text(names: &[&str; 6], extra: &[(&str, [&str; 6])]) -> String {
     }
     s.push('\n');
     for (j, n) in names.iter().enumerate() {
-        let cond = if j < 3 { "control" } else { "treated" };
+        let cond = if j < 3 { lv.0 } else { lv.1 };
         s.push_str(&format!("{n}\t{FASTQ}_{n}_R1.fastq.gz\t{FASTQ}_{n}_R2.fastq.gz\t{cond}"));
         for (_, v) in extra {
             s.push('\t');
@@ -97,21 +97,27 @@ fn sheet_text(names: &[&str; 6], extra: &[(&str, [&str; 6])]) -> String {
 }
 
 struct Case {
+    ctrl: String,
+    trt: String,
     dir: tempfile::TempDir,
     sheet: PathBuf,
     counts: PathBuf,
 }
 
 fn case(names: &[&str; 6], extra: &[(&str, [&str; 6])]) -> Case {
+    case_levels(names, extra, "control", "treated")
+}
+
+fn case_levels(names: &[&str; 6], extra: &[(&str, [&str; 6])], ctrl: &str, trt: &str) -> Case {
     let dir = tempfile::tempdir().unwrap();
     let sheet = dir.path().join("sheet.tsv");
-    std::fs::write(&sheet, sheet_text(names, extra)).unwrap();
+    std::fs::write(&sheet, sheet_text(names, extra, (ctrl, trt))).unwrap();
     let counts = dir.path().join("counts.tsv.zst");
     let tsv = synth(names).to_tsv();
     let mut enc = zstd::Encoder::new(std::fs::File::create(&counts).unwrap(), 3).unwrap();
     enc.write_all(tsv.as_bytes()).unwrap();
     enc.finish().unwrap();
-    Case { dir, sheet, counts }
+    Case { ctrl: ctrl.into(), trt: trt.into(), dir, sheet, counts }
 }
 
 impl Case {
@@ -120,7 +126,7 @@ impl Case {
             counts: self.counts.clone(),
             samples: self.sheet.clone(),
             design: design.into(),
-            contrast: "condition,treated,control".into(),
+            contrast: format!("condition,{},{}", self.trt, self.ctrl),
             shrink: None,
             out: self.dir.path().join("out").join("de"),
             tmpdir: Some(self.dir.path().join("tmp")),
@@ -294,6 +300,7 @@ fn versions_file_has_deseq2_and_r_versions() {
     assert!(lines[1].starts_with("R R version "), "{}", lines[1]);
     assert!(v.contains("design: ~ condition"));
     assert!(v.contains("contrast: condition,treated,control"));
+    assert!(v.contains("vst: blind=FALSE"), "{v}");
 }
 
 #[test]
@@ -345,4 +352,129 @@ fn read_count_matrix_names_its_errors() {
     assert!(matches!(read_count_matrix("gene\ta\tb\ng\t1\n"), Err(E::BadRow { line: 2 })));
     assert!(matches!(read_count_matrix("gene\ta\ng\t1.5\n"), Err(E::BadCount { line: 2, .. })));
     assert!(matches!(read_count_matrix("gene\ta\ng\t-1\n"), Err(E::BadCount { line: 2, .. })));
+}
+
+fn de_bin(c: &Case, design: &str, contrast: &str, prefix: &str, shrink: Option<&str>) -> std::process::Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_qrnamap"));
+    cmd.args(["de", "--counts"])
+        .arg(&c.counts)
+        .arg("--samples")
+        .arg(&c.sheet)
+        .args(["--design", design, "--contrast", contrast, "--out"])
+        .arg(c.dir.path().join(prefix))
+        .arg("--tmpdir")
+        .arg(c.dir.path().join("tmp"));
+    if let Some(s) = shrink {
+        cmd.args(["--shrink", s]);
+    }
+    cmd.output().unwrap()
+}
+
+#[test]
+fn shrink_normal_with_dash_level() {
+    if !r_ready() {
+        return;
+    }
+    let c = case_levels(&NAMES, &[], "ctl-24h", "a-b");
+    let mut a = c.args("~ condition");
+    a.shrink = Some(Shrink::Normal);
+    run_de(&a).unwrap();
+    assert!(c.dir.path().join("out/de.results.shrunk.csv").is_file());
+}
+
+#[test]
+fn shrink_apeglm_level_with_dash() {
+    if !r_ready() {
+        return;
+    }
+    let c = case_levels(&NAMES, &[], "ctl-24h", "a-b");
+    let mut a = c.args("~ condition");
+    a.shrink = Some(Shrink::Apeglm);
+    let have = Command::new("Rscript")
+        .args(["--vanilla", "-e", "quit(status = if (requireNamespace('apeglm', quietly = TRUE)) 0 else 1)"])
+        .output()
+        .unwrap()
+        .status
+        .success();
+    match run_de(&a) {
+        Ok(_) => {
+            assert!(have);
+            assert!(c.dir.path().join("out/de.results.shrunk.csv").is_file());
+        }
+        Err(e) => {
+            assert!(!have, "apeglm is installed but the run failed: {e}");
+            assert!(matches!(e, DeRunError::MissingPackage(ref p) if p == "apeglm"), "{e}");
+        }
+    }
+}
+
+#[test]
+fn rerun_without_shrink_removes_old_shrunk_file() {
+    if !r_ready() {
+        return;
+    }
+    let c = case(&NAMES, &[]);
+    let mut a = c.args("~ condition");
+    a.shrink = Some(Shrink::Normal);
+    run_de(&a).unwrap();
+    let shrunk = c.dir.path().join("out/de.results.shrunk.csv");
+    assert!(shrunk.is_file());
+    a.shrink = None;
+    run_de(&a).unwrap();
+    assert!(!shrunk.exists());
+    assert!(c.dir.path().join("out/de.results.csv").is_file());
+}
+
+#[test]
+fn failed_rerun_leaves_no_old_results() {
+    if !r_ready() {
+        return;
+    }
+    let c = case(&NAMES, &[]);
+    let mut a = c.args("~ condition");
+    a.shrink = Some(Shrink::Normal);
+    run_de(&a).unwrap();
+    // Refused in check_design.
+    a.contrast = "condition,ghost,control".into();
+    assert!(matches!(run_de(&a), Err(DeRunError::De(DeError::LevelNotInData { .. }))));
+    for f in ["results.csv", "normalized.csv", "vst.csv", "versions.txt", "results.shrunk.csv"] {
+        assert!(!c.dir.path().join(format!("out/de.{f}")).exists(), "{f} is stale");
+    }
+    // Failed inside R: a good run, then a not-full-rank rerun.
+    let batch = ["x", "x", "x", "y", "y", "y"];
+    let c = case(&NAMES, &[("batch", batch)]);
+    run_de(&c.args("~ condition")).unwrap();
+    assert!(c.dir.path().join("out/de.results.csv").is_file());
+    assert!(run_de(&c.args("~ batch + condition")).is_err());
+    assert!(!c.dir.path().join("out/de.results.csv").exists());
+    assert!(!c.dir.path().join("out/de.vst.csv").exists());
+}
+
+#[test]
+fn r_warnings_are_forwarded_on_success() {
+    if !r_ready() {
+        return;
+    }
+    let c = case(&NAMES, &[("age:numeric", ["3", "5", "4", "6", "4", "5"])]);
+    let o = de_bin(&c, "~ age + condition", "condition,treated,control", "o/de", None);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    eprintln!("STDERR:\n{err}");
+    assert!(err.contains("R: "), "{err}");
+    assert!(err.contains("numeric variables with integer values"), "{err}");
+    assert!(err.lines().filter(|l| l.contains("R: ")).all(|l| l.starts_with("R: ")));
+}
+
+#[test]
+fn r_failure_text_is_not_duplicated() {
+    if !r_ready() {
+        return;
+    }
+    let batch = ["x", "x", "x", "y", "y", "y"];
+    let c = case(&NAMES, &[("batch", batch)]);
+    let o = de_bin(&c, "~ batch + condition", "condition,treated,control", "o/de", None);
+    assert!(!o.status.success());
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(err.matches("Error in checkFullRank").count(), 1, "{err}");
+    assert!(!err.contains("R: "), "{err}");
 }

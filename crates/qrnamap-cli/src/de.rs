@@ -204,7 +204,44 @@ fn abs(p: &Path) -> Result<PathBuf, DeRunError> {
     std::path::absolute(p).map_err(|source| DeRunError::Io { path: p.to_path_buf(), source })
 }
 
+/// Forward at most this many bytes of R's stderr after a successful run.
+const FORWARD_BYTES: usize = 8192;
+
+/// The last `FORWARD_BYTES` of `bytes` as text, cut on a UTF-8 boundary, each line prefixed `R: `.
+fn forward_tail(bytes: &[u8]) -> String {
+    let mut start = bytes.len().saturating_sub(FORWARD_BYTES);
+    while start < bytes.len() && (bytes[start] & 0b1100_0000) == 0b1000_0000 {
+        start += 1;
+    }
+    let cut = start > 0;
+    let text = String::from_utf8_lossy(&bytes[start..]);
+    // A cut usually lands inside a line; drop the partial first line.
+    let text: &str = if cut { text.split_once('\n').map(|x| x.1).unwrap_or("") } else { &text };
+    text.lines().filter(|l| !l.trim().is_empty()).map(|l| format!("R: {l}\n")).collect()
+}
+
+/// Remove the output files of an earlier run (and their `.partial` files) so that a run that
+/// stops early leaves no stale results. Only NotFound is ignored.
+fn remove_old_outputs(prefix: &Path) -> Result<(), DeRunError> {
+    for suffix in [".results.csv", ".normalized.csv", ".vst.csv", ".versions.txt", ".results.shrunk.csv"] {
+        for extra in ["", ".partial"] {
+            let mut p = prefix.as_os_str().to_owned();
+            p.push(suffix);
+            p.push(extra);
+            let p = PathBuf::from(p);
+            match std::fs::remove_file(&p) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => return Err(DeRunError::Io { path: p, source }),
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn run_de(args: &DeArgs) -> Result<DeOutput, DeRunError> {
+    let prefix = abs(&args.out)?;
+    remove_old_outputs(&prefix)?;
     let sheet_text = read_table(&args.samples)?;
     let sheet = SampleSheet::parse(&sheet_text).map_err(|errs| {
         let lines: Vec<String> = errs.iter().map(|e| format!("  {e}")).collect();
@@ -241,7 +278,6 @@ pub fn run_de(args: &DeArgs) -> Result<DeOutput, DeRunError> {
     write_output(&coldata_path, coldata_tsv(&sheet, &design).as_bytes())?;
     write_output(&script_path, deseq2_script(&design, &contrast, &columns, args.shrink).as_bytes())?;
 
-    let prefix = abs(&args.out)?;
     if let Some(parent) = prefix.parent() {
         std::fs::create_dir_all(parent).map_err(|source| DeRunError::Io { path: parent.to_path_buf(), source })?;
     }
@@ -260,6 +296,7 @@ pub fn run_de(args: &DeArgs) -> Result<DeOutput, DeRunError> {
     if !out.status.success() {
         return Err(classify(out.status.to_string(), &out.stderr));
     }
+    eprint!("{}", forward_tail(&out.stderr));
     let with = |suffix: &str| {
         let mut s = prefix.as_os_str().to_owned();
         s.push(suffix);
