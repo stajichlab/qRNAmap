@@ -16,7 +16,8 @@ use std::io::{self, BufRead, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use qrnamap_core::{
-    assemble, assigned_fraction, build_transcripts, feature_counts, gene_counts_from_abundance,
+    assemble, assigned_fraction, build_transcripts, feature_counts, gene_counts_from_abundance, gene_table,
+    gene_table_tsv,
     hisat2_align, hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts,
     parse_featurecounts_summary, saf, splice_sites, tx2gene_tsv, unlisted_genes, write_fasta,
     BuildError, ConfigError, CountError, CountMatrix, Mode, RunConfig, Sample, StrandReport,
@@ -334,9 +335,7 @@ fn check_label(l: &str) -> Result<(), PipelineError> {
 /// Contigs as (name, sequence), as `read_fasta` returns them.
 type Genome = Vec<(String, Vec<u8>)>;
 
-fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), PipelineError> {
-    let genome = read_fasta(open_input(reference).map_err(input_err)?)
-        .map_err(io_err(reference))?;
+fn load_model(gff: &Path) -> Result<GeneModel, PipelineError> {
     let model = parse_gff3(open_input(gff).map_err(input_err)?).map_err(|e| {
         PipelineError::Gff { path: gff.to_path_buf(), detail: e.to_string() }
     })?;
@@ -346,7 +345,48 @@ fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), P
             check_label(&t.id)?;
         }
     }
-    Ok((genome, model))
+    Ok(model)
+}
+
+fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), PipelineError> {
+    let genome = read_fasta(open_input(reference).map_err(input_err)?)
+        .map_err(io_err(reference))?;
+    Ok((genome, load_model(gff)?))
+}
+
+/// Name of the gene table in a run directory.
+pub const GENES_TABLE: &str = "genes.tsv.zst";
+
+/// Write the gene table (class, biotype, mitochondrial flag per gene) to `path`. The suffix
+/// picks `.zst`, `.gz` or plain. A gene label with a tab, newline or carriage return is
+/// refused before anything is written. `mito_contigs` are extra contig names to flag; they
+/// are only compared with the GFF seqids.
+pub fn write_genes_table(path: &Path, model: &GeneModel, mito_contigs: &[String]) -> Result<(), PipelineError> {
+    for g in &model.genes {
+        check_label(&g.label)?;
+    }
+    let rows = gene_table(model, mito_contigs);
+    write_output(path, gene_table_tsv(&rows).as_bytes())
+}
+
+/// Remove an old `<out>/genes.tsv.zst` (and its `.partial`) before a run (ruling R24).
+pub fn remove_old_genes_table(out_dir: &Path) -> Result<(), PipelineError> {
+    for name in [GENES_TABLE.to_string(), format!("{GENES_TABLE}.partial")] {
+        let p = out_dir.join(name);
+        match fs::remove_file(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(PipelineError::Io { path: p, source: e }),
+        }
+    }
+    Ok(())
+}
+
+/// Where `prepare_quant` takes the gene table from: the GFF3 and extra mitochondrial contigs.
+#[derive(Debug, Clone, Copy)]
+pub struct GenesSource<'a> {
+    pub gff: &'a Path,
+    pub mito_contigs: &'a [String],
 }
 
 /// `qrnamap transcripts`: transcript FASTA and tx2gene (and optionally the SAF and HISAT2
@@ -360,6 +400,19 @@ pub fn run_transcripts(
     saf_out: Option<&Path>,
     splice_out: Option<&Path>,
 ) -> Result<usize, PipelineError> {
+    run_transcripts_with_genes(reference, gff, out, tx2gene, saf_out, splice_out, None)
+}
+
+/// `run_transcripts`, and the gene table too when `genes` is `Some((path, mito_contigs))`.
+pub fn run_transcripts_with_genes(
+    reference: &Path,
+    gff: &Path,
+    out: &Path,
+    tx2gene: &Path,
+    saf_out: Option<&Path>,
+    splice_out: Option<&Path>,
+    genes: Option<(&Path, &[String])>,
+) -> Result<usize, PipelineError> {
     let (genome, model) = load_reference(reference, gff)?;
     let records = build_transcripts(&genome, &model).map_err(PipelineError::Build)?;
     let mut fa = Output::create(out)?;
@@ -371,6 +424,9 @@ pub fn run_transcripts(
     }
     if let Some(p) = splice_out {
         write_output(p, splice_sites(&model).as_bytes())?;
+    }
+    if let Some((p, mito)) = genes {
+        write_genes_table(p, &model, mito)?;
     }
     Ok(records.len())
 }
@@ -703,21 +759,29 @@ pub fn read_tx2gene(path: &Path) -> Result<HashMap<String, String>, PipelineErro
 }
 
 /// Build the kallisto index once in `<out_dir>/transcripts.kidx`. A compressed transcript
-/// FASTA is decompressed into scratch first and removed after the index is built.
+/// FASTA is decompressed into scratch first and removed after the index is built. With
+/// `genes`, `<out_dir>/genes.tsv.zst` is written from that GFF3 first.
 pub fn prepare_quant(
     transcripts: &Path,
     tx2gene: &Path,
     out_dir: &Path,
     scratch: Scratch,
     config: RunConfig,
+    genes: Option<GenesSource<'_>>,
 ) -> Result<QuantContext, PipelineError> {
     let out_dir = absolute(out_dir)?;
     fs::create_dir_all(&out_dir).map_err(io_err(&out_dir))?;
     let tx2gene = read_tx2gene(tx2gene)?;
+    // Read and check the GFF3 before the index build; write the table after it, so a failed
+    // prepare leaves no table.
+    let model = genes.map(|g| load_model(g.gff)).transpose()?;
     let (fa, _guard) = plain_copy(transcripts, &scratch, "kallisto-index", "transcripts.fa")?;
     let index = out_dir.join("transcripts.kidx");
     let call = kallisto_index(utf8(&fa)?, utf8(&index)?);
     run_call(&call, &out_dir).map_err(|source| PipelineError::Exec { sample: None, source })?;
+    if let (Some(m), Some(g)) = (&model, genes) {
+        write_genes_table(&out_dir.join(GENES_TABLE), m, g.mito_contigs)?;
+    }
     Ok(QuantContext { index, tx2gene, out_dir, scratch, config })
 }
 
@@ -797,6 +861,7 @@ pub struct AlignContext {
 /// index (`<out>/index/genome.N.ht2`) once. These two tables stay plain because the tools read
 /// them; they hold one line per intron or exon. A compressed reference is decompressed into
 /// scratch for `hisat2-build` (reading gzip there is UNVERIFIED) and removed afterwards.
+/// Also writes `<out>/genes.tsv.zst`, after the index is built.
 /// The transcripts are built too, so a gene on a contig missing from the FASTA is an error.
 pub fn prepare_align(
     reference: &Path,
@@ -805,6 +870,7 @@ pub fn prepare_align(
     scratch: Scratch,
     config: RunConfig,
     keep_sam: bool,
+    mito_contigs: &[String],
 ) -> Result<AlignContext, PipelineError> {
     let out_dir = absolute(out_dir)?;
     fs::create_dir_all(&out_dir).map_err(io_err(&out_dir))?;
@@ -822,6 +888,7 @@ pub fn prepare_align(
     let call = hisat2_build(utf8(&fa)?, utf8(&prefix)?, &config)
         .map_err(|source| PipelineError::Config { sample: "(index)".into(), source })?;
     run_call(&call, &index_dir).map_err(|source| PipelineError::Exec { sample: None, source })?;
+    write_genes_table(&out_dir.join(GENES_TABLE), &model, mito_contigs)?;
     Ok(AlignContext {
         index_prefix: prefix,
         splice_sites: splice_path,

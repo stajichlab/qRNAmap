@@ -25,7 +25,7 @@ use qseq_io::FastqReader;
 use crate::de::{run_de, DeArgs, DeRunError};
 use crate::io::{open_input, InputError};
 use crate::pipeline::{
-    align_sample, check_samples, prepare_align, prepare_quant, quant_sample, read_table, read_tx2gene,
+    align_sample, check_samples, prepare_align, prepare_quant, quant_sample, read_table, read_tx2gene, GenesSource,
     gene_list_from_gff, read_gene_list, remove_old_outputs, run_matrix_with_genes, run_transcripts, write_output, AlignContext, GenesFrom, PipelineError,
     QuantContext, SampleResult, Scratch,
 };
@@ -61,6 +61,8 @@ pub struct RunArgs {
     pub shrink: Option<Shrink>,
     pub keep_sam: bool,
     pub step: Step,
+    /// Extra contig names flagged mitochondrial in `genes.tsv.zst` (`--mito-contig`).
+    pub mito_contigs: Vec<String>,
 }
 
 /// SLURM options of `run --slurm`.
@@ -452,6 +454,7 @@ fn check_inputs(args: &RunArgs) -> Result<SampleSheet, RunError> {
 /// DESeq2 files. Called before the first tool runs.
 fn remove_old_run_outputs(out: &Path, sheet: &SampleSheet) -> Result<(), RunError> {
     remove_if_present(&out.join(PREPARED_MARKER))?;
+    crate::pipeline::remove_old_genes_table(out)?;
     for s in &sheet.samples {
         remove_old_outputs(out, &s.name)?;
     }
@@ -480,9 +483,10 @@ fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&
         Mode::Quant => {
             let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
             run_transcripts(&args.reference, &args.gff, &fa, &t2g, None, None)?;
-            Prepared::Quant(prepare_quant(&fa, &t2g, out, scratch.clone(), cfg)?)
+            let genes = GenesSource { gff: &args.gff, mito_contigs: &args.mito_contigs };
+            Prepared::Quant(prepare_quant(&fa, &t2g, out, scratch.clone(), cfg, Some(genes))?)
         }
-        Mode::Align => Prepared::Align(prepare_align(&args.reference, &args.gff, out, scratch.clone(), cfg, args.keep_sam)?),
+        Mode::Align => Prepared::Align(prepare_align(&args.reference, &args.gff, out, scratch.clone(), cfg, args.keep_sam, &args.mito_contigs)?),
     };
     let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
     write_prepared_marker(out, args.mode, &marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g))))?;
@@ -616,6 +620,10 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
     }
     if args.keep_sam {
         run_args.push("--keep-sam".into());
+    }
+    // The prepare job writes genes.tsv.zst; the array tasks do not need the flag.
+    for c in &args.mito_contigs {
+        run_args.extend(["--mito-contig".into(), c.clone()]);
     }
 
     let mut task_args = vec!["--samples".to_string(), utf8(&samples)?];

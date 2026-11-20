@@ -32,7 +32,7 @@ fn align_counts_match_truth_within_5_percent() {
     let d = dir.path();
     let (r1, r2) = simulate(d, Strandedness::Unstranded, 11);
     let out = d.join("align");
-    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &out, Scratch::new(d.join("tmp")), RunConfig::default(), false).unwrap();
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &out, Scratch::new(d.join("tmp")), RunConfig::default(), false, &[]).unwrap();
     let res = align_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
     let truth = sim::truth_per_gene(&records(), &COUNTS);
     let mut worst: f64 = 0.0;
@@ -63,7 +63,7 @@ fn align_wrong_strandedness_reports_low_fraction() {
     let d = dir.path();
     let (r1, r2) = simulate(d, Strandedness::Reverse, 3);
     let cfg = RunConfig { strandedness: Strandedness::Forward, ..RunConfig::default() };
-    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("a"), Scratch::new(d.join("tmp")), cfg, true).unwrap();
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("a"), Scratch::new(d.join("tmp")), cfg, true, &[]).unwrap();
     let res = align_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
     eprintln!("MEASURED wrong-strand align summary: {:?}", res.summary);
     assert!(res.summary.fraction_assigned < 0.5, "{:?}", res.summary);
@@ -87,10 +87,10 @@ fn both_modes_same_gene_rows() {
     run_transcripts(&common::mini_genome(), &common::mini_gff(), &fa, &t2g, Some(&saf), None).unwrap();
 
     let qdir = d.join("quant");
-    let qctx = prepare_quant(&fa, &t2g, &qdir, Scratch::new(d.join("tmp")), RunConfig::default()).unwrap();
+    let qctx = prepare_quant(&fa, &t2g, &qdir, Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
     quant_sample(&s, &qctx).unwrap();
     let adir = d.join("align");
-    let actx = prepare_align(&common::mini_genome(), &common::mini_gff(), &adir, Scratch::new(d.join("tmp")), RunConfig::default(), false).unwrap();
+    let actx = prepare_align(&common::mini_genome(), &common::mini_gff(), &adir, Scratch::new(d.join("tmp")), RunConfig::default(), false, &[]).unwrap();
     align_sample(&s, &actx).unwrap();
 
     let rows = |p: &Path| -> Vec<String> {
@@ -116,7 +116,7 @@ fn strand_check(lib: Strandedness, seed: u64) -> qrnamap_core::StrandReport {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
     let (r1, r2) = simulate(d, lib, seed);
-    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("sc"), Scratch::new(d.join("tmp")), RunConfig::default(), false).unwrap();
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("sc"), Scratch::new(d.join("tmp")), RunConfig::default(), false, &[]).unwrap();
     // Fewer pairs than the files hold: only the first 2,000 are used.
     let r = strand_check_sample(&sample("S1", &[&r1], &[&r2]), &ctx, 2000).unwrap();
     eprintln!("MEASURED strand check {lib:?}: {r:?}");
@@ -168,7 +168,7 @@ fn sheet_with_space_in_path_reaches_tool_as_one_argument() {
     .unwrap()
     .samples
     .remove(0);
-    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("out"), Scratch::new(d.join("tmp")), RunConfig::default(), false).unwrap();
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("out"), Scratch::new(d.join("tmp")), RunConfig::default(), false, &[]).unwrap();
     let res = align_sample(&s, &ctx).unwrap();
     assert_eq!(res.summary.reads_processed, 10_000);
 }
@@ -183,7 +183,7 @@ fn align_rerun_with_failing_sample_does_not_leave_old_counts() {
     let d = dir.path();
     let (r1, r2) = simulate(d, Strandedness::Unstranded, 17);
     let out = d.join("a");
-    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &out, Scratch::new(d.join("tmp")), RunConfig::default(), true).unwrap();
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &out, Scratch::new(d.join("tmp")), RunConfig::default(), true, &[]).unwrap();
     let good = sample("S1", &[&r1], &[&r2]);
     align_sample(&good, &ctx).unwrap();
     let old = [

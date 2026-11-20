@@ -50,7 +50,7 @@ fn quant_recovers_simulated_counts_within_10_percent() {
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(dir.path());
     let out = dir.path().join("quant");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(dir.path().join("tmp")), RunConfig::default()).unwrap();
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(dir.path().join("tmp")), RunConfig::default(), None).unwrap();
     let res = quant_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
     let truth = sim::truth_per_gene(&recs, &COUNTS);
     let worst = max_rel_error(&res.counts, &truth);
@@ -97,7 +97,7 @@ fn quant_with_lanes_equals_concatenated() {
 
     let (fa, t2g) = transcripts(d);
     let out = d.join("quant");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default()).unwrap();
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
     let lanes = quant_sample(&sample("Lanes", &[&g1, &z1], &[&g2, &z2]), &ctx).unwrap();
     let whole = quant_sample(&sample("Whole", &[&c1], &[&c2]), &ctx).unwrap();
     assert_eq!(lanes.counts, whole.counts);
@@ -140,7 +140,7 @@ fn quant_wrong_strandedness_is_reported() {
     let recs = records();
     let (fa, t2g) = transcripts(d);
     let cfg = RunConfig { strandedness: Strandedness::Forward, ..RunConfig::default() };
-    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), cfg).unwrap();
+    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), cfg, None).unwrap();
 
     // (a) dUTP-like library run as forward: kallisto pseudoaligns nothing and exits 1.
     let pairs = sim::simulate(&recs, &COUNTS, Strandedness::Reverse, 5);
@@ -193,7 +193,7 @@ fn rerun_with_failing_sample_does_not_leave_old_counts() {
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(d);
     let out = d.join("q");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default()).unwrap();
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
     let good = sample("S1", &[&r1], &[&r2]);
     quant_sample(&good, &ctx).unwrap();
     let counts = out.join("S1.genecounts.tsv.zst");
@@ -231,7 +231,7 @@ fn quant_setup(d: &Path, seed: u64) -> (qrnamap_cli::pipeline::QuantContext, Pat
     let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(d);
-    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), RunConfig::default()).unwrap();
+    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
     (ctx, r1, r2)
 }
 

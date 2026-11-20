@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use qrnamap_cli::pipeline::{
     self, align_sample, check_fastq_files, check_samples, prepare_align, prepare_quant, quant_sample, run_matrix,
-    run_transcripts, strand_check_sample, GenesFrom, SampleResult, Scratch,
+    run_transcripts_with_genes, strand_check_sample, GenesFrom, GenesSource, SampleResult, Scratch,
     LOW_ASSIGNED_FRACTION,
 };
 use qrnamap_core::{Mode, RunConfig, Sample, SampleSheet, Strandedness};
@@ -56,6 +56,13 @@ enum Cmd {
         saf: Option<PathBuf>,
         #[arg(long)]
         splice_sites: Option<PathBuf>,
+        /// Gene table (class, biotype, mitochondrial flag per gene). Compressed by extension.
+        #[arg(long)]
+        genes_table: Option<PathBuf>,
+        /// A contig to flag mitochondrial in genes.tsv.zst (repeatable). Added to the contigs
+        /// the GFF3 marks with a `region` feature `genome=mitochondrion`.
+        #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
+        mito_contig: Vec<String>,
     },
     /// kallisto index and quant per sample; writes DIR/<sample>.genecounts.tsv.zst.
     Quant {
@@ -76,8 +83,13 @@ enum Cmd {
         #[arg(long, requires = "task_id")]
         reference: Option<PathBuf>,
         /// With --task-id (required then): the GFF3 the run directory was prepared from.
-        #[arg(long, requires = "task_id")]
+        /// Without --task-id: optional; when given, OUT/genes.tsv.zst is written from it.
+        #[arg(long)]
         gff: Option<PathBuf>,
+        /// A contig to flag mitochondrial in genes.tsv.zst (repeatable). Added to the contigs
+        /// the GFF3 marks with a `region` feature `genome=mitochondrion`.
+        #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
+        mito_contig: Vec<String>,
     },
     /// HISAT2 index, then HISAT2 and featureCounts per sample; writes DIR/<sample>.genecounts.tsv.zst.
     Align {
@@ -99,6 +111,10 @@ enum Cmd {
         /// Keep a zstd copy of each SAM as DIR/<sample>/<sample>.sam.zst.
         #[arg(long)]
         keep_sam: bool,
+        /// A contig to flag mitochondrial in genes.tsv.zst (repeatable). Added to the contigs
+        /// the GFF3 marks with a `region` feature `genome=mitochondrion`.
+        #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
+        mito_contig: Vec<String>,
     },
     /// All steps: reference files and index, per-sample counts, matrix, and DESeq2 when
     /// --contrast is given. With --slurm, writes SLURM scripts to OUT/slurm/ and runs no tool.
@@ -167,6 +183,10 @@ enum Cmd {
         /// scripts do not depend on the PATH of the shell that runs submit.sh.
         #[arg(long, requires = "slurm")]
         tool_path: Vec<PathBuf>,
+        /// A contig to flag mitochondrial in genes.tsv.zst (repeatable). Added to the contigs
+        /// the GFF3 marks with a `region` feature `genome=mitochondrion`.
+        #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
+        mito_contig: Vec<String>,
     },
     /// Gene-by-sample matrix DIR/counts.tsv.zst from DIR/<sample>.genecounts.tsv.zst.
     Matrix {
@@ -305,6 +325,14 @@ impl TaskFlags {
     }
 }
 
+/// A `--mito-contig` value: any non-empty text. It is only compared with GFF seqids.
+fn parse_contig_name(s: &str) -> Result<String, String> {
+    if s.is_empty() {
+        return Err("a contig name must not be empty".into());
+    }
+    Ok(s.to_string())
+}
+
 fn parse_fragment_length(s: &str) -> Result<(f64, f64), String> {
     let (a, b) = s.split_once(',').ok_or("expected MEAN,SD")?;
     let p = |x: &str| x.trim().parse::<f64>().map_err(|_| format!("{x:?} is not a number"));
@@ -341,6 +369,7 @@ fn remove_all_old_outputs(out: &Path, samples: &[Sample]) -> Result<(), pipeline
     if !out.is_dir() {
         return Ok(());
     }
+    pipeline::remove_old_genes_table(out)?;
     samples.iter().try_for_each(|s| pipeline::remove_old_outputs(out, &s.name))
 }
 
@@ -383,16 +412,24 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("gff\t{}", g.display());
             }
         }
-        Cmd::Transcripts { reference, gff, out, tx2gene, saf, splice_sites } => {
-            let n = run_transcripts(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref()).map_err(e)?;
+        Cmd::Transcripts { reference, gff, out, tx2gene, saf, splice_sites, genes_table, mito_contig } => {
+            let genes = genes_table.as_deref().map(|p| (p, mito_contig.as_slice()));
+            let n = run_transcripts_with_genes(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref(), genes)
+                .map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());
         }
-        Cmd::Quant { samples, transcripts, tx2gene, out, run, task, reference, gff } => {
+        Cmd::Quant { samples, transcripts, tx2gene, out, run, task, reference, gff, mito_contig } => {
             let samples = load_sheet(&samples)?;
             let cfg = run.config(Mode::Quant);
             check_samples(&samples, &cfg, Mode::Quant).map_err(e)?;
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
+            if task.task_id.is_none() && gff.is_none() {
+                if !mito_contig.is_empty() {
+                    return Err("quant: --mito-contig needs --gff (the gene table comes from the GFF3)".into());
+                }
+                eprintln!("note: no --gff given, so {}/genes.tsv.zst is not written", out.display());
+            }
             let ctx = if task.task_id.is_some() {
                 let (Some(r), Some(g)) = (&reference, &gff) else {
                     return Err("quant --task-id needs --reference and --gff (the inputs the run directory was prepared from)".into());
@@ -407,14 +444,15 @@ fn run(cli: Cli) -> Result<(), String> {
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 // Final review I2: a failing sample must not leave later samples' old counts.
                 remove_all_old_outputs(&out, &samples).map_err(e)?;
-                prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg).map_err(e)?
+                let genes = gff.as_deref().map(|g| GenesSource { gff: g, mito_contigs: &mito_contig });
+                prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg, genes).map_err(e)?
             };
             for s in &samples[range] {
                 report(&quant_sample(s, &ctx).map_err(e)?, "pseudoaligned");
             }
             scratch.cleanup();
         }
-        Cmd::Align { samples, reference, gff, out, run, task, max_intron, keep_sam } => {
+        Cmd::Align { samples, reference, gff, out, run, task, max_intron, keep_sam, mito_contig } => {
             let samples = load_sheet(&samples)?;
             let mut cfg = run.config(Mode::Align);
             cfg.max_intron = max_intron;
@@ -432,7 +470,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 // Final review I2: a failing sample must not leave later samples' old counts.
                 remove_all_old_outputs(&out, &samples).map_err(e)?;
-                prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam).map_err(e)?
+                prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam, &mito_contig).map_err(e)?
             };
             for s in &samples[range] {
                 report(&align_sample(s, &ctx).map_err(e)?, "mapped");
@@ -441,7 +479,7 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         Cmd::Run {
             samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
-            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path,
+            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path, mito_contig,
         } => {
             use qrnamap_cli::run::{run_local, run_slurm, scratch_out_warning, RunArgs, SlurmOptions, Step};
             let abs_out = std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
@@ -462,7 +500,7 @@ fn run(cli: Cli) -> Result<(), String> {
             };
             let args = RunArgs {
                 samples, reference, gff, mode, out, config, tmpdir: run.tmpdir.clone(), design, contrast,
-                shrink: shrink.map(ShrinkArg::core), keep_sam, step,
+                shrink: shrink.map(ShrinkArg::core), keep_sam, step, mito_contigs: mito_contig,
             };
             if slurm {
                 let qrnamap_bin = match qrnamap_bin {
@@ -537,7 +575,7 @@ fn run(cli: Cli) -> Result<(), String> {
             // Final review I1: the index, genes.saf and splice_sites.txt built below replace the
             // prepared ones in OUT, so the marker no longer describes them.
             qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
-            let ctx = prepare_align(&reference, &gff, &out, scratch.clone(), cfg, false).map_err(e)?;
+            let ctx = prepare_align(&reference, &gff, &out, scratch.clone(), cfg, false, &[]).map_err(e)?;
             let mut table = String::from(
                 "sample\tsense\tantisense\tambiguous\tsense_fraction\tantisense_fraction\tambiguous_fraction\tsuggested\tlow_fraction_warning\n",
             );

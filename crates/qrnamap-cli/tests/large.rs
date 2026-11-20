@@ -96,14 +96,14 @@ fn run_quant(d: &Path, lib: Strandedness, flag: Strandedness, r1: &[PathBuf], r2
     let (tx, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
     run_transcripts(&fa, &gff, &tx, &t2g, None, None).unwrap();
     let cfg = RunConfig { strandedness: flag, ..RunConfig::default() };
-    let ctx = prepare_quant(&tx, &t2g, &d.join(format!("q_{lib:?}_{flag:?}")), Scratch::new(d.join("tmp")), cfg).unwrap();
+    let ctx = prepare_quant(&tx, &t2g, &d.join(format!("q_{lib:?}_{flag:?}")), Scratch::new(d.join("tmp")), cfg, None).unwrap();
     quant_sample(&sample_of("S1", r1, r2), &ctx)
 }
 
 fn run_align(d: &Path, flag: Strandedness, samples: &[(&str, &[PathBuf], &[PathBuf])]) -> Vec<SampleResult> {
     let (fa, gff) = write_reference(d);
     let cfg = RunConfig { strandedness: flag, ..RunConfig::default() };
-    let ctx = prepare_align(&fa, &gff, &d.join(format!("a_{flag:?}")), Scratch::new(d.join("tmp")), cfg, false).unwrap();
+    let ctx = prepare_align(&fa, &gff, &d.join(format!("a_{flag:?}")), Scratch::new(d.join("tmp")), cfg, false, &[]).unwrap();
     samples.iter().map(|(n, r1, r2)| align_sample(&sample_of(n, r1, r2), &ctx).unwrap()).collect()
 }
 
@@ -226,13 +226,13 @@ fn large_single_end_stranded_quant() {
     run_transcripts(&fa, &gff, &tx, &t2g, None, None).unwrap();
     let sample = qrnamap_core::SampleSheet::parse(&format!("sample\tfastq1\nSE\t{}\n", r1.display())).unwrap().samples.remove(0);
     let cfg = |st| RunConfig { strandedness: st, fragment_len: Some((250.0, 50.0)), ..RunConfig::default() };
-    let fwd = prepare_quant(&tx, &t2g, &d.join("q_fwd"), Scratch::new(d.join("tmp")), cfg(Strandedness::Forward)).unwrap();
+    let fwd = prepare_quant(&tx, &t2g, &d.join("q_fwd"), Scratch::new(d.join("tmp")), cfg(Strandedness::Forward), None).unwrap();
     let r = quant_sample(&sample, &fwd).unwrap();
     eprintln!("MEASURED single-end forward-as-forward summary {:?}", r.summary);
     assert_eq!(r.summary.reads_processed, 40_000);
     let w = max_error("quant single-end Forward as Forward", &r.counts);
     assert!(w <= QUANT_TOL, "quant max relative error {w}");
-    let rev = prepare_quant(&tx, &t2g, &d.join("q_rev"), Scratch::new(d.join("tmp")), cfg(Strandedness::Reverse)).unwrap();
+    let rev = prepare_quant(&tx, &t2g, &d.join("q_rev"), Scratch::new(d.join("tmp")), cfg(Strandedness::Reverse), None).unwrap();
     match quant_sample(&sample, &rev) {
         Err(PipelineError::NoReadsPseudoaligned { sample, .. }) => {
             assert_eq!(sample, "SE");
