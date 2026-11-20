@@ -21,6 +21,11 @@ Files:
   `geo_gsm2125075_processing.txt` and `geo_gse80357_supplementary.txt` (GEO text lines, see Data),
   `d3_jobs.txt` (verbatim outputs of the D3 jobs).
 
+The D3 jobs listed below are 32308141 (earlier probe), 32309901, 32310007 and 32310041. Two more
+probe jobs, 32309811 and 32309812, failed without output. They were a reviewer's earlier D3
+attempts: `--output` pointed at a path on the login node's local disk, so the jobs could not write
+their output. They gave no result and are not used here.
+
 A `grep` for `/scratch` or `BASH_SOURCE` in `run_amb.sh` finds them only in comment lines (the
 header says the script does not use them). The jobs use `"${SCRATCH:?}"`; no path under `/scratch`
 is written in the code.
@@ -138,7 +143,7 @@ sacct after the failure (`sacct -j ... --format=JobID,JobName,State,ExitCode,Ela
   FASTQ check. See defect D3.
 
 Result: with `--kill-on-invalid-dep=yes`, a failed prepare job made SLURM cancel the array and final
-jobs (2 of 2 attempts). The flag works on this cluster.
+jobs (2 of 2 attempts). The flag worked in these two attempts.
 
 ## E2. D1 on real jobs, positive path, and the AMB data in both modes
 
@@ -342,8 +347,8 @@ Maximum resident set size of all tasks in job."
 What the measurements show:
 
 - sacct MaxRSS of job 32308382 equals the step cgroup's `memory.max_usage_in_bytes` exactly
-  (13,073,192 KB x 1024 = 13,386,948,608 bytes). On this cluster the sacct MaxRSS value of a job
-  matched the cgroup v1 peak usage, which counts page cache. I observed this for one job.
+  (13,073,192 KB x 1024 = 13,386,948,608 bytes). For this job (node r46) the sacct MaxRSS value
+  matched the cgroup v1 peak usage, which counts page cache. I observed this for one job on one node.
 - The cgroup's `total_cache` at the end (13,313,040,384 bytes) is within 338,109 bytes of the
   size of the staged FASTQ files plus the SAM (13,312,702,275 bytes). `total_rss` was 954,368 bytes.
 - The largest process RSS was 41,208 KB (HISAT2). featureCounts used 36,144 KB.
@@ -422,8 +427,8 @@ counted by the cgroup accounting, not process memory. Not changed in code. Two r
 readout: job limit 4,294,967,296 bytes, peak usage at the limit, failcnt 0). Open: limits below
 4 GiB, dirty-page/writeback stalls, other nodes, and the effect of the limit on run time.
 
-D3 (new). **The generated SLURM scripts need `$SCRATCH`, which on this cluster comes from the
-submitting shell's environment.** The jobs inherit the environment of `sbatch` (default
+D3 (new). **The generated SLURM scripts need `$SCRATCH`, which in the jobs tested here (E1a, E1b, E2 and
+the D3 jobs) comes from the submitting shell's environment.** The jobs inherit the environment of `sbatch` (default
 `--export=ALL`). From a bare `env -i` shell, the generated jobs have no `SCRATCH` and fail at their
 `: "${SCRATCH:?...}"` line.
 
@@ -501,8 +506,8 @@ What the three jobs show:
   (`/opt/linux/rhel/8.x/x86_64/pkgs/slurm/24.11.1/scripts/prolog.sh`) creates it
   (`mkdir -p -m 700 ${SCRATCH}`); the modulefile only sets variables. So in a bare job the
   directory exists and only the variable is missing.
-- In such a job, `source /etc/profile.d/modules.sh; source /etc/profile.d/hpcc_modules.sh; module
-  load workspace/scratch` set `SCRATCH` and `TMPDIR` to that directory (job 3). The module init
+- In such a job (job 3, on node r47, one job), `source /etc/profile.d/modules.sh; source
+  /etc/profile.d/hpcc_modules.sh; module load workspace/scratch` set `SCRATCH` and `TMPDIR` to that directory. The module init
   printed a Tcl error trace to the output, but `module load` returned 0.
 - The modulefile (`/opt/linux/rocky/8.x/x86_64/modules/workspace/scratch`) reads
   `$::env(HPCC_MODULES)` and sets `SCRATCH /scratch/${user}/${slurm_job_id}`;
@@ -520,7 +525,7 @@ Fix options (none implemented; no CLI change in this task):
 - (i) The generated scripts run a guarded `source /etc/profile.d/modules.sh;
   source /etc/profile.d/hpcc_modules.sh; module load workspace/scratch` before the `${SCRATCH:?}`
   check, only when `SCRATCH` is unset and the files exist. Job 3 shows this sets `SCRATCH` in a
-  job from a bare environment on this cluster. It needs `modules.sh` too (job 2). It is site
+  job from a bare environment on node r47 (one job). It needs `modules.sh` too (job 2). It is site
   specific, and the module init prints a Tcl error trace.
 - (ii) Document that `submit.sh` must run from a login shell. E1b and E2 show this works. It keeps
   a dependency on the submit environment.

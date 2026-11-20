@@ -7,6 +7,10 @@ the `run --slurm` script generation and its CLI wiring (main.rs, run.rs, slurm.r
 `--tool-path` flag; its tests are only in tests/slurm.rs. It targets finding 1 below (verified by
 unit tests with a stub sbatch and by `sbatch --test-only` option parsing only; not verified on the
 cluster). The `f2bfb54` build was not re-run on the cluster.
+Later experiments on the same cluster are in `validation/amb/README.md` (AMB, GSE80357; experiments E0 to E3).
+They ran the `f2bfb54` fix (finding 1, D1) on real jobs in E1 and E2: after a failed prepare job, SLURM
+cancelled the dependent array and final jobs 12 s later in 2 of 2 attempts (E1), and the baked PATH worked
+on real jobs (E2). Finding 2 (D2, align memory) is explained there as page cache of the scratch files (E3).
 Data lives outside the repository in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/`.
 This directory holds the scripts and small summary tables only.
 
@@ -283,11 +287,13 @@ The plan has no pass or fail criterion for these numbers. I do not call them goo
    exits with a list of the missing ones. `submit.sh` passes `--kill-on-invalid-dep=yes` on the
    dependent jobs. The fix was verified by the project's unit tests with a stub `sbatch` and by
    `sbatch --test-only` (option parsing only). I did not run those checks myself in this task.
-   The fix was NOT re-run on the cluster. The claim that the fixed scripts work on real jobs
-   without the submitter's PATH is untested here.
+   The fix was NOT re-run on the cluster in this yeast run. It was run on real jobs later, in the
+   AMB experiments E1 and E2 (`validation/amb/README.md`): dependents cancelled 12 s after a failed
+   prepare job in 2 of 2 attempts, and the baked PATH worked.
 2. **Align tasks have a MaxRSS of 6.7 to 8.0 GB with `hisat2 -p 1`** (quant tasks: about 0.1 GB).
    The SAM goes to a file in `$SCRATCH`, not to memory. I did not find the cause. The cluster's
-   memory accounting may count the page cache of the files written in the job; this is UNVERIFIED.
+   memory accounting may count the page cache of the files written in the job; this was UNVERIFIED
+   in this run. The AMB experiment E3 (`validation/amb/README.md`) explains it as page cache.
    The 16 GB request was enough.
 
 ## Not measured, or not done

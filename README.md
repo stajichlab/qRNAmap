@@ -55,7 +55,8 @@ qrnamap fetch --source ncbi --id GCF_000146045.2 --out genome/
 qrnamap fetch --source fungidb --id "Aspergillus fumigatus Af293" --out genome/ --eupathdb-key-file ~/.eupathdb_key
 
 # Transcript FASTA and tx2gene from a genome and GFF3
-qrnamap transcripts --reference genome.fna.gz --gff genes.gff.gz --out tx.fa.zst --tx2gene tx2gene.tsv.zst
+qrnamap transcripts --reference genome.fna.gz --gff genes.gff.gz --out tx.fa.zst --tx2gene tx2gene.tsv.zst \
+  --genes-table genes.tsv.zst
 
 # kallisto per sample (writes OUT/<sample>.genecounts.tsv.zst)
 qrnamap quant --samples samples.tsv --transcripts tx.fa.zst --tx2gene tx2gene.tsv.zst --out run/ --strandedness reverse
@@ -79,12 +80,88 @@ qrnamap run --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz -
 # SLURM scripts instead of running (the run directory must be on shared storage)
 qrnamap run --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz --mode align \
   --out /bigdata/lab/run/ --strandedness reverse --contrast condition,ko,wild_type \
-  --slurm --tool-path "$PWD/.pixi/envs/default/bin" --mem-gb 16 --time 02:00:00
+  --slurm --tool-path "$PWD/.pixi/envs/default/bin" --tmpdir /bigdata/lab/tmp --time 02:00:00
 bash /bigdata/lab/run/slurm/submit.sh
 ```
 
 The temporary directory is `--tmpdir`, then `$SCRATCH`, then `$TMPDIR`. A run directory under
 `$SCRATCH` or `/scratch/` gives a warning: SLURM array tasks on other nodes cannot see it.
+
+### SLURM and the temporary directory
+
+- `run --slurm --tmpdir DIR` writes `DIR` into the scripts. The jobs do not need `$SCRATCH`. A job
+  creates `DIR` (with its own `qrnamap-<pid>` subdirectory) when the parent of `DIR` is writable. Use
+  storage that every compute node can reach, for example `/bigdata`. A `--tmpdir` under `$SCRATCH` or
+  `/scratch` gives a warning, because such a path is job-specific. It is not an error.
+- Without `--tmpdir`, each job needs `$SCRATCH`. A job that was submitted from a bare environment has
+  no `$SCRATCH` and stops at its first check with this message: `SCRATCH is not set: this job needs
+  node-local scratch. Submit from a login shell where $SCRATCH is set, or regenerate the scripts with
+  --tmpdir DIR.` Submit from a login shell, or use `--tmpdir`. Evidence: `validation/amb/README.md`, D3.
+- `--mem-gb` default: 8 (GB). The value is an unmeasured placeholder. Reason, from `validation/amb/README.md`
+  (E3, one align sample of 10,302,142 pairs): `sacct` MaxRSS of an align job was 13,073,276 KB with the
+  temporary files on `$SCRATCH` and 39,392 KB with them on GPFS (`/bigdata`). The 13 GB is the page cache of the
+  staged files in `$SCRATCH` that the job accounting counts. The tools themselves were small: HISAT2 used 41,208 KB
+  and featureCounts 36,144 KB resident. A job with `--mem 4G` finished with identical gene counts
+  (`sacct` MaxRSS 4,192,060 KB on node x01 and 4,191,164 KB on node c17). That is two runs of one sample on
+  two nodes. It was NOT measured for genomes near 50 Mb or for 20 million pairs per sample: raise `--mem-gb`
+  for those. The `--time` and `--cpus` defaults are still unmeasured placeholders.
+
+## Gene table and mapping summaries
+
+These two files are information only. The count matrix `counts.tsv.zst` is unchanged, and nothing
+is excluded from DESeq2.
+
+### `genes.tsv.zst`
+
+One row per gene, tab-separated, with a header. Columns: `gene contig strand biotype class mito n_transcripts`.
+
+- `biotype`: the `gene_biotype` attribute of the gene in the GFF3. If the gene has none: `mRNA` when any
+  transcript of the gene is `mRNA`; else the type of the first transcript; else `unknown`.
+- `class`: one of `protein_coding`, `rRNA`, `tRNA`, `other_ncRNA`, `pseudogene`, `other`, derived from
+  `biotype` (case-insensitive) by these rules in this order: `protein_coding` or `mRNA` gives
+  `protein_coding`; `rRNA` gives `rRNA`; `tRNA` gives `tRNA`; a biotype that contains `pseudogene` or
+  `pseudogenic` gives `pseudogene`; any other biotype that ends with `rna` gives `other_ncRNA`; everything
+  else gives `other`.
+- `mito`: `yes` or `no`. A gene is `yes` when its contig has a `region` feature with the attribute
+  `genome=mitochondrion` or `genome=mitochondrial` in the GFF3 (the match is case-sensitive), or when the
+  contig is named with `--mito-contig NAME` (repeatable). The two sources are added together.
+- `n_transcripts`: the number of transcripts of the gene.
+
+Which subcommands write it:
+
+- `qrnamap transcripts --genes-table PATH` (the compression follows the file suffix).
+- `qrnamap quant --gff GFF`: writes `OUT/genes.tsv.zst`. Plain `quant` without `--gff` writes no table
+  (stderr says so). `--mito-contig` without `--gff` on plain `quant` is an error.
+- `qrnamap align` and `qrnamap run`: write `OUT/genes.tsv.zst` from the required `--gff`.
+
+The table is written after the index is built, so a failed prepare step leaves no table. A rerun
+removes an old table first.
+
+### `<sample>.summary.tsv.zst` and `mapping_summary.tsv.zst`
+
+`quant` and `align` write `OUT/<sample>.summary.tsv.zst` as the last step for each sample. It has a
+header and one row. Columns: `sample mode reads_processed fraction_mapped fraction_assigned strandedness qrnamap_version`.
+`mode` is `quant` or `align`.
+
+`matrix` (and `run`, and `run --step final`) read these files in sample-sheet order and write
+`OUT/mapping_summary.tsv.zst`: the same columns plus `strand_check_suggestion`.
+
+- `strand_check_suggestion` is the `suggested` cell of `OUT/strand_check.tsv` for the sample. The file
+  is read only when it is in the same directory as `matrix --out`. The value is copied as it is. It is
+  not checked against the strandedness of the run, and it carries no stamp. Without the file, the
+  column is empty.
+- Floats are printed in the shortest form that reads back to the same value. `1.0` prints as `1`. A
+  column in which every value is 1 is therefore read by pandas as integer.
+- `matrix` stops with a named error when the summary of a listed sample is missing or belongs to
+  another sample. Run directories made before this version have no summary files: rerun each
+  sample (`quant` or `align`) before `matrix` or `run --step final`.
+- `strand-check` removes an old `strand_check.tsv` in its `--out` after its input checks and before it
+  runs any tool.
+
+### Rounding of kallisto counts
+
+The count of a gene from kallisto is the sum of `est_counts` over the transcripts of the gene. The sum is
+rounded once per gene, half away from zero. It is not rounded per transcript.
 
 ## Output files (in the run directory)
 
@@ -93,7 +170,10 @@ The temporary directory is `--tmpdir`, then `$SCRATCH`, then `$TMPDIR`. A run di
 | `<sample>.genecounts.tsv.zst` | gene counts of one sample (`gene`, sample name) |
 | `<sample>/abundance.tsv`, `<sample>/run_info.json` | kallisto output (quant mode) |
 | `<sample>/featurecounts.summary` | featureCounts summary (align mode) |
+| `<sample>.summary.tsv.zst` | mapping summary of one sample (written by `quant` and `align`) |
 | `counts.tsv.zst` | gene-by-sample matrix |
+| `mapping_summary.tsv.zst` | one row per sample, from the per-sample summaries |
+| `genes.tsv.zst` | gene table: class, biotype and mitochondrial flag per gene |
 | `deseq2.results.csv`, `deseq2.normalized.csv`, `deseq2.vst.csv`, `deseq2.versions.txt` | DESeq2 output, with `--contrast` |
 | `deseq2.results.shrunk.csv` | with `--shrink` |
 | `transcripts.fa.zst`, `tx2gene.tsv.zst`, `transcripts.kidx` | reference files (quant mode) |
@@ -107,13 +187,14 @@ The temporary directory is `--tmpdir`, then `$SCRATCH`, then `$TMPDIR`. A run di
 These values are chosen, not measured or calibrated. Check them for your data.
 
 - HISAT2 `--max-intronlen` 5000 (`--max-intron`). Not verified for fungi.
-- SLURM `--time 02:00:00`, `--mem-gb 16`, `--cpus` (default: the `--threads` value).
+- SLURM `--time 02:00:00`, `--mem-gb 8`, `--cpus` (default: the `--threads` value). See "SLURM and the temporary directory" for the `--mem-gb` evidence.
 - strand-check threshold 0.8: a strand is suggested when its fraction is above 0.8.
 - `LOW_ASSIGNED_FRACTION` 0.5: a sample with an assigned (or pseudoaligned) fraction below 0.5 gives a warning.
 
 Align memory, measured on the yeast validation (`validation/README.md`): 6.7 to 8.0 GB MaxRSS per
-array task at 5.2 to 6.1 million pairs with `--threads 1`. The cause was not found. The 16 GB
-default `--mem-gb` is not measured for larger inputs; set `--mem-gb` yourself.
+array task at 5.2 to 6.1 million pairs with `--threads 1`. The AMB experiments explain this as page
+cache of the staged scratch files (`validation/amb/README.md`, E3; one job showed the equality of
+`sacct` MaxRSS and the cgroup peak that counts page cache).
 
 ## Not in this version
 
@@ -123,18 +204,26 @@ default `--mem-gb` is not measured for larger inputs; set `--mem-gb` yourself.
 - No plots.
 - `--shrink apeglm` and `--shrink ashr` need the R packages apeglm and ashr. `pixi.toml` does not
   install them, so these options have never run to success here. Only `--shrink normal` was run.
+- The SLURM `--time` is not computed from `reads_per_sample`.
 
-## Validation on public yeast RNA-seq
+## Validation
 
-See `validation/README.md` (6 paired-end S288c samples, 5.2 to 6.1 million pairs each, PRJNA674653).
-Headline numbers from that file:
+Two validation records are in the repository. Both ran on the UCR HPCC cluster.
 
-- Transcript FASTA identical to gffread for all 6,478 transcripts.
-- strand-check suggested `reverse` for all 6 samples (antisense fraction 0.9855 to 0.9880).
-- Quant: 93.10 to 94.60% pseudoaligned. Align: 96.65 to 97.53% HISAT2 overall alignment, assigned fraction 0.8875 to 0.8979.
-- Spearman correlation of gene counts between the two modes: 0.971456 to 0.973390 per sample.
-- DESeq2 genes with padj < 0.05: 2,648 (quant), 2,632 (align), 2,571 in both (Jaccard 0.949059).
-- No ground truth exists for this data: these numbers show agreement, not accuracy.
+- `validation/README.md`: yeast, PRJNA674653 (6 paired-end S288c samples, 5.2 to 6.1 million pairs each). Headline numbers from that file:
+  - Transcript FASTA identical to gffread for all 6,478 transcripts.
+  - strand-check suggested `reverse` for all 6 samples (antisense fraction 0.9855 to 0.9880).
+  - Quant: 93.10 to 94.60% pseudoaligned. Align: 96.65 to 97.53% HISAT2 overall alignment, assigned fraction 0.8875 to 0.8979.
+  - Spearman correlation of gene counts between the two modes: 0.971456 to 0.973390 per sample.
+  - DESeq2 genes with padj < 0.05: 2,648 (quant), 2,632 (align), 2,571 in both (Jaccard 0.949059).
+- `validation/amb/README.md`: AMB, GEO GSE80357 (6 paired-end S. cerevisiae samples, 8,405,534 to 10,302,142 pairs). Headline numbers from that file:
+  - strand-check suggested `unstranded` for all 6 samples (antisense fraction 0.4951 to 0.4988).
+  - Quant: 93.6 to 94.7% pseudoaligned. Align: 95.49 to 97.06% HISAT2 overall alignment, assigned fraction 0.8802 to 0.9087.
+  - Spearman correlation of gene counts between the two modes, pooled over all 6 samples: 0.964905.
+  - DESeq2 genes with padj < 0.05: 2,042 (quant), 2,019 (align), 1,956 in both (Jaccard 0.929216).
+  - The `--kill-on-invalid-dep` flag cancelled the dependent jobs 12 s after a failed prepare job, in 2 of 2 attempts.
+- No ground-truth comparison was made. For GSE80357 the GEO series page lists the authors' counts file and
+  fold-change table. They were not downloaded and not compared. The numbers show agreement between the two modes, not accuracy.
 
 ## Layout
 

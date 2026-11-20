@@ -1,6 +1,6 @@
 measure	value	source
 sample	Control_2 (SRR3396386), 10,302,142 pairs	ENA read_count; E0
-node (all three E3 jobs)	r46	sacct NodeList
+node of the first three jobs (32308382, 32308383, 32308384)	r46	sacct NodeList; the 4G jobs below ran on other nodes (x01, c17), see validation/amb/README.md E3
 SCRATCH filesystem on r46	xfs on /dev/nvme0n1p6 mounted at /scratch	df -T, findmnt -T (job 32308382)
 staged plain FASTQ mate 1 (bytes)	2901968200	stat, job 32308382
 staged plain FASTQ mate 2 (bytes)	2901968200	stat, job 32308382
