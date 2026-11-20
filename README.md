@@ -108,7 +108,7 @@ The temporary directory is `--tmpdir`, then `$SCRATCH`, then `$TMPDIR`. A run di
   program); it was not tested.
 - Process IDs can repeat on different nodes, so two jobs on a shared `--tmpdir` can get the same
   `qrnamap-<pid>` subdirectory. The per-sample subdirectories in it keep the files of different
-  samples apart. No collision was found.
+  samples apart. No collision was observed, and none was tested for.
 - `--mem-gb` default: 8 (GB). The value is an unmeasured placeholder. Reason, from `validation/amb/README.md`
   (E3, one align sample of 10,302,142 pairs): `sacct` MaxRSS of an align job was 13,073,276 KB with the
   temporary files on `$SCRATCH` and 39,392 KB with them on GPFS (`/bigdata`). The 13 GB was, in the one job
@@ -179,9 +179,12 @@ header and one row. Columns: `sample mode reads_processed fraction_mapped fracti
   column in which every value is 1 is therefore read by pandas as integer.
 - `matrix` stops with a named error when the summary of a listed sample is missing or belongs to
   another sample. Run directories made before this version have no summary files: rerun each
-  sample (`quant` or `align`) before `matrix` or `run --step final`. Before any check, `matrix` (and
-  `run --step final`) removes the old `counts.tsv.zst` and `mapping_summary.tsv.zst`, so a failed `matrix`
-  leaves neither. It does not remove old `deseq2.*` files; `de` removes those itself.
+  sample (`quant` or `align`) before `matrix` or `run --step final`. The matrix build removes the old
+  `counts.tsv.zst` (and its `.partial`) and `mapping_summary.tsv.zst` at its start, before it reads the sample
+  count files and summaries. A failure while it reads or validates the sample files therefore leaves neither.
+  A failure before that point leaves the files of an earlier run in place. Examples are the
+  `run --step final` marker check, an unreadable `--genes-from` file, and an unreadable gene list. It does not
+  remove old `deseq2.*` files; `de` removes those itself.
 - `strand-check` removes an old `strand_check.tsv` in its `--out` after its input checks and before it
   runs any tool.
 

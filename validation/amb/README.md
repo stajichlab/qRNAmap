@@ -421,7 +421,7 @@ D1 (from the yeast run): the generated scripts no longer depend on the PATH of t
 Verified on real jobs in E2 (baked PATH worked). The cancel of dependent jobs after a failed prepare
 was observed (E1).
 
-D2 (from the yeast run): explained by E3: the align MaxRSS is page cache of the scratch files
+D2 (from the yeast run): consistent with E3: the align MaxRSS is page cache of the scratch files
 counted by the cgroup accounting, not process memory. Not changed in code. Two runs with
 `--mem 4G` completed with identical counts (jobs 32309177 and 32309900; the second has a cgroup
 readout: job limit 4,294,967,296 bytes, peak usage at the limit, failcnt 0). Open: limits below
