@@ -47,7 +47,7 @@ fn align_counts_match_truth_within_5_percent() {
     eprintln!("MEASURED align max relative error (genes >= 200 pairs): {worst:.5}; summary {:?}", res.summary);
     assert!(worst <= 0.05, "max relative error {worst}");
     assert_eq!(res.summary.reads_processed, 10_000);
-    assert_eq!(read_gene_counts(&out.join("S1.genecounts.tsv.zst")).unwrap(), res.counts);
+    assert_eq!(read_gene_counts(&out.join("S1.genecounts.tsv.zst"), "S1").unwrap(), res.counts);
     // The SAM lived in scratch and is gone (no --keep-sam).
     assert!(!out.join("S1").join("S1.sam.zst").exists());
     eprintln!("WALL align_counts_match_truth_within_5_percent: {:.2?}", t0.elapsed());
@@ -171,4 +171,35 @@ fn sheet_with_space_in_path_reaches_tool_as_one_argument() {
     let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &d.join("out"), Scratch::new(d.join("tmp")), RunConfig::default(), false).unwrap();
     let res = align_sample(&s, &ctx).unwrap();
     assert_eq!(res.summary.reads_processed, 10_000);
+}
+
+#[test]
+fn align_rerun_with_failing_sample_does_not_leave_old_counts() {
+    // R24, align side: old counts, featureCounts summary and kept SAM are removed first.
+    if !common::require_tools(&ALIGN_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (r1, r2) = simulate(d, Strandedness::Unstranded, 17);
+    let out = d.join("a");
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &out, Scratch::new(d.join("tmp")), RunConfig::default(), true).unwrap();
+    let good = sample("S1", &[&r1], &[&r2]);
+    align_sample(&good, &ctx).unwrap();
+    let old = [
+        out.join("S1.genecounts.tsv.zst"),
+        out.join("S1").join("featurecounts.summary"),
+        out.join("S1").join("S1.sam.zst"),
+    ];
+    assert!(old.iter().all(|p| p.is_file()));
+    // Rerun with a file HISAT2 rejects (not FASTQ).
+    let (b1, b2) = (d.join("bad_1.fq"), d.join("bad_2.fq"));
+    std::fs::write(&b1, "this is not a FASTQ file\n").unwrap();
+    std::fs::write(&b2, "this is not a FASTQ file\n").unwrap();
+    let err = align_sample(&sample("S1", &[&b1], &[&b2]), &ctx).unwrap_err();
+    eprintln!("rerun error: {err}");
+    for p in &old {
+        assert!(!p.exists(), "{} survived a failed rerun", p.display());
+    }
+    assert!(run_matrix(&out, &[good], None).is_err());
 }

@@ -64,6 +64,11 @@ pub enum PipelineError {
     /// kallisto pseudoaligned no read and exited with an error. The usual causes are a wrong
     /// strandedness setting or reads that do not belong to the index.
     NoReadsPseudoaligned { sample: String, strandedness: Strandedness, stderr_tail: String },
+    /// A gene count file's header names another sample (for example a file copied or left
+    /// from another run).
+    CountFileSample { path: PathBuf, expected: String, found: String },
+    /// A sample has no gene count file (its run failed or did not happen).
+    MissingCountFile { sample: String, path: PathBuf },
 }
 
 impl fmt::Display for PipelineError {
@@ -92,7 +97,17 @@ impl fmt::Display for PipelineError {
             }
             PipelineError::NoScratch => write!(
                 f,
-                "a temporary directory is needed: pass --tmpdir DIR or set $SCRATCH"
+                "a temporary directory is needed: pass --tmpdir DIR, or set $SCRATCH or $TMPDIR"
+            ),
+            PipelineError::CountFileSample { path, expected, found } => write!(
+                f,
+                "{}: the header names sample '{found}', expected '{expected}'",
+                path.display()
+            ),
+            PipelineError::MissingCountFile { sample, path } => write!(
+                f,
+                "sample '{sample}': gene count file {} does not exist (run quant or align for this sample)",
+                path.display()
             ),
             PipelineError::BadGeneLabel(l) => write!(
                 f,
@@ -148,12 +163,11 @@ impl Scratch {
         Scratch { base: None }
     }
 
-    /// `--tmpdir` when given, otherwise `$SCRATCH` when set and non-empty, otherwise none.
+    /// Ruling R23: `--tmpdir` when given, otherwise `$SCRATCH`, otherwise `$TMPDIR` (each
+    /// when set and non-empty), otherwise none.
     pub fn from_flag_or_env(flag: Option<PathBuf>) -> Self {
-        let base = flag.or_else(|| {
-            std::env::var_os("SCRATCH").filter(|v| !v.is_empty()).map(PathBuf::from)
-        });
-        Scratch { base }
+        let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+        Scratch { base: flag.or_else(|| env("SCRATCH")).or_else(|| env("TMPDIR")) }
     }
 
     fn run_dir(&self) -> Result<PathBuf, PipelineError> {
@@ -431,8 +445,39 @@ fn genecounts_path(out_dir: &Path, sample: &str) -> PathBuf {
     out_dir.join(format!("{sample}.genecounts.tsv.zst"))
 }
 
-/// Write a per-sample gene count table: header `gene\t<sample>`, then `gene\tcount` rows.
-/// A gene label with a tab, newline or CR is `BadGeneLabel`.
+/// Ruling R24: remove every output a previous run of this sample may have left, before any
+/// tool runs, so a failed rerun cannot leave old counts for `matrix` to use.
+fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineError> {
+    let sd = out_dir.join(sample);
+    let gc = genecounts_path(out_dir, sample);
+    let mut gc_partial = gc.as_os_str().to_owned();
+    gc_partial.push(".partial");
+    let files = [
+        gc,
+        PathBuf::from(gc_partial),
+        sd.join("abundance.tsv"),
+        sd.join("run_info.json"),
+        sd.join("featurecounts.summary"),
+        sd.join("featurecounts.summary.partial"),
+        sd.join(format!("{sample}.sam.zst")),
+        sd.join(format!("{sample}.sam.zst.partial")),
+    ];
+    for p in files {
+        match fs::remove_file(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(PipelineError::Io { path: p, source: e }),
+        }
+    }
+    Ok(())
+}
+
+/// Write a per-sample gene count table (`<out>/<sample>.genecounts.tsv.zst`).
+///
+/// Format: tab-separated text. The first line is the header `gene\t<sample>`; its second
+/// field is the sample name, which `read_gene_counts` checks. Each later line is
+/// `<gene>\t<count>` (count a non-negative integer), genes in byte order. A gene label with a
+/// tab, newline or CR is `BadGeneLabel`.
 pub fn write_gene_counts(path: &Path, sample: &str, counts: &BTreeMap<String, u64>) -> Result<(), PipelineError> {
     let mut s = format!("gene\t{sample}\n");
     for (g, c) in counts {
@@ -442,8 +487,12 @@ pub fn write_gene_counts(path: &Path, sample: &str, counts: &BTreeMap<String, u6
     write_output(path, s.as_bytes())
 }
 
-/// Read a table written by `write_gene_counts`.
-pub fn read_gene_counts(path: &Path) -> Result<BTreeMap<String, u64>, PipelineError> {
+/// Read a table written by `write_gene_counts` for `sample`. A missing file is
+/// `MissingCountFile`; a header that names another sample is `CountFileSample`.
+pub fn read_gene_counts(path: &Path, sample: &str) -> Result<BTreeMap<String, u64>, PipelineError> {
+    if !path.exists() {
+        return Err(PipelineError::MissingCountFile { sample: sample.into(), path: path.to_path_buf() });
+    }
     let text = read_table(path)?;
     let bad = |line: usize, detail: &str| PipelineError::BadTable {
         path: path.to_path_buf(),
@@ -451,8 +500,16 @@ pub fn read_gene_counts(path: &Path) -> Result<BTreeMap<String, u64>, PipelineEr
         detail: detail.to_string(),
     };
     let mut lines = text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty());
-    match lines.next() {
-        Some((_, h)) if h.starts_with("gene\t") => {}
+    match lines.next().map(|(_, h)| h.split('\t').collect::<Vec<_>>()) {
+        Some(h) if h.len() == 2 && h[0] == "gene" => {
+            if h[1] != sample {
+                return Err(PipelineError::CountFileSample {
+                    path: path.to_path_buf(),
+                    expected: sample.into(),
+                    found: h[1].into(),
+                });
+            }
+        }
         _ => return Err(bad(1, "header 'gene\\t<sample>' expected")),
     }
     let mut out = BTreeMap::new();
@@ -540,6 +597,7 @@ pub fn prepare_quant(
 /// (kallisto's names) and `<out>/<sample>.genecounts.tsv.zst`.
 pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult, PipelineError> {
     let name = &sample.name;
+    remove_old_outputs(&ctx.out_dir, name)?;
     let cfg_err = |source| PipelineError::Config { sample: name.clone(), source };
     kallisto_quant(sample, "idx", "out", &ctx.config).map_err(cfg_err)?;
     let sample_dir = ctx.out_dir.join(name);
@@ -547,13 +605,6 @@ pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult,
     let mut guard = ScratchGuard(None);
     let staged = stage_reads(sample, true, &ctx.scratch, &mut guard)?;
     let call = kallisto_quant(&staged, utf8(&ctx.index)?, utf8(&sample_dir)?, &ctx.config).map_err(cfg_err)?;
-    // Remove old reports, so that a failed run cannot be read as this run's result.
-    for f in ["abundance.tsv", "run_info.json"] {
-        let p = sample_dir.join(f);
-        if p.exists() {
-            fs::remove_file(&p).map_err(io_err(&p))?;
-        }
-    }
     run_call(&call, &sample_dir).map_err(|source| match source {
         // kallisto 0.52.0 exits with status 1 when no read pseudoaligns (observed in the tests).
         ExecError::Failed { ref stderr_tail, .. } if stderr_tail.contains("no reads pseudoaligned") => {
@@ -664,6 +715,7 @@ fn read_summary(path: &Path) -> Result<BTreeMap<String, u64>, PipelineError> {
 /// and `<out>/<sample>.genecounts.tsv.zst`.
 pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult, PipelineError> {
     let name = &sample.name;
+    remove_old_outputs(&ctx.out_dir, name)?;
     check_samples(std::slice::from_ref(sample), &ctx.config, Mode::Align)?;
     let exec_err = |source| PipelineError::Exec { sample: Some(name.clone()), source };
     let cfg_err = |source| PipelineError::Config { sample: name.clone(), source };
@@ -685,7 +737,7 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
         .map_err(|source| PipelineError::Count { path: fc_out.clone(), source })?;
     let sum_path = sdir.join("featurecounts.tsv.summary");
     let summary = read_summary(&sum_path)?;
-    fs::copy(&sum_path, sample_dir.join("featurecounts.summary")).map_err(io_err(&sum_path))?;
+    copy_converted(&sum_path, &sample_dir.join("featurecounts.summary"))?;
     let total: u64 = summary.values().sum();
     let assigned = summary_field(&summary, &sum_path, "Assigned")?;
     let unmapped = summary_field(&summary, &sum_path, "Unassigned_Unmapped")?;
@@ -895,7 +947,7 @@ pub fn run_matrix(
 ) -> Result<(PathBuf, Vec<String>), PipelineError> {
     let mut per_sample = Vec::with_capacity(samples.len());
     for s in samples {
-        per_sample.push((s.name.clone(), read_gene_counts(&genecounts_path(out_dir, &s.name))?));
+        per_sample.push((s.name.clone(), read_gene_counts(&genecounts_path(out_dir, &s.name), &s.name)?));
     }
     let genes = match genes_from {
         Some((kind, p)) => Some(read_gene_list(kind, p)?),

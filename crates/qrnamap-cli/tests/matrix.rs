@@ -121,3 +121,22 @@ fn transcripts_subcommand_writes_compressed_tables() {
     let s = qrnamap_cli::pipeline::read_table(&ss).unwrap();
     assert_eq!(s.lines().count(), 5);
 }
+
+#[test]
+fn matrix_rejects_count_file_for_other_sample() {
+    // R24: a count file whose header names another sample is a named error, not a column.
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_gene_counts(&d.join("S1.genecounts.tsv.zst"), "S2", &m(&[("geneA", 5)])).unwrap();
+    let samples = qrnamap_core::SampleSheet::parse("sample\tfastq1\nS1\t/x/a.fq\n").unwrap().samples;
+    let err = qrnamap_cli::pipeline::run_matrix(d, &samples, None).unwrap_err();
+    assert!(
+        matches!(&err, PipelineError::CountFileSample { expected, found, .. } if expected == "S1" && found == "S2"),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("S1.genecounts.tsv.zst"), "{err}");
+    // A missing file is named too.
+    std::fs::remove_file(d.join("S1.genecounts.tsv.zst")).unwrap();
+    let err = qrnamap_cli::pipeline::run_matrix(d, &samples, None).unwrap_err();
+    assert!(matches!(&err, PipelineError::MissingCountFile { sample, .. } if sample == "S1"), "{err:?}");
+}

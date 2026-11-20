@@ -95,6 +95,7 @@ enum Cmd {
         max_intron: u32,
         #[arg(long, default_value_t = 1)]
         threads: u32,
+        /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23).
         #[arg(long)]
         tmpdir: Option<PathBuf>,
     },
@@ -116,7 +117,7 @@ struct RunFlags {
     fragment_length: Option<(f64, f64)>,
     #[arg(long, default_value_t = 1)]
     threads: u32,
-    /// Temporary directory. Default: $SCRATCH.
+    /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23).
     #[arg(long)]
     tmpdir: Option<PathBuf>,
 }

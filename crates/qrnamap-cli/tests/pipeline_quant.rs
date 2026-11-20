@@ -60,7 +60,7 @@ fn quant_recovers_simulated_counts_within_10_percent() {
     assert!(res.summary.fraction_mapped > 0.9, "{:?}", res.summary);
     // Outputs where the CLI promises them.
     assert!(out.join("S1").join("abundance.tsv").is_file());
-    let back = read_gene_counts(&out.join("S1.genecounts.tsv.zst")).unwrap();
+    let back = read_gene_counts(&out.join("S1.genecounts.tsv.zst"), "S1").unwrap();
     assert_eq!(back, res.counts);
     eprintln!("WALL quant_recovers_simulated_counts_within_10_percent: {:.2?}", t0.elapsed());
 }
@@ -178,4 +178,39 @@ fn missing_scratch_is_named_error() {
     let err = Scratch::none().dir("x").unwrap_err();
     assert!(matches!(err, PipelineError::NoScratch), "{err:?}");
     assert!(err.to_string().contains("--tmpdir"), "{err}");
+}
+
+#[test]
+fn rerun_with_failing_sample_does_not_leave_old_counts() {
+    // R24: a rerun that fails must not leave the previous run's gene counts for `matrix`.
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let pairs = sim::simulate(&records(), &COUNTS, Strandedness::Unstranded, 13);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&pairs, &r1, &r2);
+    let (fa, t2g) = transcripts(d);
+    let out = d.join("q");
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default()).unwrap();
+    let good = sample("S1", &[&r1], &[&r2]);
+    quant_sample(&good, &ctx).unwrap();
+    let counts = out.join("S1.genecounts.tsv.zst");
+    assert!(counts.is_file());
+    // Rerun with reads that kallisto pseudoaligns none of.
+    let (b1, b2) = (d.join("bad_1.fq"), d.join("bad_2.fq"));
+    let junk = "@x/1\nNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN\n+\nIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n";
+    std::fs::write(&b1, junk).unwrap();
+    std::fs::write(&b2, junk.replace("/1", "/2")).unwrap();
+    let err = quant_sample(&sample("S1", &[&b1], &[&b2]), &ctx).unwrap_err();
+    eprintln!("rerun error: {err}");
+    assert!(!counts.exists(), "old gene counts survived a failed rerun");
+    // kallisto 0.52.0 writes abundance.tsv before it exits with status 1, so the file can
+    // exist here. If it does, it is from the failed run (all est_counts 0), not the old one.
+    if let Ok(t) = std::fs::read_to_string(out.join("S1").join("abundance.tsv")) {
+        assert!(t.lines().skip(1).all(|l| l.split('\t').nth(3) == Some("0")), "{t}");
+    }
+    let err = qrnamap_cli::pipeline::run_matrix(&out, &[good], None).unwrap_err();
+    assert!(err.to_string().contains("S1.genecounts.tsv.zst"), "{err}");
 }

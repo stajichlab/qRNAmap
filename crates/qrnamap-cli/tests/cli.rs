@@ -67,7 +67,7 @@ fn cli_quant_align_matrix_end_to_end() {
     let am = read_table(&a.join("counts.tsv.zst")).unwrap();
     assert_eq!(qm, "gene\tS1\ngeneA\t3000\ngeneB\t2500\ngeneC\t1500\ngeneR\t2000\ngeneU\t1000\n");
     assert_eq!(am, qm);
-    assert_eq!(read_gene_counts(&a.join("S1.genecounts.tsv.zst")).unwrap()["geneB"], 2500);
+    assert_eq!(read_gene_counts(&a.join("S1.genecounts.tsv.zst"), "S1").unwrap()["geneB"], 2500);
     // The run directory in scratch is removed.
     assert_eq!(std::fs::read_dir(d.join("tmp")).unwrap().count(), 0);
     eprintln!("WALL cli_quant_align_matrix_end_to_end: {:.2?}", t0.elapsed());
@@ -117,7 +117,8 @@ fn cli_names_bad_sample_before_tools_run() {
 }
 
 #[test]
-fn cli_needs_tmpdir_when_decompression_is_needed() {
+fn cli_tmpdir_order_flag_then_scratch_then_tmpdir() {
+    // R23: --tmpdir, then $SCRATCH, then $TMPDIR. A compressed transcript FASTA needs scratch.
     if common::require_tool("kallisto").is_none() {
         return;
     }
@@ -127,12 +128,32 @@ fn cli_needs_tmpdir_when_decompression_is_needed() {
     let fx = common::mini_fixture();
     let (fa, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv"));
     ok(&qrnamap(&["transcripts", "--reference", s(&fx.join("genome.fa")), "--gff", s(&fx.join("genes.gff3")), "--out", s(&fa), "--tx2gene", s(&t2g)]));
-    let o = Command::new(env!("CARGO_BIN_EXE_qrnamap"))
-        .args(["quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&d.join("q"))])
-        .env_remove("SCRATCH")
-        .output()
-        .unwrap();
+    let quant = |out: &str, extra: &[&str], env: &[(&str, &Path)]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_qrnamap"));
+        c.args(["quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&d.join(out))])
+            .args(extra)
+            .env_remove("SCRATCH")
+            .env_remove("TMPDIR");
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        c.output().unwrap()
+    };
+    // None of the three: named error.
+    let o = quant("q0", &[], &[]);
     assert!(!o.status.success());
     let err = String::from_utf8_lossy(&o.stderr);
-    assert!(err.contains("--tmpdir") && err.contains("$SCRATCH"), "{err}");
+    assert!(err.contains("--tmpdir") && err.contains("$SCRATCH") && err.contains("$TMPDIR"), "{err}");
+    // Only $TMPDIR: used (the run creates the directory).
+    let only_tmp = d.join("only_tmpdir");
+    ok(&quant("q1", &[], &[("TMPDIR", &only_tmp)]));
+    assert!(only_tmp.is_dir());
+    // $SCRATCH beats $TMPDIR.
+    let (sc, tm) = (d.join("scratch2"), d.join("tmpdir2"));
+    ok(&quant("q2", &[], &[("SCRATCH", &sc), ("TMPDIR", &tm)]));
+    assert!(sc.is_dir() && !tm.exists());
+    // --tmpdir beats both.
+    let (flag, sc, tm) = (d.join("flag3"), d.join("scratch3"), d.join("tmpdir3"));
+    ok(&quant("q3", &["--tmpdir", s(&flag)], &[("SCRATCH", &sc), ("TMPDIR", &tm)]));
+    assert!(flag.is_dir() && !sc.exists() && !tm.exists());
 }
