@@ -78,6 +78,10 @@ pub enum PipelineError {
     /// kallisto's `n_processed` differs from the pairs (reads, for single-end) counted in the
     /// input files.
     PairCountMismatch { sample: String, input: u64, kallisto: u64 },
+    /// A sample has no `<sample>.summary.tsv.zst` (its run failed or did not happen).
+    MissingSummaryFile { sample: String, path: PathBuf },
+    /// A per-sample summary file names another sample, or is not a one-row summary table.
+    SummaryFileSample { path: PathBuf, expected: String, found: String },
 }
 
 impl fmt::Display for PipelineError {
@@ -117,6 +121,16 @@ impl fmt::Display for PipelineError {
             PipelineError::MissingCountFile { sample, path } => write!(
                 f,
                 "sample '{sample}': gene count file {} does not exist (run quant or align for this sample)",
+                path.display()
+            ),
+            PipelineError::MissingSummaryFile { sample, path } => write!(
+                f,
+                "sample '{sample}': summary file {} does not exist; rerun quant or align for sample '{sample}'",
+                path.display()
+            ),
+            PipelineError::SummaryFileSample { path, expected, found } => write!(
+                f,
+                "{}: the file names sample '{found}', expected '{expected}'; rerun quant or align for sample '{expected}'",
                 path.display()
             ),
             PipelineError::BadGeneLabel(l) => write!(
@@ -636,9 +650,14 @@ pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineEr
     let gc = genecounts_path(out_dir, sample);
     let mut gc_partial = gc.as_os_str().to_owned();
     gc_partial.push(".partial");
+    let summary = summary_path(out_dir, sample);
+    let mut summary_partial = summary.as_os_str().to_owned();
+    summary_partial.push(".partial");
     let files = [
         gc,
         PathBuf::from(gc_partial),
+        summary,
+        PathBuf::from(summary_partial),
         sd.join("abundance.tsv"),
         sd.join("run_info.json"),
         sd.join("featurecounts.summary"),
@@ -654,6 +673,126 @@ pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineEr
         }
     }
     Ok(())
+}
+
+/// File name of the run-wide mapping summary in the output directory.
+pub const MAPPING_SUMMARY: &str = "mapping_summary.tsv.zst";
+
+/// Header of `<out>/<sample>.summary.tsv.zst`.
+pub const SUMMARY_HEADER: &str = "sample\tmode\treads_processed\tfraction_mapped\tfraction_assigned\tstrandedness\tqrnamap_version";
+
+fn summary_path(out_dir: &Path, sample: &str) -> PathBuf {
+    out_dir.join(format!("{sample}.summary.tsv.zst"))
+}
+
+/// Remove an old `<out>/mapping_summary.tsv.zst` (and its `.partial`) before a step that
+/// removes sample outputs (ruling R24).
+pub fn remove_old_mapping_summary(out_dir: &Path) -> Result<(), PipelineError> {
+    for name in [MAPPING_SUMMARY.to_string(), format!("{MAPPING_SUMMARY}.partial")] {
+        remove_if_present(&out_dir.join(name))?;
+    }
+    Ok(())
+}
+
+fn remove_if_present(p: &Path) -> Result<(), PipelineError> {
+    match fs::remove_file(p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(PipelineError::Io { path: p.to_path_buf(), source: e }),
+    }
+}
+
+/// Write `<out>/<sample>.summary.tsv.zst`: the header `SUMMARY_HEADER` and one row. Floats use
+/// Rust's shortest round-trip formatting. `mode` is `quant` or `align`; `strandedness` is
+/// `unstranded`, `forward` or `reverse`.
+pub fn write_sample_summary(
+    out_dir: &Path,
+    sample: &str,
+    mode: Mode,
+    summary: &SampleSummary,
+    strandedness: Strandedness,
+) -> Result<(), PipelineError> {
+    let mode = match mode {
+        Mode::Quant => "quant",
+        Mode::Align => "align",
+    };
+    let strand = match strandedness {
+        Strandedness::Unstranded => "unstranded",
+        Strandedness::Forward => "forward",
+        Strandedness::Reverse => "reverse",
+    };
+    let text = format!(
+        "{SUMMARY_HEADER}\n{sample}\t{mode}\t{}\t{}\t{}\t{strand}\t{}\n",
+        summary.reads_processed,
+        summary.fraction_mapped,
+        summary.fraction_assigned,
+        env!("CARGO_PKG_VERSION")
+    );
+    write_output(&summary_path(out_dir, sample), text.as_bytes())
+}
+
+/// Read `<out>/<sample>.summary.tsv.zst` and return its data row (7 cells). A missing file is
+/// `MissingSummaryFile`; a row for another sample is `SummaryFileSample`.
+fn read_sample_summary(out_dir: &Path, sample: &str) -> Result<Vec<String>, PipelineError> {
+    let path = summary_path(out_dir, sample);
+    if !path.exists() {
+        return Err(PipelineError::MissingSummaryFile { sample: sample.into(), path });
+    }
+    let text = read_table(&path)?;
+    let bad = |line: usize, detail: &str| PipelineError::BadTable { path: path.clone(), line, detail: detail.into() };
+    let mut lines = text.lines();
+    if lines.next() != Some(SUMMARY_HEADER) {
+        return Err(bad(1, "the summary header is not the expected one"));
+    }
+    let row: Vec<String> = match lines.next() {
+        Some(l) => l.split('\t').map(String::from).collect(),
+        None => return Err(bad(2, "the summary row is missing")),
+    };
+    if row.len() != 7 || lines.next().is_some() {
+        return Err(bad(2, "expected one row of 7 tab-separated fields"));
+    }
+    if row[0] != sample {
+        return Err(PipelineError::SummaryFileSample { path: path.clone(), expected: sample.into(), found: row[0].clone() });
+    }
+    Ok(row)
+}
+
+/// The `suggested` cell of each row of a `strand-check` table, by sample name.
+fn read_strand_suggestions(path: &Path) -> Result<HashMap<String, String>, PipelineError> {
+    let text = read_table(path)?;
+    let bad = |line: usize, detail: &str| PipelineError::BadTable { path: path.to_path_buf(), line, detail: detail.into() };
+    let mut lines = text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty());
+    let header: Vec<&str> = lines.next().ok_or_else(|| bad(0, "the table is empty"))?.1.split('\t').collect();
+    let col = |n: &str| header.iter().position(|h| *h == n).ok_or_else(|| bad(1, &format!("column '{n}' not found")));
+    let (si, gi) = (col("sample")?, col("suggested")?);
+    let mut out = HashMap::new();
+    for (i, l) in lines {
+        let f: Vec<&str> = l.split('\t').collect();
+        match (f.get(si), f.get(gi)) {
+            (Some(s), Some(g)) => out.insert(s.to_string(), g.to_string()),
+            _ => return Err(bad(i + 1, "row has too few fields")),
+        };
+    }
+    Ok(out)
+}
+
+/// The mapping summary table: one row per sample in `samples` order, read from
+/// `<out>/<sample>.summary.tsv.zst`, plus the column `strand_check_suggestion` (the
+/// `suggested` cell of the `strand-check` table row for the sample, or empty).
+pub fn build_mapping_summary(out_dir: &Path, samples: &[String], strand_check: Option<&Path>) -> Result<String, PipelineError> {
+    let suggestions = match strand_check {
+        Some(p) => read_strand_suggestions(p)?,
+        None => HashMap::new(),
+    };
+    let mut text = format!("{SUMMARY_HEADER}\tstrand_check_suggestion\n");
+    for s in samples {
+        let row = read_sample_summary(out_dir, s)?;
+        text.push_str(&row.join("\t"));
+        text.push('\t');
+        text.push_str(suggestions.get(s).map(String::as_str).unwrap_or(""));
+        text.push('\n');
+    }
+    Ok(text)
 }
 
 /// Write a per-sample gene count table (`<out>/<sample>.genecounts.tsv.zst`).
@@ -825,12 +964,9 @@ pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult,
     check_processed(name, input_pairs, n as u64)?;
     write_gene_counts(&genecounts_path(&ctx.out_dir, name), name, &counts)?;
     let warnings = zero_warning(name, &counts).into_iter().collect();
-    Ok(SampleResult {
-        sample: name.clone(),
-        counts,
-        summary: SampleSummary { reads_processed: n as u64, fraction_mapped: p, fraction_assigned: p },
-        warnings,
-    })
+    let summary = SampleSummary { reads_processed: n as u64, fraction_mapped: p, fraction_assigned: p };
+    write_sample_summary(&ctx.out_dir, name, Mode::Quant, &summary, ctx.config.strandedness)?;
+    Ok(SampleResult { sample: name.clone(), counts, summary, warnings })
 }
 
 fn zero_warning(sample: &str, counts: &BTreeMap<String, u64>) -> Option<String> {
@@ -974,16 +1110,13 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
     }
     write_gene_counts(&genecounts_path(&ctx.out_dir, name), name, &counts)?;
     drop(guard);
-    Ok(SampleResult {
-        sample: name.clone(),
-        counts,
-        summary: SampleSummary {
-            reads_processed: total,
-            fraction_mapped: mapped_rate,
-            fraction_assigned: frac(assigned),
-        },
-        warnings,
-    })
+    let summary = SampleSummary {
+        reads_processed: total,
+        fraction_mapped: mapped_rate,
+        fraction_assigned: frac(assigned),
+    };
+    write_sample_summary(&ctx.out_dir, name, Mode::Align, &summary, ctx.config.strandedness)?;
+    Ok(SampleResult { sample: name.clone(), counts, summary, warnings })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1173,7 +1306,9 @@ pub fn build_matrix(
 }
 
 /// `qrnamap matrix`: read `<out>/<sample>.genecounts.tsv.zst` for each sample in sheet order
-/// and write `<out>/counts.tsv.zst`. Returns the matrix path and the warnings.
+/// and write `<out>/counts.tsv.zst` and `<out>/mapping_summary.tsv.zst` (from the per-sample
+/// summaries and `<out>/strand_check.tsv` when it exists). Returns the matrix path and the
+/// warnings.
 pub fn run_matrix(
     out_dir: &Path,
     samples: &[Sample],
@@ -1192,13 +1327,21 @@ pub fn run_matrix_with_genes(
     samples: &[Sample],
     genes: Option<&[String]>,
 ) -> Result<(PathBuf, Vec<String>), PipelineError> {
+    // A failing matrix must not leave an old mapping summary next to new or old counts (R24).
+    remove_old_mapping_summary(out_dir)?;
     let mut per_sample = Vec::with_capacity(samples.len());
     for s in samples {
         per_sample.push((s.name.clone(), read_gene_counts(&genecounts_path(out_dir, &s.name), &s.name)?));
     }
     let (matrix, warnings) = build_matrix(&per_sample, genes)?;
+    // Check the summaries before any matrix file is written; write the summary table last.
+    let strand_check = out_dir.join("strand_check.tsv");
+    let strand_check = strand_check.is_file().then_some(strand_check);
+    let names: Vec<String> = samples.iter().map(|s| s.name.clone()).collect();
+    let summary = build_mapping_summary(out_dir, &names, strand_check.as_deref())?;
     let path = out_dir.join("counts.tsv.zst");
     write_output(&path, matrix.to_tsv().as_bytes())?;
+    write_output(&out_dir.join(MAPPING_SUMMARY), summary.as_bytes())?;
     Ok((path, warnings))
 }
 

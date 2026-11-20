@@ -1,0 +1,268 @@
+//! Per-sample summary files and `mapping_summary.tsv.zst`. The pure tests need no tool; the
+//! two end-to-end tests skip when a tool is missing and fail under `QRNAMAP_REQUIRE_TOOLS=1`.
+
+mod common;
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use common::{records, sample, sim, COUNTS};
+use qrnamap_cli::pipeline::{
+    align_sample, build_mapping_summary, prepare_align, prepare_quant, quant_sample, read_table,
+    run_matrix, run_transcripts, write_gene_counts, write_sample_summary, PipelineError,
+    QuantContext, SampleSummary, Scratch, MAPPING_SUMMARY,
+};
+use qrnamap_core::{Mode, RunConfig, SampleSheet, Strandedness};
+
+const ALIGN_TOOLS: [&str; 3] = ["hisat2-align-s", "hisat2-build", "featureCounts"];
+const HEADER: &str = "sample\tmode\treads_processed\tfraction_mapped\tfraction_assigned\tstrandedness\tqrnamap_version";
+
+fn summ(n: u64, mapped: f64, assigned: f64) -> SampleSummary {
+    SampleSummary { reads_processed: n, fraction_mapped: mapped, fraction_assigned: assigned }
+}
+
+fn names(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+fn samples_of(v: &[&str]) -> Vec<qrnamap_core::Sample> {
+    let mut sheet = String::from("sample\tfastq1\n");
+    for n in v {
+        sheet.push_str(&format!("{n}\t/x/{n}.fq\n"));
+    }
+    SampleSheet::parse(&sheet).unwrap().samples
+}
+
+/// Write count and summary files for each sample with the real writers.
+fn write_both(d: &Path, v: &[&str]) {
+    for (i, n) in v.iter().enumerate() {
+        let m: BTreeMap<String, u64> = [("geneA".to_string(), 5u64 + i as u64)].into_iter().collect();
+        write_gene_counts(&d.join(format!("{n}.genecounts.tsv.zst")), n, &m).unwrap();
+        write_sample_summary(d, n, Mode::Quant, &summ(1000 + i as u64, 0.9, 0.85), Strandedness::Reverse).unwrap();
+    }
+}
+
+fn summary_rows(d: &Path) -> Vec<Vec<String>> {
+    read_table(&d.join(format!("{}.summary.tsv.zst", "S1"))).unwrap().lines().map(|l| l.split('\t').map(String::from).collect()).collect()
+}
+
+#[test]
+fn summary_header_exact() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_sample_summary(d, "S1", Mode::Align, &summ(10_000, 0.9876, 0.5), Strandedness::Forward).unwrap();
+    let rows = summary_rows(d);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].join("\t"), HEADER);
+    assert_eq!(&rows[1][..6], ["S1", "align", "10000", "0.9876", "0.5", "forward"]);
+    assert_eq!(rows[1][6], env!("CARGO_PKG_VERSION"));
+    // zstd magic bytes: the file is compressed by its suffix.
+    assert_eq!(&std::fs::read(d.join("S1.summary.tsv.zst")).unwrap()[..4], &[0x28, 0xb5, 0x2f, 0xfd]);
+    assert!(!d.join("S1.summary.tsv.zst.partial").exists());
+}
+
+#[test]
+fn summary_removed_before_a_failing_rerun() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_sample_summary(d, "S1", Mode::Quant, &summ(5, 0.5, 0.5), Strandedness::Unstranded).unwrap();
+    let old = d.join("S1.summary.tsv.zst");
+    assert!(old.is_file());
+    // A quant rerun whose FASTQ file does not exist fails before kallisto runs.
+    let ctx = QuantContext {
+        index: d.join("none.idx"),
+        tx2gene: Default::default(),
+        out_dir: d.to_path_buf(),
+        scratch: Scratch::new(d.join("tmp")),
+        config: RunConfig::default(),
+    };
+    let s = samples_of(&["S1"]).remove(0);
+    let err = quant_sample(&s, &ctx).unwrap_err();
+    eprintln!("rerun error: {err}");
+    assert!(!old.exists(), "old summary survived a failed rerun");
+    assert!(!d.join("S1.summary.tsv.zst.partial").exists());
+}
+
+#[test]
+fn matrix_writes_mapping_summary_in_sheet_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S2", "S1", "S3"]);
+    let samples = samples_of(&["S3", "S1", "S2"]);
+    run_matrix(d, &samples, None).unwrap();
+    let text = read_table(&d.join(MAPPING_SUMMARY)).unwrap();
+    let lines: Vec<Vec<&str>> = text.lines().map(|l| l.split('\t').collect()).collect();
+    assert_eq!(lines[0].join("\t"), format!("{HEADER}\tstrand_check_suggestion"));
+    let order: Vec<&str> = lines[1..].iter().map(|r| r[0]).collect();
+    assert_eq!(order, ["S3", "S1", "S2"]);
+    // S1 was written second in write_both (i = 1): 1001 reads.
+    assert_eq!(&lines[2][1..6], ["quant", "1001", "0.9", "0.85", "reverse"]);
+    assert_eq!(lines[2].len(), 8);
+    assert_eq!(lines[2][7], "");
+    assert!(!d.join(format!("{MAPPING_SUMMARY}.partial")).exists());
+}
+
+#[test]
+fn matrix_refuses_missing_summary_naming_the_sample() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    std::fs::remove_file(d.join("S2.summary.tsv.zst")).unwrap();
+    let err = run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap_err();
+    assert!(matches!(&err, PipelineError::MissingSummaryFile { sample, .. } if sample == "S2"), "{err:?}");
+    let msg = err.to_string();
+    assert!(msg.contains("S2") && msg.contains("S2.summary.tsv.zst") && msg.contains("rerun"), "{msg}");
+    assert!(!d.join(MAPPING_SUMMARY).exists());
+}
+
+#[test]
+fn matrix_refuses_summary_for_another_sample() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    // The file S1.summary.tsv.zst holds a row for S9.
+    write_sample_summary(d, "S9", Mode::Quant, &summ(1, 0.1, 0.1), Strandedness::Unstranded).unwrap();
+    std::fs::rename(d.join("S9.summary.tsv.zst"), d.join("S1.summary.tsv.zst")).unwrap();
+    let err = run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap_err();
+    assert!(
+        matches!(&err, PipelineError::SummaryFileSample { expected, found, .. } if expected == "S1" && found == "S9"),
+        "{err:?}"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("S1") && msg.contains("S9") && msg.contains("rerun"), "{msg}");
+    assert!(!d.join(MAPPING_SUMMARY).exists());
+}
+
+fn strand_table(d: &Path) -> std::path::PathBuf {
+    let p = d.join("strand_check.tsv");
+    std::fs::write(
+        &p,
+        "sample\tsense\tantisense\tambiguous\tsense_fraction\tantisense_fraction\tambiguous_fraction\tsuggested\tlow_fraction_warning\n\
+         S2\t90\t5\t1\t0.9474\t0.0526\t0.0104\tforward\tfalse\n",
+    )
+    .unwrap();
+    p
+}
+
+#[test]
+fn strand_check_suggestion_is_joined_when_present() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    let t = strand_table(d);
+    let text = build_mapping_summary(d, &names(&["S1", "S2"]), Some(&t)).unwrap();
+    let rows: Vec<Vec<&str>> = text.lines().map(|l| l.split('\t').collect()).collect();
+    assert_eq!(rows[0].last().copied(), Some("strand_check_suggestion"));
+    assert_eq!(rows[1].last().copied(), Some(""), "S1 has no strand-check row");
+    assert_eq!(rows[2].last().copied(), Some("forward"));
+    assert!(rows.iter().all(|r| r.len() == 8));
+    // Through matrix: <out>/strand_check.tsv is used when it exists.
+    run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap();
+    let m = read_table(&d.join(MAPPING_SUMMARY)).unwrap();
+    assert_eq!(m, text);
+}
+
+#[test]
+fn strand_check_suggestion_is_empty_when_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    let text = build_mapping_summary(d, &names(&["S1", "S2"]), None).unwrap();
+    for (i, l) in text.lines().enumerate() {
+        let f: Vec<&str> = l.split('\t').collect();
+        assert_eq!(f.len(), 8, "{l}");
+        if i > 0 {
+            assert_eq!(f[7], "", "{l}");
+        }
+    }
+    assert!(text.ends_with('\n'));
+}
+
+#[test]
+fn stale_mapping_summary_removed_by_matrix_before_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1"]);
+    std::fs::write(d.join(MAPPING_SUMMARY), b"old").unwrap();
+    std::fs::write(d.join(format!("{MAPPING_SUMMARY}.partial")), b"old").unwrap();
+    // S2 has no gene counts: the matrix fails.
+    let err = run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap_err();
+    assert!(matches!(err, PipelineError::MissingCountFile { .. }), "{err:?}");
+    assert!(!d.join(MAPPING_SUMMARY).exists(), "stale mapping summary survived a failing matrix");
+    assert!(!d.join(format!("{MAPPING_SUMMARY}.partial")).exists());
+}
+
+#[test]
+fn matrix_output_other_files_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    let (path, warnings) = run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap();
+    assert_eq!(path, d.join("counts.tsv.zst"));
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let counts = read_table(&path).unwrap();
+    assert_eq!(counts.lines().next().unwrap(), "gene\tS1\tS2");
+    assert_eq!(counts, "gene\tS1\tS2\ngeneA\t5\t6\n");
+}
+
+// ---------------------------------------------------------------------------------------------
+// End to end (tools)
+
+fn simulate(d: &Path, lib: Strandedness, seed: u64) -> (std::path::PathBuf, std::path::PathBuf) {
+    let pairs = sim::simulate(&records(), &COUNTS, lib, seed);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&pairs, &r1, &r2);
+    (r1, r2)
+}
+
+fn check_summary_file(path: &Path, mode: &str, strand: &str, s: &SampleSummary) {
+    let t = read_table(path).unwrap();
+    let lines: Vec<&str> = t.lines().collect();
+    assert_eq!(lines.len(), 2, "{t}");
+    assert_eq!(lines[0], HEADER);
+    let f: Vec<&str> = lines[1].split('\t').collect();
+    assert_eq!(f.len(), 7, "{t}");
+    assert_eq!(f[0], "S1");
+    assert_eq!(f[1], mode);
+    assert_eq!(f[2].parse::<u64>().unwrap(), s.reads_processed);
+    assert_eq!(f[3].parse::<f64>().unwrap(), s.fraction_mapped);
+    assert_eq!(f[4].parse::<f64>().unwrap(), s.fraction_assigned);
+    assert_eq!(f[5], strand);
+    assert_eq!(f[6], env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
+fn quant_sample_writes_summary_equal_to_printed_numbers() {
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (r1, r2) = simulate(d, Strandedness::Reverse, 11);
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
+    run_transcripts(&common::mini_genome(), &common::mini_gff(), &fa, &t2g, None, None).unwrap();
+    let out = d.join("quant");
+    let cfg = RunConfig { strandedness: Strandedness::Reverse, ..RunConfig::default() };
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), cfg, None).unwrap();
+    let res = quant_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
+    eprintln!("quant summary {:?}", res.summary);
+    check_summary_file(&out.join("S1.summary.tsv.zst"), "quant", "reverse", &res.summary);
+    assert!(!out.join("S1.summary.tsv.zst.partial").exists());
+}
+
+#[test]
+fn align_sample_writes_summary_equal_to_printed_numbers() {
+    if !common::require_tools(&ALIGN_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (r1, r2) = simulate(d, Strandedness::Forward, 11);
+    let out = d.join("align");
+    let cfg = RunConfig { strandedness: Strandedness::Forward, ..RunConfig::default() };
+    let ctx = prepare_align(&common::mini_genome(), &common::mini_gff(), &out, Scratch::new(d.join("tmp")), cfg, false, &[]).unwrap();
+    let res = align_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
+    eprintln!("align summary {:?}", res.summary);
+    check_summary_file(&out.join("S1.summary.tsv.zst"), "align", "forward", &res.summary);
+    assert!(!out.join("S1.summary.tsv.zst.partial").exists());
+}

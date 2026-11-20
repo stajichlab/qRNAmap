@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-use qrnamap_cli::pipeline::{build_matrix, write_gene_counts, PipelineError};
+use qrnamap_cli::pipeline::{build_matrix, write_gene_counts, write_sample_summary, PipelineError, SampleSummary};
 
 fn m(pairs: &[(&str, u64)]) -> BTreeMap<String, u64> {
     pairs.iter().map(|(g, c)| (g.to_string(), *c)).collect()
@@ -45,11 +45,13 @@ fn build_matrix_warns_unlisted_and_all_zero() {
     assert!(!all.contains("'S1': all-zero"), "{all}");
 }
 
-/// Write per-sample gene count files and a sheet; return the sheet path.
+/// Write per-sample gene count files, per-sample summary files and a sheet; return the sheet path.
 fn setup(dir: &Path, samples: &[(&str, BTreeMap<String, u64>)]) -> std::path::PathBuf {
     let mut sheet = String::from("sample\tfastq1\n");
     for (name, counts) in samples {
         write_gene_counts(&dir.join(format!("{name}.genecounts.tsv.zst")), name, counts).unwrap();
+        let summary = SampleSummary { reads_processed: 1, fraction_mapped: 1.0, fraction_assigned: 1.0 };
+        write_sample_summary(dir, name, qrnamap_core::Mode::Quant, &summary, qrnamap_core::Strandedness::Unstranded).unwrap();
         sheet.push_str(&format!("{name}\t/x/{name}.fq\n"));
     }
     let p = dir.join("sheet.tsv");

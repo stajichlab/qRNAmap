@@ -370,6 +370,7 @@ fn remove_all_old_outputs(out: &Path, samples: &[Sample]) -> Result<(), pipeline
         return Ok(());
     }
     pipeline::remove_old_genes_table(out)?;
+    pipeline::remove_old_mapping_summary(out)?;
     samples.iter().try_for_each(|s| pipeline::remove_old_outputs(out, &s.name))
 }
 

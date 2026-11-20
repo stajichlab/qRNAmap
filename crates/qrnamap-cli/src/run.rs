@@ -455,6 +455,7 @@ fn check_inputs(args: &RunArgs) -> Result<SampleSheet, RunError> {
 fn remove_old_run_outputs(out: &Path, sheet: &SampleSheet) -> Result<(), RunError> {
     remove_if_present(&out.join(PREPARED_MARKER))?;
     crate::pipeline::remove_old_genes_table(out)?;
+    crate::pipeline::remove_old_mapping_summary(out)?;
     for s in &sheet.samples {
         remove_old_outputs(out, &s.name)?;
     }
