@@ -83,12 +83,15 @@ All numbers below come from the runs of 2026-11-19 described above.
 
 ### Download
 
-- `prefetch`: 13.97 to 21.68 s per run. `.sra` sizes 333,038,452 to 393,509,537 bytes (2.14 GB in total).
+- `prefetch`: 13.97 to 21.68 s per run. I timed it with `/usr/bin/time` in the shell. The times are
+  kept in `$DATA/logs/prefetch_RUN.log` (last line). Those logs also say that prefetch fetched "SRA
+  Normalized Format files with full base quality scores". `.sra` sizes 333,038,452 to 393,509,537 bytes (2.14 GB in total).
 - `parallel-fastq-dump` jobs: 1:03 to 1:13 elapsed, MaxRSS 1.72 to 1.82 GB.
 - Read count check: both mates of all 6 runs have exactly the ENA `read_count` (12 of 12 files).
   The `.sra` files were deleted after the check. FASTQ total: 3,428,536,290 bytes (12 `.fastq.gz`).
 - Reads are up to 101 bases. The quality strings use binned NovaSeq values (`F`, `:`, `,`, `#`).
-- `qrnamap fetch`: 1.75 s. Both files have exactly the catalog byte length:
+- `qrnamap fetch`: 1.75 s. I timed it with `/usr/bin/time` in the shell. No log file keeps this
+  number (it was printed to the terminal only). Both files have exactly the catalog byte length:
   `GCF_000146045.2_R64_genomic.fna.gz` 3,843,460 bytes, `GCF_000146045.2_R64_genomic.gff.gz`
   2,203,839 bytes.
 
@@ -113,11 +116,37 @@ Parity job: 8 s elapsed.
 | ups1KO_2 | 1,194 | 88,758 | 1,475 | 0.9867 | reverse |
 | ups1KO_3 | 1,194 | 88,818 | 1,464 | 0.9867 | reverse |
 
+Formula (`crates/qrnamap-core/src/strand.rs`): antisense fraction = antisense / (sense + antisense).
+Ambiguous fragments are not in the denominator. Example, WT_1: 89,500 / (1,130 + 89,500) = 0.9875.
+With the ambiguous fragments in the denominator, the value is 89,500 / (1,130 + 89,500 + 936) = 0.9774.
+
 All 6 suggestions are `reverse`. ENA names the kit (TruSeq stranded mRNA) but not the orientation.
 `reverse` is the orientation I expect for that kit (see Data). Both mode runs used `--strandedness reverse`.
 strand-check job: 50 s elapsed, MaxRSS 247,472 KB.
 
 ### Per-sample results (`--samples-per-task 1`, `--threads 1`)
+
+SLURM job ids of the reported run (the resubmission):
+
+| mode | prepare | sample array | final |
+|---|---|---|---|
+| quant | 32242362 | 32242363 (tasks 0 to 5) | 32242364 |
+| align | 32242365 | 32242366 (tasks 0 to 5) | 32242367 |
+
+The first attempt failed (see finding 1). Its prepare jobs were 32242271 (quant) and 32242274
+(align). They failed after 30 s because a tool was not on PATH. Their array and final jobs
+(32242272, 32242273, 32242275, 32242276) never started; I cancelled them. The failed prepare jobs
+did not affect the results. The second prepare job removes old outputs and writes the reference
+files and the index again. Every file in `run_quant/` and `run_align/` has a modification time of
+21:47 or later, which is after the failed jobs ended (21:41).
+
+What the log directories contain (`$DATA/run_MODE/slurm/logs/`):
+
+- `qrnamap-prepare_32242271.out` (quant) and `qrnamap-prepare_32242274.out` (align): the error line
+  of the failed first attempt. These are the only logs from the first attempt.
+- `qrnamap-prepare_32242362.out` and `qrnamap-prepare_32242365.out`: empty (0 bytes). The prepare
+  step of the reported run printed nothing.
+- `qrnamap-samples_JOB_N.out` (6 per mode) and `qrnamap-final_JOB.out`: the reported run.
 
 `results/per_sample.tsv`. Elapsed and MaxRSS come from `sacct` (the `.batch` step of each array
 task). One array task holds one sample. The time includes reading the FASTQ, the tool runs and
@@ -134,7 +163,16 @@ writing the outputs.
 
 - In quant mode the assigned fraction is the pseudoaligned fraction (kallisto reports
   `p_pseudoaligned` with one decimal). Quant MaxRSS: 107,420 to 111,888 KB.
-- Quant task 0 ran on node c07; tasks 1 to 5 ran on r42. All align tasks ran on c07 at the same time.
+- Align assigned fraction = featureCounts `Assigned` / read pairs processed by HISAT2 (the
+  `reads_processed` value in the CLI log, from the HISAT2 line `N reads; of these:`). The
+  denominator is not the sum of the featureCounts summary. That sum is larger, because featureCounts
+  counts each alignment of a multi-mapping pair. Example, WT_1: Assigned 5,031,627; pairs processed
+  5,618,967; sum of `featurecounts.summary` 6,279,913. Assigned / pairs = 0.8955 (reported).
+  Assigned / summary sum = 0.8012. Assigned / summary sum for all 6 samples: 0.7923 to 0.8012.
+- Quant task 0 (WT_1) ran on node c07 with 1 CPU allocated. Tasks 1 to 5 ran on r42 with 2 CPUs
+  allocated (SLURM gave 2; the scripts ask for 1, and kallisto ran with `-t 1`). WT_1 took 264 s;
+  the others took 147 to 173 s. I did not test whether the node or the sample caused the difference.
+  All align tasks ran on c07 at the same time, each with 1 CPU.
 - featureCounts summary for WT_1 (align): Assigned 5,031,627; Unassigned_MultiMapping 1,010,770;
   Unassigned_NoFeatures 168,715; Unassigned_Ambiguity 44,381; Unassigned_Unmapped 24,420.
 - Other jobs: quant prepare (transcripts and kallisto index) 2:36; align prepare (SAF, splice
@@ -143,7 +181,13 @@ writing the outputs.
 
 ### Bundling samples per task (derived from the times above)
 
-Measured per-sample time, quant: mean 174.3 s, max 264 s. Align: mean 583.3 s, max 652 s.
+The run used `--samples-per-task 1`. The values 20 and 8 below are a recommendation derived from
+the measured times. They are not a tested setting. The brief's wording implied a run with the
+derived value; I did not do that run.
+
+Measured per-sample time, quant: mean 174.3 s, max 264 s. The quant mean includes both node types
+(1 task on c07, 5 tasks on r42). The max (264 s) is the WT_1 task on c07, so the max-based bound is
+also shown. Align: mean 583.3 s, max 652 s.
 For a task of 1 to 1.5 hours:
 
 - quant: `--samples-per-task 20` (20 x 174.3 s = 58 min at the mean; 20 x 264 s = 88 min at the max).
