@@ -296,3 +296,10 @@ fn gene_rows_identical_in_both_modes() {
     assert!(a.counts.iter().all(|r| r[0] >= 1));
     assert!(b.counts.iter().all(|r| r[0] == 4));
 }
+
+#[test]
+fn featurecounts_gene_id_starting_with_hash_after_header_is_a_gene() {
+    // R29-7: '#' lines are skipped only before the header.
+    let tsv = format!("# Program:featureCounts\n{FC_HDR}#g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t3\n");
+    assert_eq!(parse_featurecounts(&tsv).unwrap(), map(&[("#g1", 5), ("g2", 3)]));
+}

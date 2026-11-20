@@ -56,6 +56,21 @@ fn count_pairs_plain_and_gzip() {
     assert!(e.to_string().contains("truncated"), "{e}");
 }
 
+#[test]
+fn count_pairs_ignores_trailing_blank_lines() {
+    // R29-12: blank lines after the last record (plain and gzip) are not an error.
+    let d = tempfile::tempdir().unwrap();
+    let mut data = fastq(7);
+    data.extend_from_slice(b"\n\n");
+    let plain = d.path().join("t.fq");
+    fs::write(&plain, &data).unwrap();
+    let gzp = d.path().join("t.fq.gz");
+    fs::write(&gzp, gz(&data)).unwrap();
+    for p in [&plain, &gzp] {
+        assert_eq!(count_pairs(p, None).unwrap(), 7, "{}", p.display());
+    }
+}
+
 /// A reader that records how many bytes were taken from it.
 struct Counting {
     inner: std::io::Cursor<Vec<u8>>,

@@ -275,3 +275,74 @@ chr1\ts\texon\t1\t100\t.\t-\t.\tParent=rna1\n";
     assert_eq!(m.genes[0].transcripts[0].kind, "lnc_RNA");
     assert_eq!(m.genes[0].transcripts[0].id, "rna1");
 }
+
+// R29-6: strand, contig and repeated-ID checks.
+
+#[test]
+fn transcript_strand_differs_from_gene_is_error() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr1\ts\tmRNA\t1\t100\t.\t-\t.\tID=t1;Parent=g1\n\
+chr1\ts\texon\t1\t100\t.\t-\t.\tParent=t1\n";
+    match parse(s) {
+        Err(GffError::StrandMismatch { line, .. }) => assert_eq!(line, 2),
+        other => panic!("expected StrandMismatch, got {other:?}"),
+    }
+    let e = parse(s).unwrap_err().to_string();
+    assert!(e.contains("line 2") && e.contains("strand"), "{e}");
+}
+
+#[test]
+fn transcript_contig_differs_from_gene_is_error() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr2\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n\
+chr2\ts\texon\t1\t100\t.\t+\t.\tParent=t1\n";
+    match parse(s) {
+        Err(GffError::ContigMismatch { line, .. }) => assert_eq!(line, 2),
+        other => panic!("expected ContigMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn child_contig_differs_from_its_transcript_is_error() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr1\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\ts\texon\t1\t50\t.\t+\t.\tParent=t1\n\
+chr2\ts\texon\t60\t100\t.\t+\t.\tParent=t1\n";
+    match parse(s) {
+        Err(GffError::ContigMismatch { line, .. }) => assert_eq!(line, 4),
+        other => panic!("expected ContigMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn repeated_id_with_different_type_or_place_is_error() {
+    for (second, what) in [
+        ("chr1\ts\tncRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n", "type"),
+        ("chr1\ts\tmRNA\t200\t300\t.\t-\t.\tID=t1;Parent=g1\n", "strand"),
+        ("chr2\ts\tmRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n", "contig"),
+    ] {
+        let s = format!(
+            "chr1\ts\tgene\t1\t300\t.\t+\t.\tID=g1\n\
+chr1\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n{second}\
+chr1\ts\texon\t1\t100\t.\t+\t.\tParent=t1\n"
+        );
+        match parse(&s) {
+            Err(GffError::DuplicateId { id, line }) => assert_eq!((id.as_str(), line), ("t1", 3), "{what}"),
+            other => panic!("{what}: expected DuplicateId, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn multi_line_feature_with_one_id_still_parses() {
+    // GFF3 allows one discontinuous feature on several lines with the same ID.
+    let s = "chr1\ts\tgene\t1\t300\t.\t+\t.\tID=g1\n\
+chr1\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\ts\tmRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\ts\texon\t1\t100\t.\t+\t.\tParent=t1\n\
+chr1\ts\texon\t200\t300\t.\t+\t.\tParent=t1\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 1);
+    assert_eq!(m.genes[0].transcripts.len(), 1);
+    assert_eq!(m.genes[0].transcripts[0].exons, vec![(1, 100), (200, 300)]);
+}

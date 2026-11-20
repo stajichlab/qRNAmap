@@ -46,6 +46,16 @@ pub enum GffError {
     DuplicateGeneLabel(String),
     /// An exon/CDS/UTR line whose `Parent` is missing (`parent` empty) or matches no feature. `line` is 1-based.
     UnresolvedParent { line: usize, parent: String },
+    /// A transcript's strand differs from the strand of its gene `parent`. `line` is the
+    /// transcript's line (1-based).
+    StrandMismatch { line: usize, parent: String },
+    /// A transcript's (or child's) seqid differs from the seqid of its parent feature `parent`.
+    /// `line` is the line of the transcript or child (1-based).
+    ContigMismatch { line: usize, parent: String },
+    /// An ID is repeated on features that differ in type, seqid or strand. (Lines of one
+    /// discontinuous feature share an ID and agree in all three; that stays legal.) `line` is the
+    /// later line (1-based).
+    DuplicateId { id: String, line: usize },
     Io(io::Error),
 }
 
@@ -64,6 +74,16 @@ impl fmt::Display for GffError {
                     write!(f, "GFF3 line {line}: Parent '{parent}' matches no feature")
                 }
             }
+            GffError::StrandMismatch { line, parent } => {
+                write!(f, "GFF3 line {line}: strand differs from the strand of its gene '{parent}'")
+            }
+            GffError::ContigMismatch { line, parent } => {
+                write!(f, "GFF3 line {line}: seqid differs from the seqid of its parent '{parent}'")
+            }
+            GffError::DuplicateId { id, line } => write!(
+                f,
+                "GFF3 line {line}: ID '{id}' is used before on a feature of another type, seqid or strand"
+            ),
             GffError::Io(e) => write!(f, "I/O error reading GFF3: {e}"),
         }
     }
@@ -163,6 +183,7 @@ fn is_gene_kind(k: &str) -> bool {
 struct ChildRec {
     line: usize,
     kind: String,
+    contig: String,
     parents: Vec<String>,
     start: u64,
     end: u64,
@@ -231,17 +252,29 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
         };
         if is_child_kind(&feat.kind) {
             let parents = feat.parents();
-            child_recs.push(ChildRec { line: lineno, kind: feat.kind, parents, start, end });
+            child_recs.push(ChildRec { line: lineno, kind: feat.kind, contig: feat.contig, parents, start, end });
         } else {
             feats.push(feat);
         }
     }
 
     // Pass 2: index features by ID (first occurrence wins) and attach children.
+    // A repeated ID is legal for the lines of one discontinuous feature (same type, seqid and
+    // strand); otherwise it is `DuplicateId` (R29-6).
     let mut by_id: HashMap<String, usize> = HashMap::new();
     for (i, f) in feats.iter().enumerate() {
         if let Some(id) = f.get("ID") {
-            by_id.entry(id).or_insert(i);
+            match by_id.get(&id) {
+                Some(&first) => {
+                    let g = &feats[first];
+                    if g.kind != f.kind || g.contig != f.contig || g.strand != f.strand {
+                        return Err(GffError::DuplicateId { id, line: f.line });
+                    }
+                }
+                None => {
+                    by_id.insert(id, i);
+                }
+            }
         }
     }
     let mut children: HashMap<usize, Children> = HashMap::new();
@@ -253,6 +286,9 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             let Some(&fi) = by_id.get(p) else {
                 return Err(GffError::UnresolvedParent { line: c.line, parent: p.clone() });
             };
+            if feats[fi].contig != c.contig {
+                return Err(GffError::ContigMismatch { line: c.line, parent: p.clone() });
+            }
             let ch = children.entry(fi).or_default();
             let list = match c.kind.as_str() {
                 "CDS" => &mut ch.cds,
@@ -299,6 +335,18 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             Some(gp) => b.gene_for(gp)?,
             None => b.gene_for(i)?, // own gene; also checks this feature's strand
         };
+        if let Some(gp) = gene_parent {
+            // R29-6: a transcript lies on its gene's seqid and strand. The gene's strand was
+            // checked by `gene_for`; a childless transcript with no valid strand is not compared.
+            let g = &feats[gp];
+            let parent = || g.get("ID").unwrap_or_default();
+            if g.contig != f.contig {
+                return Err(GffError::ContigMismatch { line: f.line, parent: parent() });
+            }
+            if strand_of(f).is_ok_and(|s| s != b.genes[gi].strand) {
+                return Err(GffError::StrandMismatch { line: f.line, parent: parent() });
+            }
+        }
         push_transcript(&mut b.genes[gi], f, id, children.get(&i));
     }
     Ok(GeneModel { genes: b.genes })

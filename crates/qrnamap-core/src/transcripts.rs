@@ -24,6 +24,8 @@ pub enum BuildError {
     OutOfRange { transcript: String },
     /// Two transcripts have the same id.
     DuplicateTranscript(String),
+    /// Two genome FASTA records have the same name.
+    DuplicateContig(String),
 }
 
 impl fmt::Display for BuildError {
@@ -37,6 +39,9 @@ impl fmt::Display for BuildError {
                 "transcript '{transcript}' has an interval with start 0, start > end, or end beyond the contig"
             ),
             BuildError::DuplicateTranscript(id) => write!(f, "two transcripts have the id '{id}'"),
+            BuildError::DuplicateContig(name) => {
+                write!(f, "the genome FASTA has two records named '{name}'")
+            }
         }
     }
 }
@@ -124,7 +129,9 @@ pub fn build_transcripts(
 ) -> Result<Vec<TxRecord>, BuildError> {
     let mut contigs: HashMap<&str, &[u8]> = HashMap::with_capacity(genome.len());
     for (name, seq) in genome {
-        contigs.entry(name.as_str()).or_insert(seq.as_slice()); // first record wins, as in read order
+        if contigs.insert(name.as_str(), seq.as_slice()).is_some() {
+            return Err(BuildError::DuplicateContig(name.clone()));
+        }
     }
     let mut seen: HashSet<&str> = HashSet::new();
     let mut out = Vec::new();

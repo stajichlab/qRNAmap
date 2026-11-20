@@ -96,11 +96,14 @@ pub fn gene_counts_from_abundance(
 /// A bad count is `BadRow`; line numbers are 1-based over the whole input. A repeated gene id is
 /// `DuplicateGene`. Blank lines and CRLF are accepted.
 pub fn parse_featurecounts(tsv: &str) -> Result<BTreeMap<String, u64>, CountError> {
+    // '#' lines are skipped only before the header; after it a line starting with '#' is a
+    // gene row (R29-7).
     let mut lines = tsv
         .lines()
         .enumerate()
         .map(|(i, l)| (i + 1, l))
-        .filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty());
+        .filter(|(_, l)| !l.trim().is_empty())
+        .skip_while(|(_, l)| l.starts_with('#'));
     let (_, header) = lines.next().ok_or(CountError::MissingHeader)?;
     let header_fields: Vec<&str> = header.split('\t').collect();
     if header_fields[0] != "Geneid" {

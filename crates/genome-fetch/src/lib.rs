@@ -63,6 +63,8 @@ pub enum FetchError {
     },
     /// A local file problem (create, write, rename, key file).
     Io(io::Error),
+    /// The API key is empty. `source` names where it came from (never the key).
+    EmptyKey { source: String },
 }
 
 impl fmt::Display for FetchError {
@@ -78,6 +80,7 @@ impl fmt::Display for FetchError {
             FetchError::Http { url, status: Some(code), message } => write!(f, "{url}: HTTP {code}: {message}"),
             FetchError::Http { url, status: None, message } => write!(f, "{url}: {message}"),
             FetchError::Io(e) => write!(f, "file error: {e}"),
+            FetchError::EmptyKey { source } => write!(f, "the API key from {source} is empty"),
         }
     }
 }

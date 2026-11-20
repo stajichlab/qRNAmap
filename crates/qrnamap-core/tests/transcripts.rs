@@ -425,3 +425,14 @@ fn write_fasta_wraps_at_60() {
     let expected = format!(">t1\nACGT\n>t2\n{}\nA\n", "A".repeat(60));
     assert_eq!(String::from_utf8(out).unwrap(), expected);
 }
+
+#[test]
+fn duplicate_contig_name_is_named_error() {
+    // R29-5: a genome FASTA with two records of one name is an error, not "first wins".
+    let mut genome = small_genome();
+    genome.push(("ctg".to_string(), b"TTTTTTTT".to_vec()));
+    let m = GeneModel { genes: vec![gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(1, 4)])])] };
+    let err = build_transcripts(&genome, &m).unwrap_err();
+    assert_eq!(err, BuildError::DuplicateContig("ctg".to_string()));
+    assert!(err.to_string().contains("'ctg'"), "{err}");
+}

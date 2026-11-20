@@ -163,3 +163,24 @@ fn fasta_multiline_and_lowercase_kept() {
 
     assert_eq!(contigs, vec![("c1".to_string(), b"ACgtacGT".to_vec())]);
 }
+
+#[test]
+fn trailing_blank_lines_after_the_last_record_are_ignored() {
+    // R29-12: blank lines at the end of the file are not a record.
+    for tail in ["\n", "\n\n", "\r\n", "  \n\n"] {
+        let text = format!("{FASTQ}{tail}");
+        let got: Vec<_> = FastqReader::new(text.as_bytes()).collect::<std::io::Result<_>>().unwrap();
+        assert_eq!(got, expected(), "tail {tail:?}");
+    }
+    // Without a newline after the last quality line, then blank lines.
+    let text = format!("{}\n\n", FASTQ.trim_end_matches('\n'));
+    let got: Vec<_> = FastqReader::new(text.as_bytes()).collect::<std::io::Result<_>>().unwrap();
+    assert_eq!(got, expected());
+}
+
+#[test]
+fn a_blank_line_between_records_is_still_an_error() {
+    let text = "@r1\nACGT\n+\nIIII\n\n@r2\nGGGG\n+\nIIII\n";
+    let got: std::io::Result<Vec<_>> = FastqReader::new(text.as_bytes()).collect();
+    assert!(got.is_err(), "{got:?}");
+}

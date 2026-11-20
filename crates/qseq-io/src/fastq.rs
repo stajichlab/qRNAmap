@@ -31,6 +31,20 @@ impl<R: BufRead> Iterator for FastqReader<R> {
             Ok(h) => h,
             Err(e) => return Some(Err(e)),
         };
+        if header.trim().is_empty() {
+            // Blank lines after the last record end the input (R29-12). A blank line followed by
+            // more text is an error.
+            for line in self.lines.by_ref() {
+                match line {
+                    Ok(l) if l.trim().is_empty() => {}
+                    Ok(_) => {
+                        return Some(Err(io::Error::new(io::ErrorKind::InvalidData, "blank line between FASTQ records")))
+                    }
+                    Err(e) => return Some(Err(e)),
+                }
+            }
+            return None;
+        }
         let record = (|| {
             let name = header
                 .strip_prefix('@')

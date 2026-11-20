@@ -49,6 +49,8 @@ pub enum DeError {
     ContrastNotFactor(String),
     /// The contrast factor is not a term of the design.
     ContrastNotInDesign(String),
+    /// A count is above 2^31-1, the largest integer R stores (DESeq2 needs integer counts).
+    CountTooLarge { gene: String, sample: String },
 }
 
 impl fmt::Display for DeError {
@@ -69,6 +71,11 @@ impl fmt::Display for DeError {
             }
             DeError::ContrastNotFactor(c) => write!(f, "contrast column '{c}' is not a factor column of the sheet"),
             DeError::ContrastNotInDesign(c) => write!(f, "contrast factor '{c}' is not a term of the design"),
+            DeError::CountTooLarge { gene, sample } => write!(
+                f,
+                "gene '{gene}' in sample '{sample}' has a count above {}, the largest integer R can hold",
+                i32::MAX
+            ),
         }
     }
 }
@@ -125,6 +132,12 @@ pub fn check_design(
         let n = n_in(group);
         if n < 2 {
             return Err(DeError::TooFewReplicates { group: group.clone(), n });
+        }
+    }
+    // Counts R cannot hold as integers (R29-9).
+    for (gene, row) in matrix.genes.iter().zip(&matrix.counts) {
+        if let Some(j) = row.iter().position(|&c| c > i32::MAX as u64) {
+            return Err(DeError::CountTooLarge { gene: gene.clone(), sample: matrix.samples[j].clone() });
         }
     }
     // All-zero samples.

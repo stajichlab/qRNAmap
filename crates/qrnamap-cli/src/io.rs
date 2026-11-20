@@ -12,6 +12,8 @@ pub enum InputError {
     Io { path: PathBuf, source: io::Error },
     Truncated { path: PathBuf },
     Corrupt { path: PathBuf, detail: String },
+    /// A 0-byte file whose name ends in `.gz` or `.zst`: not valid compressed data.
+    Empty { path: PathBuf },
 }
 
 impl fmt::Display for InputError {
@@ -28,6 +30,9 @@ impl fmt::Display for InputError {
             }
             InputError::Corrupt { path, detail } => {
                 write!(f, "corrupt compressed input: {}: {detail}", path.display())
+            }
+            InputError::Empty { path } => {
+                write!(f, "compressed input is empty (0 bytes): {}", path.display())
             }
         }
     }
@@ -121,6 +126,35 @@ enum GzState<R: BufRead> {
     Active(flate2::bufread::GzDecoder<R>),
     Between(R),
     Done,
+    /// A read failed. Every later read returns the same error again (R29-8), so a caller that
+    /// reads on after an error never sees a clean end of file.
+    Failed(Failure),
+}
+
+/// What a failed read reported, kept so it can be returned again.
+#[derive(Clone)]
+enum Failure {
+    Truncated,
+    Corrupt(String),
+    Other(io::ErrorKind, String),
+}
+
+impl Failure {
+    fn of(e: &io::Error) -> Failure {
+        match e.get_ref().and_then(|i| i.downcast_ref::<InputError>()) {
+            Some(InputError::Truncated { .. }) => Failure::Truncated,
+            Some(InputError::Corrupt { detail, .. }) => Failure::Corrupt(detail.clone()),
+            _ => Failure::Other(e.kind(), e.to_string()),
+        }
+    }
+
+    fn error(&self, path: &Path) -> io::Error {
+        match self {
+            Failure::Truncated => truncated(path),
+            Failure::Corrupt(d) => corrupt(path, d.clone()),
+            Failure::Other(k, m) => io::Error::new(*k, m.clone()),
+        }
+    }
 }
 
 /// Multi-member gzip reader. It handles members one by one so that an EOF in
@@ -144,12 +178,25 @@ impl<R: BufRead> GzMap<R> {
 
 impl<R: BufRead> Read for GzMap<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let GzState::Failed(f) = &self.state {
+            return Err(f.error(&self.path));
+        }
         if buf.is_empty() {
             return Ok(0);
         }
+        let r = self.read_inner(buf);
+        if let Err(e) = &r {
+            self.state = GzState::Failed(Failure::of(e));
+        }
+        r
+    }
+}
+
+impl<R: BufRead> GzMap<R> {
+    fn read_inner(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
             match std::mem::replace(&mut self.state, GzState::Done) {
-                GzState::Done => return Ok(0),
+                GzState::Done | GzState::Failed(_) => return Ok(0),
                 GzState::Between(mut r) => {
                     if r.fill_buf()?.is_empty() {
                         return Ok(0);
@@ -230,6 +277,10 @@ pub fn open_reader<R: Read + 'static>(
         source,
     };
     let head = read_head(&mut r).map_err(io_err)?;
+    let name = path.to_string_lossy();
+    if head.is_empty() && (name.ends_with(".gz") || name.ends_with(".zst")) {
+        return Err(InputError::Empty { path: path.to_path_buf() });
+    }
     let format = detect(&head);
     let stream = BufReader::new(Cursor::new(head).chain(r));
     let path_buf = path.to_path_buf();

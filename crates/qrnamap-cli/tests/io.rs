@@ -61,8 +61,65 @@ fn extension_wrong_magic_wins() {
 
 #[test]
 fn empty_file_reads_empty() {
-    let (_d, p) = write_tmp("e.gz", b"");
+    // A 0-byte file without a compressed name is an empty plain file. (A 0-byte `.gz` or
+    // `.zst` file is the named error `Empty`, final review R29-8.)
+    let (_d, p) = write_tmp("e.txt", b"");
     assert_eq!(read_all(&p), "");
+}
+
+#[test]
+fn empty_compressed_name_is_named_error() {
+    // R29-8: a 0-byte file named .gz or .zst is not valid compressed data.
+    for name in ["e.gz", "e.fq.zst"] {
+        let (_d, p) = write_tmp(name, b"");
+        match open_input(&p) {
+            Err(InputError::Empty { path }) => assert_eq!(path, p),
+            Err(other) => panic!("{name}: expected Empty, got {other:?}"),
+            Ok(_) => panic!("{name}: expected Empty, got a reader"),
+        }
+        let e = open_input(&p).err().unwrap().to_string();
+        assert!(e.contains("empty") && e.contains(name), "{e}");
+    }
+}
+
+/// Read to the first error, then read again: the second read must give the same named error,
+/// not a clean end of file (R29-8).
+fn assert_error_is_sticky(path: &Path, want: fn(&InputError) -> bool) {
+    let mut r = open_input(path).unwrap();
+    let mut out = Vec::new();
+    let first = r.read_to_end(&mut out).unwrap_err();
+    let inner = first.get_ref().and_then(|e| e.downcast_ref::<InputError>()).expect("inner InputError");
+    assert!(want(inner), "first error: {inner:?}");
+    let mut buf = [0u8; 64];
+    let second = r.read(&mut buf);
+    match second {
+        Err(e) => {
+            let inner = e.get_ref().and_then(|e| e.downcast_ref::<InputError>()).expect("inner InputError");
+            assert!(want(inner), "second error: {inner:?}");
+        }
+        Ok(n) => panic!("a read after the error returned Ok({n}) for {}", path.display()),
+    }
+}
+
+#[test]
+fn gzip_error_is_returned_again_on_later_reads() {
+    let data: Vec<u8> = (0..20000u32).flat_map(|i| i.to_string().into_bytes()).collect();
+    let full = gz(&data);
+    let (_d, p) = write_tmp("t.gz", &full[..full.len() / 2]);
+    assert_error_is_sticky(&p, |e| matches!(e, InputError::Truncated { .. }));
+    let mut bad = full.clone();
+    let n = bad.len();
+    bad[n - 8] ^= 0xff; // CRC32 field
+    let (_d2, p2) = write_tmp("c.gz", &bad);
+    assert_error_is_sticky(&p2, |e| matches!(e, InputError::Corrupt { .. }));
+}
+
+#[test]
+fn zstd_error_is_returned_again_on_later_reads() {
+    let data: Vec<u8> = (0..20000u32).flat_map(|i| i.to_string().into_bytes()).collect();
+    let full = zstd::encode_all(&data[..], 3).unwrap();
+    let (_d, p) = write_tmp("t.zst", &full[..full.len() / 2]);
+    assert_error_is_sticky(&p, |e| matches!(e, InputError::Truncated { .. }));
 }
 
 #[test]

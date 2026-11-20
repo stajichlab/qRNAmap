@@ -187,3 +187,17 @@ fn script_records_vst_blind_false() {
     let s = script("~ condition", None);
     assert!(s.contains("vst: blind=FALSE"));
 }
+
+#[test]
+fn count_above_i32_max_is_named_error() {
+    // R29-9: R stores counts as 32-bit integers; a larger count is refused before R runs.
+    let sh = sheet();
+    let mut m = matrix(&sh);
+    m.counts[1][2] = 2_147_483_647;
+    check_design(&sh, &contrast(&sh), &m).unwrap();
+    m.counts[1][2] = 2_147_483_648;
+    let e = check_design(&sh, &contrast(&sh), &m).unwrap_err();
+    assert_eq!(e, DeError::CountTooLarge { gene: "g2".into(), sample: "b1".into() });
+    let t = e.to_string();
+    assert!(t.contains("g2") && t.contains("b1") && t.contains("2147483647"), "{t}");
+}

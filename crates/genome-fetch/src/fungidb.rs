@@ -141,7 +141,7 @@ fn shell_assignment_value(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("export ").map(str::trim_start).unwrap_or(line);
     let value = rest.strip_prefix(KEY_VARIABLE)?.strip_prefix('=')?.trim();
     let value = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')).or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\''))).unwrap_or(value);
-    (!value.is_empty()).then_some(value)
+    Some(value)
 }
 
 /// Parse key file text. Each line is `KEY` (any site) or `HOST KEY` (that site only). A line for the host wins over a
@@ -149,7 +149,12 @@ fn shell_assignment_value(line: &str) -> Option<&str> {
 fn key_from_text(text: &str, host: &str) -> Option<String> {
     let mut default = None;
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-        let line = shell_assignment_value(line).unwrap_or(line);
+        // `EUPATHDB_KEY=""` (empty after unquoting) is an empty key: this line gives no key (R29-14).
+        let line = match shell_assignment_value(line) {
+            Some("") => continue,
+            Some(v) => v,
+            None => line,
+        };
         let mut words = line.split_whitespace();
         match (words.next(), words.next(), words.next()) {
             (Some(key), None, _) => default = default.or(Some(key)),
@@ -178,7 +183,11 @@ fn key_from_file(path: &Path, host: &str) -> Result<(String, bool), FetchError> 
 /// Refuse a key with any byte outside 0x21-0x7E (space, control characters such as a newline, non-ASCII).
 /// Such a key cannot be a valid header value, and an HTTP library may print the header line in its error.
 /// The error names the source and never holds the key or any part of it. It is `FetchError::Io` (InvalidData).
+/// An empty key is `FetchError::EmptyKey` (R29-14).
 fn validate_key(key: &str, described_source: &str) -> Result<(), FetchError> {
+    if key.is_empty() {
+        return Err(FetchError::EmptyKey { source: described_source.to_string() });
+    }
     if key.bytes().all(|b| (0x21..=0x7E).contains(&b)) {
         Ok(())
     } else {
@@ -280,12 +289,34 @@ mod tests {
     }
 
     #[test]
-    fn validate_key_accepts_printable_ascii_and_empty() {
+    fn validate_key_accepts_printable_ascii() {
         assert!(validate_key("AbC-123_x.y/z=+", "x").is_ok());
         assert!(validate_key("!~", "x").is_ok(), "0x21 and 0x7E are the limits");
-        // The empty string is accepted by validate_key (no byte is outside the range). The callers never pass it:
-        // resolve_key drops an empty env value and the key file parser never returns an empty key.
-        assert!(validate_key("", "x").is_ok());
+    }
+
+    #[test]
+    fn validate_key_rejects_empty_key_with_named_error() {
+        // R29-14: an empty key is a named error, not Io.
+        match validate_key("", "key file /k") {
+            Err(FetchError::EmptyKey { source }) => assert_eq!(source, "key file /k"),
+            other => panic!("expected EmptyKey, got {other:?}"),
+        }
+        let e = validate_key("", "key file /k").unwrap_err().to_string();
+        assert!(e.contains("empty") && e.contains("key file /k"), "{e}");
+    }
+
+    #[test]
+    fn empty_quoted_assignment_is_no_key() {
+        // R29-14: `EUPATHDB_KEY=""` is an empty key, so the line gives no key.
+        for text in ["EUPATHDB_KEY=\"\"\n", "export EUPATHDB_KEY=''\n", "EUPATHDB_KEY=\n"] {
+            assert_eq!(key_from_text(text, "fungidb.org"), None, "{text:?}");
+        }
+        assert_eq!(key_from_text("EUPATHDB_KEY=\"\"\nREALKEY\n", "x").as_deref(), Some("REALKEY"));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("k");
+        fs::write(&p, "EUPATHDB_KEY=\"\"\n").unwrap();
+        let e = key_from_file(&p, "fungidb.org").unwrap_err().to_string();
+        assert!(e.contains("no key"), "{e}");
     }
 
     #[test]
