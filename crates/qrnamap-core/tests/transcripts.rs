@@ -64,6 +64,7 @@ fn gene(label: &str, contig: &str, strand: Strand, transcripts: Vec<Transcript>)
         label: label.to_string(),
         contig: contig.to_string(),
         strand,
+        biotype: None,
         transcripts,
     }
 }
@@ -198,6 +199,7 @@ fn utr_merged_with_cds_when_no_exons() {
     t.utr3 = vec![(13, 15)];
     let m = GeneModel {
         genes: vec![gene("g1", "ctg", Strand::Plus, vec![t])],
+        ..Default::default()
     };
     let recs = build_transcripts(&small_genome(), &m).unwrap();
     // 1-4 "ACGT" + 8-15 "AAGGCCTT"
@@ -214,6 +216,7 @@ fn exons_take_precedence_over_cds() {
     t.cds = vec![(2, 3), (10, 12)];
     let m = GeneModel {
         genes: vec![gene("g1", "ctg", Strand::Plus, vec![t])],
+        ..Default::default()
     };
     let recs = build_transcripts(&small_genome(), &m).unwrap();
     assert_eq!(seq(&recs[0]), "ACGT");
@@ -225,6 +228,7 @@ fn exon_set_merges_overlapping_and_adjacent_intervals() {
     let t = tx("t1", &[(9, 12), (1, 5), (3, 8), (16, 18)]);
     let m = GeneModel {
         genes: vec![gene("g1", "ctg", Strand::Plus, vec![t])],
+        ..Default::default()
     };
     let recs = build_transcripts(&small_genome(), &m).unwrap();
     // 1-12 "ACGTTGCAAGGC" + 16-18 "AAC"
@@ -242,6 +246,7 @@ fn duplicate_transcript_is_named_error() {
             gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(1, 4)])]),
             gene("g2", "ctg", Strand::Minus, vec![tx("t1", &[(5, 8)])]),
         ],
+        ..Default::default()
     };
     let err = build_transcripts(&small_genome(), &m).unwrap_err();
     assert_eq!(err, BuildError::DuplicateTranscript("t1".to_string()));
@@ -258,6 +263,7 @@ fn out_of_range_is_named_error() {
                 Strand::Plus,
                 vec![tx("tbad", &[(1, 4), iv])],
             )],
+            ..Default::default()
         };
         let err = build_transcripts(&small_genome(), &m).unwrap_err();
         assert_eq!(
@@ -272,6 +278,7 @@ fn out_of_range_is_named_error() {
     // The last base of the contig is in range.
     let m = GeneModel {
         genes: vec![gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(18, 20)])])],
+        ..Default::default()
     };
     assert_eq!(
         seq(&build_transcripts(&small_genome(), &m).unwrap()[0]),
@@ -294,6 +301,7 @@ fn empty_interval_transcript_skipped() {
             // a gene with no intervals on a contig that is not in the genome needs no sequence
             gene("g3", "absent", Strand::Plus, vec![tx("t3", &[])]),
         ],
+        ..Default::default()
     };
     let recs = build_transcripts(&small_genome(), &m).unwrap();
     assert_eq!(recs.len(), 1);
@@ -314,6 +322,7 @@ fn lowercase_genome_gives_uppercase_transcript() {
             gene("gp", "ctg", Strand::Plus, vec![tx("tp", &[(1, 5)])]),
             gene("gm", "ctg", Strand::Minus, vec![tx("tm", &[(1, 5)])]),
         ],
+        ..Default::default()
     };
     let recs = build_transcripts(&g, &m).unwrap();
     assert_eq!(seq(&recs[0]), "ACGTN");
@@ -327,6 +336,7 @@ fn iupac_codes_complemented_and_unknown_becomes_n() {
     let g = vec![("ctg".to_string(), b"ACRYKMSWBDHVNx".to_vec())];
     let m = GeneModel {
         genes: vec![gene("gm", "ctg", Strand::Minus, vec![tx("tm", &[(1, 14)])])],
+        ..Default::default()
     };
     let recs = build_transcripts(&g, &m).unwrap();
     assert_eq!(seq(&recs[0]), "NNBDHVWSKMRYGT");
@@ -345,6 +355,7 @@ fn splice_sites_deduplicated_across_isoforms() {
                 tx("t2", &[(2, 4), (11, 14)]),
             ],
         )],
+        ..Default::default()
     };
     assert_eq!(splice_sites(&m), "ctg\t3\t10\t+\nctg\t13\t20\t+\n");
     assert_eq!(build_transcripts(&g, &m).unwrap().len(), 2);
@@ -354,6 +365,7 @@ fn splice_sites_deduplicated_across_isoforms() {
 fn single_exon_transcript_gives_no_splice_site() {
     let m = GeneModel {
         genes: vec![gene("g1", "ctg", Strand::Minus, vec![tx("t1", &[(1, 20)])])],
+        ..Default::default()
     };
     assert_eq!(splice_sites(&m), "");
 }
@@ -368,6 +380,7 @@ fn intron_of_five_bases_or_less_gives_no_splice_site() {
             Strand::Plus,
             vec![tx("t1", &[(1, 4), (9, 12), (20, 22)])],
         )],
+        ..Default::default()
     };
     // 9 - 4 = 5: joined; 20 - 12 = 8: junction left 11, right 19
     assert_eq!(splice_sites(&m), "ctg\t11\t19\t+\n");
@@ -396,6 +409,7 @@ fn splice_sites_sorted_by_chrom_then_position() {
                 vec![tx("t3", &[(1, 4), (21, 24)])],
             ),
         ],
+        ..Default::default()
     };
     assert_eq!(
         splice_sites(&m),
@@ -431,7 +445,7 @@ fn duplicate_contig_name_is_named_error() {
     // R29-5: a genome FASTA with two records of one name is an error, not "first wins".
     let mut genome = small_genome();
     genome.push(("ctg".to_string(), b"TTTTTTTT".to_vec()));
-    let m = GeneModel { genes: vec![gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(1, 4)])])] };
+    let m = GeneModel { genes: vec![gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(1, 4)])])], ..Default::default() };
     let err = build_transcripts(&genome, &m).unwrap_err();
     assert_eq!(err, BuildError::DuplicateContig("ctg".to_string()));
     assert!(err.to_string().contains("'ctg'"), "{err}");

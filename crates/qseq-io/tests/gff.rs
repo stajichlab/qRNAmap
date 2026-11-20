@@ -346,3 +346,48 @@ chr1\ts\texon\t200\t300\t.\t+\t.\tParent=t1\n";
     assert_eq!(m.genes[0].transcripts.len(), 1);
     assert_eq!(m.genes[0].transcripts[0].exons, vec![(1, 100), (200, 300)]);
 }
+
+#[test]
+fn gene_biotype_attribute_is_kept() {
+    let m = parse("chr1\tsrc\tgene\t1\t100\t.\t+\t.\tID=g1;gene_biotype=rRNA\n").unwrap();
+    assert_eq!(m.genes[0].biotype, Some("rRNA".to_string()));
+}
+
+#[test]
+fn missing_gene_biotype_is_none() {
+    let m = parse("chr1\tsrc\tgene\t1\t100\t.\t+\t.\tID=g1\n").unwrap();
+    assert_eq!(m.genes[0].biotype, None);
+    let m = parse("chr1\tsrc\tgene\t1\t100\t.\t+\t.\tID=g1;gene_biotype=\n").unwrap();
+    assert_eq!(m.genes[0].biotype, None);
+}
+
+#[test]
+fn percent_encoded_biotype_is_decoded() {
+    let m = parse("chr1\tsrc\tgene\t1\t100\t.\t+\t.\tID=g1;gene_biotype=lnc%5FRNA%3Bx\n").unwrap();
+    assert_eq!(m.genes[0].biotype, Some("lnc_RNA;x".to_string()));
+}
+
+#[test]
+fn mito_region_contig_is_collected() {
+    let m = parse(
+        "NC_001224.1\tRefSeq\tregion\t1\t85779\t.\t+\t.\tID=NC_001224.1:1..85779;Dbxref=taxon:559292;Is_circular=true;Name=MT;gbkey=Src;genome=mitochondrion;mol_type=genomic DNA;strain=S288C;substrain=FY1679\n\
+         chrM2\t.\tregion\t1\t10\t.\t+\t.\tID=r2;genome=mitochondrial\n",
+    )
+    .unwrap();
+    assert!(m.mito_contigs.contains("NC_001224.1"));
+    assert!(m.mito_contigs.contains("chrM2"));
+    assert_eq!(m.mito_contigs.len(), 2);
+}
+
+#[test]
+fn chromosome_region_is_not_mito() {
+    let m = parse("NC_001133.9\tRefSeq\tregion\t1\t230218\t.\t+\t.\tID=NC_001133.9:1..230218;Name=I;gbkey=Src;genome=chromosome;mol_type=genomic DNA\n").unwrap();
+    assert!(m.mito_contigs.is_empty());
+}
+
+#[test]
+fn mito_region_without_genes_is_not_an_error() {
+    let m = parse("chrM\t.\tregion\t1\t10\t.\t+\t.\tID=r;genome=mitochondrion\n").unwrap();
+    assert!(m.genes.is_empty());
+    assert_eq!(m.mito_contigs.len(), 1);
+}

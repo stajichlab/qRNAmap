@@ -1,6 +1,6 @@
 //! GFF3 gene model that keeps every isoform. No file or network I/O; reads from any `BufRead`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::io::{self, BufRead};
 
@@ -29,12 +29,16 @@ pub struct Gene {
     pub label: String,
     pub contig: String,
     pub strand: Strand,
+    /// Value of the `gene_biotype` attribute (percent-decoded); `None` when absent or empty.
+    pub biotype: Option<String>,
     pub transcripts: Vec<Transcript>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GeneModel {
     pub genes: Vec<Gene>,
+    /// Seqid of every `region` feature whose `genome` attribute is `mitochondrion` or `mitochondrial`.
+    pub mito_contigs: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -209,7 +213,7 @@ impl Builder<'_> {
         if self.label_owner.insert(label.clone(), gi).is_some() {
             return Err(GffError::DuplicateGeneLabel(label));
         }
-        self.genes.push(Gene { label, contig: f.contig.clone(), strand, transcripts: Vec::new() });
+        self.genes.push(Gene { label, contig: f.contig.clone(), strand, biotype: f.get("gene_biotype"), transcripts: Vec::new() });
         self.gene_of_feat.insert(fi, gi);
         Ok(gi)
     }
@@ -219,6 +223,7 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
     // Pass 1: read lines into features and child records.
     let mut feats: Vec<Feat> = Vec::new();
     let mut child_recs: Vec<ChildRec> = Vec::new();
+    let mut mito_contigs: BTreeSet<String> = BTreeSet::new();
     for (idx, line) in reader.lines().enumerate() {
         let line = line?;
         let lineno = idx + 1;
@@ -254,6 +259,9 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             let parents = feat.parents();
             child_recs.push(ChildRec { line: lineno, kind: feat.kind, contig: feat.contig, parents, start, end });
         } else {
+            if feat.kind == "region" && matches!(feat.get("genome").as_deref(), Some("mitochondrion" | "mitochondrial")) {
+                mito_contigs.insert(feat.contig.clone());
+            }
             feats.push(feat);
         }
     }
@@ -349,7 +357,7 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
         }
         push_transcript(&mut b.genes[gi], f, id, children.get(&i));
     }
-    Ok(GeneModel { genes: b.genes })
+    Ok(GeneModel { genes: b.genes, mito_contigs })
 }
 
 fn push_transcript(gene: &mut Gene, f: &Feat, id: Option<String>, ch: Option<&Children>) {
