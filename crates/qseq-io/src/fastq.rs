@@ -72,6 +72,9 @@ pub struct FastqChunker {
     /// only the new bytes, so a long record that arrives in many small chunks is not read again at every chunk.
     scanned: usize,
     newlines: usize,
+    /// Bytes examined by the newline scan since the chunker was made. Each byte should be
+    /// examined once; the tests check this instead of wall-clock time (R29-15).
+    scan_work: u64,
 }
 
 /// The default limit for one unfinished record: 64 MiB. A Nanopore read is some kilobases to a few megabases.
@@ -91,7 +94,7 @@ impl FastqChunker {
     /// A chunker that gives an error when an unfinished record grows past `limit` bytes. Input with no line breaks, or text that is not
     /// FASTQ, would otherwise fill the memory of the tab before the end of the file shows the problem.
     pub fn with_limit(limit: usize) -> Self {
-        FastqChunker { buffer: Vec::new(), limit, scanned: 0, newlines: 0 }
+        FastqChunker { buffer: Vec::new(), limit, scanned: 0, newlines: 0, scan_work: 0 }
     }
 
     /// Add a chunk. Returns the records that are complete now.
@@ -100,6 +103,7 @@ impl FastqChunker {
         // A record ends at every fourth newline. Only the bytes added since the last push are searched.
         let mut consumed = 0;
         for (i, &b) in self.buffer.iter().enumerate().skip(self.scanned) {
+            self.scan_work += 1;
             if b == b'\n' {
                 self.newlines += 1;
                 if self.newlines % 4 == 0 {
@@ -141,5 +145,45 @@ impl FastqChunker {
         self.scanned = 0;
         self.newlines = 0;
         Ok(records)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_record_arriving_in_small_chunks_is_scanned_once() {
+        // 6 MB in one record, in chunks of 2 KiB: 3,000 pushes. A scan from the start of the
+        // buffer on every push would examine about 9 GB; a scan of the new bytes examines each
+        // byte once.
+        let record = format!("@long\n{}\n+\n{}\n", "A".repeat(3_000_000), "I".repeat(3_000_000));
+        let mut chunker = FastqChunker::new();
+        let mut n = 0;
+        for chunk in record.as_bytes().chunks(2048) {
+            n += chunker.push(chunk).unwrap().len();
+        }
+        n += chunker.finish().unwrap().len();
+        assert_eq!(n, 1);
+        assert_eq!(chunker.scan_work, record.len() as u64, "each byte is scanned once");
+    }
+
+    #[test]
+    fn a_record_with_no_line_breaks_reaches_the_limit_after_one_scan_of_each_byte() {
+        let limit = 4 << 20;
+        let mut chunker = FastqChunker::with_limit(limit);
+        let piece = vec![b'A'; 2048];
+        let mut pushed = 0u64;
+        let mut failed = false;
+        for _ in 0..4000 {
+            pushed += piece.len() as u64;
+            if chunker.push(&piece).is_err() {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed, "the limit was not reached");
+        assert!(pushed <= limit as u64 + 2048, "the error came late: {pushed} bytes pushed");
+        assert_eq!(chunker.scan_work, pushed, "each byte is scanned once");
     }
 }

@@ -806,6 +806,79 @@ fn plain_quant_and_align_remove_old_outputs_of_all_samples_first() {
     }
 }
 
+#[test]
+fn missing_or_unreadable_fastq_is_named_before_any_tool() {
+    // R29-11: quant, align and run check every sheet FASTQ before any index build. No tool is on
+    // PATH, so an error that names a tool means the check came too late.
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("t2g.tsv.zst"));
+    qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
+    let empty = no_tools(d);
+    let missing = d.join("t1_2.fq");
+    let unreadable = d.join("c2_1.fq");
+    for (case, file, sample) in [("missing", &missing, "t1"), ("unreadable", &unreadable, "c2")] {
+        if case == "missing" {
+            fs::remove_file(&missing).unwrap();
+        } else {
+            fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+            if fs::File::open(&unreadable).is_ok() {
+                eprintln!("SKIP unreadable case: this user can read a mode-000 file (root?)");
+                continue;
+            }
+        }
+        let out = d.join(format!("out_{case}"));
+        let runs: [Vec<&str>; 3] = [
+            vec!["quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir", s(d)],
+            vec!["align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(d)],
+            vec!["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&out), "--tmpdir", s(d)],
+        ];
+        for a in runs {
+            let err = fail(&qrnamap(&a, Some(&empty)));
+            assert!(err.contains(&format!("sample '{sample}'")) && err.contains(s(file)), "{case} {}: {err}", a[0]);
+            for tool in ["kallisto", "hisat2", "featureCounts"] {
+                assert!(!err.contains(tool), "{case} {}: checked after a tool start: {err}", a[0]);
+            }
+            assert!(!out.join("index").exists() && !out.join("transcripts.kidx").exists());
+        }
+    }
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[test]
+fn out_under_scratch_gives_shared_storage_warning() {
+    // R29-13: --out on node-local scratch is a warning (index files must be on shared storage).
+    use qrnamap_cli::run::scratch_out_warning;
+    let w = scratch_out_warning(Path::new("/scratch/u/123/run"), None).expect("a /scratch/ path warns");
+    assert!(w.contains("/scratch/u/123/run") && w.contains("shared storage"), "{w}");
+    assert!(scratch_out_warning(Path::new("/node/tmp/x/run"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_some());
+    assert!(scratch_out_warning(Path::new("/node/tmp/x"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_some());
+    assert!(scratch_out_warning(Path::new("/bigdata/lab/run"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_none());
+    assert!(scratch_out_warning(Path::new("/bigdata/lab/run"), None).is_none());
+    assert!(scratch_out_warning(Path::new("/scratchy/run"), None).is_none(), "prefix must be the directory /scratch/");
+    assert!(scratch_out_warning(Path::new("/node/tmp/xy"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_none());
+    // Through the binary: SCRATCH set, --out under it. It is a warning, not an error: the run
+    // goes on and here fails later for a reason that has nothing to do with the warning.
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("run");
+    let o = Command::new(env!("CARGO_BIN_EXE_qrnamap"))
+        .args(["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out)])
+        .args(["--contrast", "condition,treated,nosuch"])
+        .env("SCRATCH", d)
+        .env("PATH", no_tools(d))
+        .output()
+        .unwrap();
+    let err = fail(&o);
+    assert!(err.contains("warning:") && err.contains("shared storage"), "{err}");
+    assert!(err.contains("nosuch"), "the run continued past the warning: {err}");
+}
+
 /// Write a gene count file for every sheet sample of `p`.
 fn write_counts_for_sheet(p: &Prepared) {
     for n in NAMES {

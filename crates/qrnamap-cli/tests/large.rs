@@ -208,6 +208,42 @@ fn large_forward_library_with_forward_flag_gives_full_counts_in_quant_and_align(
 }
 
 #[test]
+fn large_single_end_stranded_quant() {
+    // R29-10: single-end stranded kallisto end to end. Read 1 of a forward library is on the
+    // transcript strand: run as forward it gives full counts, run as reverse kallisto
+    // pseudoaligns nothing. Fragment length 250,50 is the simulator's (PARAMS).
+    if !common::require_tools(&QUANT_TOOLS) {
+        return;
+    }
+    let t0 = Instant::now();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = pairs(Strandedness::Forward, 106);
+    let (r1, r2) = (d.join("se_1.fq"), d.join("unused_2.fq"));
+    sim::write_fastq(&p, &r1, &r2);
+    let (fa, gff) = write_reference(d);
+    let (tx, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
+    run_transcripts(&fa, &gff, &tx, &t2g, None, None).unwrap();
+    let sample = qrnamap_core::SampleSheet::parse(&format!("sample\tfastq1\nSE\t{}\n", r1.display())).unwrap().samples.remove(0);
+    let cfg = |st| RunConfig { strandedness: st, fragment_len: Some((250.0, 50.0)), ..RunConfig::default() };
+    let fwd = prepare_quant(&tx, &t2g, &d.join("q_fwd"), Scratch::new(d.join("tmp")), cfg(Strandedness::Forward)).unwrap();
+    let r = quant_sample(&sample, &fwd).unwrap();
+    eprintln!("MEASURED single-end forward-as-forward summary {:?}", r.summary);
+    assert_eq!(r.summary.reads_processed, 40_000);
+    let w = max_error("quant single-end Forward as Forward", &r.counts);
+    assert!(w <= QUANT_TOL, "quant max relative error {w}");
+    let rev = prepare_quant(&tx, &t2g, &d.join("q_rev"), Scratch::new(d.join("tmp")), cfg(Strandedness::Reverse)).unwrap();
+    match quant_sample(&sample, &rev) {
+        Err(PipelineError::NoReadsPseudoaligned { sample, .. }) => {
+            assert_eq!(sample, "SE");
+            eprintln!("MEASURED single-end forward-as-reverse: NoReadsPseudoaligned (kallisto exit 1)");
+        }
+        other => panic!("expected NoReadsPseudoaligned, got {other:?}"),
+    }
+    eprintln!("WALL large_single_end_stranded_quant: {:.2?}", t0.elapsed());
+}
+
+#[test]
 fn large_reverse_library_run_as_forward_loses_counts() {
     if !common::require_tools(&QUANT_TOOLS) || !common::require_tools(&ALIGN_TOOLS) {
         return;

@@ -429,6 +429,28 @@ struct Staged {
     counts: [Vec<u64>; 2],
 }
 
+/// R29-11: every FASTQ file of every sample exists, is a file and can be opened for reading.
+/// Called before any index build, so a typo in the sheet fails in seconds, not after the index.
+/// The error names the sample and the file.
+pub fn check_fastq_files(samples: &[Sample]) -> Result<(), PipelineError> {
+    for s in samples {
+        for f in s.fastq1.iter().chain(&s.fastq2) {
+            let path = PathBuf::from(f);
+            let r = File::open(&path).and_then(|h| h.metadata()).and_then(|m| {
+                if m.is_file() {
+                    Ok(())
+                } else {
+                    Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"))
+                }
+            });
+            if let Err(source) = r {
+                return Err(PipelineError::Input { sample: Some(s.name.clone()), source: InputError::Io { path, source } });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Make every FASTQ path absolute and decompress the ones the tool cannot read into
 /// `scratch_dir`. `gzip_ok`: the tool reads gzip itself (kallisto). Plain files always pass.
 /// zstd files (and gzip when `!gzip_ok`) are decompressed, because neither tool reads zstd and

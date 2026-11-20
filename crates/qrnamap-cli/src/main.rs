@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use qrnamap_cli::pipeline::{
-    self, align_sample, check_samples, prepare_align, prepare_quant, quant_sample, run_matrix,
+    self, align_sample, check_fastq_files, check_samples, prepare_align, prepare_quant, quant_sample, run_matrix,
     run_transcripts, strand_check_sample, GenesFrom, SampleResult, Scratch,
     LOW_ASSIGNED_FRACTION,
 };
@@ -395,9 +395,12 @@ fn run(cli: Cli) -> Result<(), String> {
                 let (Some(r), Some(g)) = (&reference, &gff) else {
                     return Err("quant --task-id needs --reference and --gff (the inputs the run directory was prepared from)".into());
                 };
-                qrnamap_cli::run::prepared_quant(&out, r, g, &transcripts, &tx2gene, scratch.clone(), cfg)
-                    .map_err(|x| x.to_string())?
+                let ctx = qrnamap_cli::run::prepared_quant(&out, r, g, &transcripts, &tx2gene, scratch.clone(), cfg)
+                    .map_err(|x| x.to_string())?;
+                check_fastq_files(&samples).map_err(e)?;
+                ctx
             } else {
+                check_fastq_files(&samples).map_err(e)?;
                 // Ruling R27: an index built here was not made by `run --step prepare`.
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 // Final review I2: a failing sample must not leave later samples' old counts.
@@ -417,9 +420,12 @@ fn run(cli: Cli) -> Result<(), String> {
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
             let ctx = if task.task_id.is_some() {
-                qrnamap_cli::run::prepared_align(&out, &reference, &gff, scratch.clone(), cfg, keep_sam)
-                    .map_err(|x| x.to_string())?
+                let ctx = qrnamap_cli::run::prepared_align(&out, &reference, &gff, scratch.clone(), cfg, keep_sam)
+                    .map_err(|x| x.to_string())?;
+                check_fastq_files(&samples).map_err(e)?;
+                ctx
             } else {
+                check_fastq_files(&samples).map_err(e)?;
                 // Ruling R27: an index built here was not made by `run --step prepare`.
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 // Final review I2: a failing sample must not leave later samples' old counts.
@@ -435,7 +441,11 @@ fn run(cli: Cli) -> Result<(), String> {
             samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
             step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path,
         } => {
-            use qrnamap_cli::run::{run_local, run_slurm, RunArgs, SlurmOptions, Step};
+            use qrnamap_cli::run::{run_local, run_slurm, scratch_out_warning, RunArgs, SlurmOptions, Step};
+            let abs_out = std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
+            if let Some(w) = scratch_out_warning(&abs_out, std::env::var_os("SCRATCH").as_deref()) {
+                eprintln!("warning: {w}");
+            }
             let mode = match mode {
                 ModeArg::Quant => Mode::Quant,
                 ModeArg::Align => Mode::Align,

@@ -187,6 +187,21 @@ pub fn check_de_plan(sheet: &SampleSheet, design: Option<&str>, contrast: Option
     check_design(sheet, &contrast, &stand_in).map_err(RunError::DesignCheck)
 }
 
+/// R29-13: a warning when the run directory `out` (absolute) is on node-local scratch: under
+/// `$SCRATCH` (`scratch_env`, when set and non-empty) or under `/scratch`. Index and count files
+/// there are not visible to jobs on other nodes. A warning only, never an error.
+pub fn scratch_out_warning(out: &Path, scratch_env: Option<&std::ffi::OsStr>) -> Option<String> {
+    let under_env = scratch_env.filter(|v| !v.is_empty()).is_some_and(|s| out.starts_with(Path::new(s)));
+    if under_env || out.starts_with("/scratch") {
+        Some(format!(
+            "--out {} is on node-local scratch ($SCRATCH or /scratch/); the index and count files must be on shared storage (for example /bigdata) when jobs on other nodes read them",
+            out.display()
+        ))
+    } else {
+        None
+    }
+}
+
 /// Samples `[task_id * per_task, min((task_id + 1) * per_task, n))`, in sheet order.
 pub fn task_slice(n_samples: usize, task_id: usize, per_task: usize) -> Result<Range<usize>, RunError> {
     let out_of_range = || RunError::TaskOutOfRange { task_id, per_task, n_samples };
@@ -453,6 +468,7 @@ enum Prepared {
 
 fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&str)) -> Result<(SampleSheet, Prepared), RunError> {
     let sheet = check_inputs(args)?;
+    crate::pipeline::check_fastq_files(&sheet.samples)?;
     for w in check_reads_per_sample(&sheet, args.config.reads_per_sample).map_err(RunError::Input)? {
         warn(&w.to_string());
     }

@@ -84,6 +84,20 @@ fn kallisto_single_end_uses_l_and_s() {
 }
 
 #[test]
+fn kallisto_single_end_stranded_exact_argv() {
+    // R29-10: single-end stranded kallisto, the exact full argv for each strandedness.
+    for (st, flag) in [(Strandedness::Forward, "--fr-stranded"), (Strandedness::Reverse, "--rf-stranded")] {
+        let c0 = RunConfig { strandedness: st, fragment_len: Some((180.0, 25.0)), ..RunConfig::default() };
+        let c = kallisto_quant(&sample(&["a.fq", "b.fq"], &[]), "i.idx", "out", &c0).unwrap();
+        assert_eq!(
+            argv_native(&c),
+            s(&["kallisto", "quant", "-i", "i.idx", "-o", "out", "--plaintext", "-t", "1", flag, "--single", "-l", "180", "-s", "25", "a.fq", "b.fq"])
+        );
+        assert_eq!(c.inputs, p(&["a.fq", "b.fq", "i.idx"]));
+    }
+}
+
+#[test]
 fn hisat2_pair_reverse_is_RF() {
     let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse)).unwrap();
     assert_eq!(
