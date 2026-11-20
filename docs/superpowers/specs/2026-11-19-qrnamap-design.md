@@ -61,7 +61,7 @@ Cargo workspace. Library crates are written so that qmutfind can adopt them late
 | Crate | Role | I/O |
 |---|---|---|
 | `qseq-io` | Extracted from qmutfind-core: `read_fasta`, `FastqChunker`/`FastqReader`, GFF3 gene model (`Genome`, `Transcript`), gzip/zstd detection. | none, compiles for `wasm32` |
-| `genome-catalog` | Owns the genome catalog schema (versioned) and the derived layer: per-genome FASTA and GFF3 URLs, file sizes, annotation facts (same fields as qmutfind `site/genomes/genomes.json`, curated menu). URL builders for NCBI, FungiDB (Ensembl only after spike 0), size checks. Holds a small built-in snapshot. The full list of fungal assemblies comes from PopSeq's `catalog/kingdom/fungi_assemblies.csv.gz` (26,826 rows on 2026-11-11, built from NCBI `assembly_summary.txt`) as upstream input. | none |
+| `genome-catalog` | Self-contained genome catalog for qmutfind and qRNAmap. Owns the versioned schema and the list: per-genome FASTA and GFF3 URLs, file sizes, annotation facts (starting from the fields of qmutfind `site/genomes/genomes.json`). URL builders for NCBI and FungiDB (Ensembl only after spike 0), size checks. Holds a built-in snapshot. The list is made by a generator script taken from qmutfind `bench/make_genome_list.py` (257 lines, Python; reads NCBI `assembly_summary.txt`, keeps latest-version annotated genomes under a size cap, HEAD-checks file sizes, stops on any genome it must drop). | none |
 | `genome-fetch` | Native downloads: NCBI, Ensembl, FungiDB with API key (`EUPATHDB_KEY` or key file, key sent only to the key host, never printed; code taken from `qmutfind-cli/src/fetch.rs`). Writes `.gz`/`.zst`. | native only |
 | `qrnamap-core` | Transcriptome builder (genome + GFF3 to transcript FASTA and `tx2gene`), sample sheet model and validation, result parsers (kallisto `abundance.tsv`, featureCounts table), count matrix, summary stats, SVG plots, DESeq2 R script generation. | none, compiles for `wasm32` |
 | `qrnamap-cli` | Subcommands, native backends through `std::process`, threads, `$SCRATCH`. | native |
@@ -167,7 +167,7 @@ Each step has tests before the next one starts. Tests use real small datasets wi
 - **Scale:** 8 to 12 samples per experiment, up to 48. Largest genome 50 Mb. 12,000 to 15,000 genes. Reads per sample were not given. Limits and tests use these numbers. The browser limit for sample count and read bytes is set from spike 0 measurements, not guessed. Up to 48 samples in the browser is not assumed to work.
 - **Repository:** `stajichlab/qRNAmap` on GitHub, GitHub Actions allowed (including Emscripten builds).
 
-- **Catalog ownership:** `genome-catalog` owns the schema and the derived layer (URLs, sizes, annotation). PopSeq's assembly table is upstream input for the full list. Python tools such as PopSeq read the published catalog file, not the Rust code. PopSeq is not changed without the user's say-so. UNCHECKED: whether PopSeq's columns fit the schema (they have no FASTA or GFF URL columns that I saw); compare before the schema is frozen.
+- **Catalog ownership:** `genome-catalog` owns the schema, the list and its generator; it does not depend on PopSeq (user, 2026-11-19: PopSeq matters less now than a general catalog for qmutfind and qRNAmap). PopSeq can become a consumer or an upstream input later; see `docs/notes/2026-11-19-popseq-shared-schema-handoff.md` (deferred). Python tools read the published catalog file, not the Rust code. I have not read the generator's tests, if it has any.
 
 ## 11b. Calls added after the builder check (mine, open to change)
 

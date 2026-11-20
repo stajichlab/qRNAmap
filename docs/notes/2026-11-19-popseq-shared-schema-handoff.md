@@ -1,6 +1,6 @@
 # Note for PopSeq: a shared genome-assembly schema with `genome-catalog`
 
-Date: 2026-11-19. From: qRNAmap (design in `docs/superpowers/specs/2026-11-19-qrnamap-design.md`). Status: proposal, no change to PopSeq is requested yet. DRAFT: not copied into the PopSeq repository.
+Date: 2026-11-19. From: qRNAmap (design in `docs/superpowers/specs/2026-11-19-qrnamap-design.md`). Status: DEFERRED (user, 2026-11-19: a general catalog for qmutfind and qRNAmap comes first). Proposal only; no change to PopSeq is requested. DRAFT: not copied into the PopSeq repository.
 
 ## What this is
 
