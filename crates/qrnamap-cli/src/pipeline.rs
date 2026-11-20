@@ -292,10 +292,10 @@ fn check_label(l: &str) -> Result<(), PipelineError> {
 // ---------------------------------------------------------------------------------------------
 // Reference loading and `transcripts`
 
-fn load_reference(
-    reference: &Path,
-    gff: &Path,
-) -> Result<(Vec<(String, Vec<u8>)>, GeneModel), PipelineError> {
+/// Contigs as (name, sequence), as `read_fasta` returns them.
+type Genome = Vec<(String, Vec<u8>)>;
+
+fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), PipelineError> {
     let genome = read_fasta(open_input(reference).map_err(PipelineError::Input)?)
         .map_err(io_err(reference))?;
     let model = parse_gff3(open_input(gff).map_err(PipelineError::Input)?).map_err(|e| {

@@ -26,3 +26,15 @@ All packages solve in one pixi environment (`default`). Solved on 2026-11-19 (li
 | r-base | 4.5.3 | conda-forge |
 | bioconductor-deseq2 | 1.50.2 | bioconda |
 | rust | 1.100.0 (constraint `>=1.96,<2`) | conda-forge |
+
+## Measured
+
+Pipeline recovery on simulated reads (Task 11, 2026-11-19). Tests: `crates/qrnamap-cli/tests/pipeline_quant.rs`, `pipeline_align.rs`.
+
+- Data: 10,000 error-free read pairs from the 6 transcripts of `tests/fixtures/mini` (5 genes, 1,000 to 3,000 pairs per gene). The transcripts are 70 to 120 bases long, shorter than the 200-base fragment, so each fragment is the whole transcript. Reads are 75 bases (70 for the 70-base transcript).
+- kallisto 0.52.0 (`-t 1`): every gene count equals the truth (maximum relative error 0). Test tolerance: 10%.
+- HISAT2 2.2.2 + featureCounts 2.1.1 (`-p 1`, `-T 1`): every gene count equals the truth (maximum relative error 0); all 10,000 pairs mapped and assigned. Test tolerance: 5%.
+- Wrong strandedness: a reverse library run as forward gives featureCounts assigned fraction 0.0 and kallisto 0 pseudoaligned reads (kallisto then exits with status 1). An unstranded library run as forward in kallisto gives a pseudoaligned fraction of 0.496.
+- These results come from very short, error-free transcripts. They do not predict accuracy on real data.
+
+Native HISAT2 runs `hisat2-align-s`, not the `hisat2` wrapper: the Perl wrapper passes its arguments through a shell, which split a path with a space and expanded `$HOME` in the tests.
