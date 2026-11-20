@@ -135,11 +135,11 @@ Hosting: static files plus the two isolation headers, or the service-worker appr
 ## 10. Build order
 
 0. **Spikes (measure before committing).** In Node and in one real browser:
-   a. Get the kallisto, HISAT2, featureCounts and DESeq2 bundles (build with Emscripten 3.1.64, or use released `dist`). Run each on yeast data and compare with native tools from pixi.
-   b. HISAT2 index of a 12 Mb (yeast) and a 29 Mb (Af293) genome: time and peak memory in WASM. Same for the kallisto index of the Af293 transcript set.
-   c. Cross-origin isolation with NCBI and ENA downloads.
-   d. Ensembl download and CORS test.
-   e. Licence check of genomics-wasm and of bundling GPL tools.
+   a. **Tool parity (0a).** Get the kallisto, HISAT2, featureCounts and DESeq2 bundles (build with Emscripten 3.1.64, or use released `dist`). Run each on yeast data and compare with native tools from pixi.
+   b. **Index size (0b).** HISAT2 index of a 12 Mb (yeast) and a 29 Mb (Af293) genome: time and peak memory in WASM. Same for the kallisto index of the Af293 transcript set.
+   c. **Isolation (0c).** Cross-origin isolation with NCBI and ENA downloads.
+   d. **Ensembl (0d).** Ensembl download and CORS test.
+   e. **Licence and hosting (0e).** Licence check of genomics-wasm and of bundling GPL tools.
    Results go in `PLAN.md`. If 0b fails for HISAT2, genome mode becomes CLI-only in version 1 and the page offers fast mode only.
 1. Workspace; extract `qseq-io` and `genome-catalog` from qmutfind with their tests.
 2. Transcriptome builder with the `gffread` comparison.
@@ -198,7 +198,7 @@ Facts corrected
 Design changes
 - **Gene model and counting in genome mode.** NCBI GFF3 `exon` lines have `Parent=<transcript>`, not a gene id, so `-g gene_id` would find nothing. `qrnamap-core` writes a SAF file from the same gene model that makes `tx2gene`; featureCounts runs with `-F SAF`. A test requires both modes to give identical gene row names. "Feature type, attribute" leaves the sample sheet.
 - **Transcript rule.** Use exons. If there are none, use CDS merged with explicit UTR features when present, otherwise CDS only. (The earlier text said UTRs are derived from CDS; that is wrong.) Check against `gffread -w`. Add `gffread` to the pixi environment. Strand `.` or `?` is an error, not plus. A GFF3 with a `##FASTA` section must parse. Policy for rRNA, tRNA, pseudogenes and mitochondrial genes: keep rRNA in the index, flag these genes in the matrix.
-- **Per-sample read size is the binding browser limit.** Each tool call copies whole files in memory and the heap is 2 GiB. Spike 0f runs one full-size sample per mode in a real browser. Genome mode chunks reads (pairs kept together, known splice sites, `--no-temp-splicesite`, counts summed per chunk; UNVERIFIED that these settings make chunked output equal unchunked). Kallisto cannot be chunked exactly, so the browser gets a hard per-sample byte cap, UNMEASURED until spike 0f. Local files are the main browser path; ENA download was measured at 0.75 MB/s, too slow for many samples.
+- **Per-sample read size is the binding browser limit.** Each tool call copies whole files in memory and the heap is 2 GiB. The streaming spike (0f) runs one full-size sample per mode in a real browser. Genome mode chunks reads (pairs kept together, known splice sites, `--no-temp-splicesite`, counts summed per chunk; UNVERIFIED that these settings make chunked output equal unchunked). Kallisto cannot be chunked exactly, so the browser gets a hard per-sample byte cap, UNMEASURED until spike 0f. Local files are the main browser path; ENA download was measured at 0.75 MB/s, too slow for many samples.
 - **Parity tests.** The native side runs with one thread (`-t 1`, `-p 1`) and the pinned versions. kallisto `est_counts` compare with a stated tolerance; gene counts allow at most 1 count of difference. Measure the one-thread versus many-thread difference once and record it. SAM comparison excludes only the `CL` field of `@PG`.
 - **Two abstractions, not one.** `ToolCall` is a serialisable struct (arguments, inputs, outputs). `Quantifier` is kallisto or Salmon. A per-platform lowering step turns a `ToolCall` into the exact argv for native or WASM, with a table test of each. The browser executor is JavaScript, so `ToolCall` crosses `wasm-bindgen` as JSON.
 - **Sample sheet.** One strandedness setting maps to kallisto `--fr-stranded`/`--rf-stranded`, HISAT2 `--rna-strandness`, featureCounts `-s`, Salmon `-l`. A mapping table goes in the code and the docs. A subsample check estimates strandedness and reports the assigned-read fraction per sample. featureCounts with pairs uses `-p --countReadPairs`. HISAT2 gets a fungal `--max-intronlen` default, user-editable (UNVERIFIED default of the tool). `fastq1` and `fastq2` accept a list of files (lanes). Strandedness is a sheet-level setting, not a separate block.
@@ -213,6 +213,18 @@ Design changes
 ## 11d. What 20 million pairs means for the browser (arithmetic, not a measurement)
 
 Assume 150 base reads (not given by the user; change if wrong). One FASTQ record is about 2 x 150 bases plus a header of about 60 bytes, roughly 360 bytes. 20 million pairs is 40 million records, about 14 GB of decompressed FASTQ. The browser heap is 2 GiB and each tool call copies its inputs. So a 20 million pair sample cannot go through one browser call, and kallisto cannot be chunked exactly. Expect the browser to run a subsample or small samples, with the CLI doing full-size samples. Spike 0f finds the real browser cap. The CLI has no such limit and runs per-sample steps as SLURM tasks.
+
+## 11e. Streaming spike (0f): chunk, count, discard the reads
+
+Idea (user, 2026-11-19): process reads in chunks on the fly, keep only the placement (counts), and discard the reads. JavaScript streams the FASTQ in chunks, as qmutfind does, so one call holds one chunk, not the whole sample.
+
+Questions the spike answers, in order:
+1. **Genome mode.** Does chunked HISAT2 (known splice sites from the GFF3, `--no-temp-splicesite`, pairs kept together) plus per-chunk featureCounts, summed, match native unchunked output on the same reads? Compare counts per gene with a stated tolerance.
+2. **Cost per chunk.** Each call starts a fresh worker and reloads the index. Measure the reload time and memory for a 12 Mb and a 29 Mb genome, and the time per million pairs. Pick the chunk size from this. The browser read-size cap is found by running 0.5, 1 and 2 million pairs and keeping the largest size that finishes in a real browser. UNMEASURED today.
+3. **Kallisto.** Per-chunk abundances cannot be summed exactly. Additive per-chunk output would be equivalence-class counts, with the EM run once at the end. The current bundle supports only `index`, `quant`, `inspect`, `version`, `cite`. UNVERIFIED: whether a rebuilt kallisto bundle can write equivalence-class counts (for example through `kallisto pseudo`; from memory, not checked). If not, kallisto in the browser keeps a per-sample byte cap.
+4. **What is kept.** Per sample: counts, mapping rate, a small summary per chunk. Not the reads, not the SAM. A debug option keeps the SAM of the first chunk.
+
+Outcome rules: if chunked genome mode does not match, the browser keeps a byte cap in genome mode too. The CLI is not affected, since it has no heap limit.
 
 ## 12. Open items
 
