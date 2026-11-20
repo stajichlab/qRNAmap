@@ -1,0 +1,30 @@
+##gff-version 3
+##sequence-region chrA 1 1500
+##sequence-region chrB 1 1500
+chrA	mini	gene	101	350	.	+	.	ID=geneA;Name=geneA
+chrA	mini	mRNA	101	350	.	+	.	ID=tA1;Parent=geneA
+chrA	mini	exon	101	160	.	+	.	Parent=tA1
+chrA	mini	exon	301	350	.	+	.	Parent=tA1
+chrA	mini	CDS	111	160	.	+	0	Parent=tA1
+chrA	mini	CDS	301	340	.	+	1	Parent=tA1
+chrA	mini	gene	601	870	.	-	.	ID=geneB;Name=geneB
+chrA	mini	mRNA	601	840	.	-	.	ID=tB1;Parent=geneB
+chrA	mini	exon	601	640	.	-	.	Parent=tB1
+chrA	mini	exon	701	740	.	-	.	Parent=tB1
+chrA	mini	exon	801	840	.	-	.	Parent=tB1
+chrA	mini	mRNA	621	870	.	-	.	ID=tB2;Parent=geneB
+chrA	mini	exon	621	640	.	-	.	Parent=tB2
+chrA	mini	exon	701	740	.	-	.	Parent=tB2
+chrA	mini	exon	821	870	.	-	.	Parent=tB2
+chrB	mini	gene	101	180	.	+	.	ID=geneR;Name=geneR
+chrB	mini	rRNA	101	180	.	+	.	ID=tR1;Parent=geneR
+chrB	mini	exon	101	180	.	+	.	Parent=tR1
+chrB	mini	gene	401	540	.	-	.	ID=geneC;Name=geneC
+chrB	mini	mRNA	401	540	.	-	.	ID=tC1;Parent=geneC
+chrB	mini	CDS	401	430	.	-	0	Parent=tC1
+chrB	mini	CDS	501	540	.	-	0	Parent=tC1
+chrB	mini	gene	701	780	.	+	.	ID=geneU;Name=geneU
+chrB	mini	mRNA	701	780	.	+	.	ID=tU1;Parent=geneU
+chrB	mini	five_prime_UTR	701	720	.	+	.	Parent=tU1
+chrB	mini	CDS	721	760	.	+	0	Parent=tU1
+chrB	mini	three_prime_UTR	761	780	.	+	.	Parent=tU1

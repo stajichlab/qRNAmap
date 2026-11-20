@@ -149,6 +149,9 @@ dependencies = [
 [[package]]
 name = "qrnamap-core"
 version = "0.1.0"
+dependencies = [
+ "qseq-io",
+]
 
 [[package]]
 name = "qseq-io"
