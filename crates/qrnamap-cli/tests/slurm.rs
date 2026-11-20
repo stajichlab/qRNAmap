@@ -294,6 +294,104 @@ fn slurm_script_with_hostile_run_dir_round_trips() {
     assert!(!samples.contains("#SBATCH --output"), "{samples}");
 }
 
+// ---------------------------------------------------------------------------------------------
+// `qrnamap run --slurm` through the binary
+
+fn qrnamap_no_tools(args: &[&str], empty_path: &Path) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_qrnamap")).args(args).env("PATH", empty_path).output().unwrap()
+}
+
+/// A sheet with distinctive sample names and FASTQ paths (the FASTQ files need not exist:
+/// `--slurm` reads no reads).
+fn distinct_sheet(d: &Path) -> (PathBuf, Vec<String>) {
+    let mut t = String::from("sample\tfastq1\tfastq2\tcondition\n");
+    let mut secrets = Vec::new();
+    for i in 0..7 {
+        let name = format!("ZZsampleUnique{i}");
+        let r1 = format!("/data/QQfastqUnique{i}_R1.fq.gz");
+        let r2 = format!("/data/QQfastqUnique{i}_R2.fq.gz");
+        let cond = if i < 4 { "ctl" } else { "trt" };
+        t.push_str(&format!("{name}\t{r1}\t{r2}\t{cond}\n"));
+        secrets.extend([name, r1, r2]);
+    }
+    let p = d.join("sheet.tsv");
+    fs::write(&p, t).unwrap();
+    (p, secrets)
+}
+
+#[test]
+fn slurm_flag_runs_no_tool() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let empty = d.join("empty_path");
+    fs::create_dir_all(&empty).unwrap();
+    let (sheet, _) = distinct_sheet(d);
+    let out = d.join("run");
+    let fx = common::mini_fixture();
+    let o = qrnamap_no_tools(
+        &[
+            "run", "--samples", sheet.to_str().unwrap(), "--reference", fx.join("genome.fa").to_str().unwrap(),
+            "--gff", fx.join("genes.gff3").to_str().unwrap(), "--mode", "align", "--out", out.to_str().unwrap(),
+            "--slurm", "--samples-per-task", "3", "--contrast", "condition,trt,ctl", "--partition", "short",
+        ],
+        &empty,
+    );
+    let stdout = String::from_utf8_lossy(&o.stdout).into_owned();
+    assert!(o.status.success(), "{stdout}\n{}", String::from_utf8_lossy(&o.stderr));
+    let sdir = out.join("slurm");
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch", "submit.sh"] {
+        assert!(sdir.join(f).is_file(), "{f}");
+    }
+    assert!(sdir.join("logs").is_dir());
+    assert!(stdout.contains(&format!("bash {}", sh_quote(sdir.join("submit.sh").to_str().unwrap()).unwrap())), "{stdout}");
+    // Only the scripts were written: no index, no counts, no marker.
+    let names: Vec<String> = fs::read_dir(&out).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(names, ["slurm"]);
+    let samples = fs::read_to_string(sdir.join("samples.sbatch")).unwrap();
+    assert!(samples.contains("#SBATCH --array=0-2\n") && samples.contains("'align'"), "{samples}");
+    assert!(samples.contains("#SBATCH --partition=short\n"));
+    let fin = fs::read_to_string(sdir.join("final.sbatch")).unwrap();
+    assert!(fin.contains("'--contrast' 'condition,trt,ctl'"), "{fin}");
+}
+
+#[test]
+fn slurm_scripts_never_contain_sample_names_or_fastq_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let empty = d.join("empty_path");
+    fs::create_dir_all(&empty).unwrap();
+    let (sheet, secrets) = distinct_sheet(d);
+    let fx = common::mini_fixture();
+    for mode in ["quant", "align"] {
+        let out = d.join(format!("run_{mode}"));
+        let o = qrnamap_no_tools(
+            &[
+                "run", "--samples", sheet.to_str().unwrap(), "--reference", fx.join("genome.fa").to_str().unwrap(),
+                "--gff", fx.join("genes.gff3").to_str().unwrap(), "--mode", mode, "--out", out.to_str().unwrap(), "--slurm",
+            ],
+            &empty,
+        );
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let mut n = 0;
+        for e in fs::read_dir(out.join("slurm")).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_file() {
+                n += 1;
+                let text = fs::read_to_string(&p).unwrap();
+                for sec in &secrets {
+                    assert!(!text.contains(sec.as_str()), "{} contains {sec}", p.display());
+                }
+                for part in ["ZZsample", "QQfastq"] {
+                    assert!(!text.contains(part), "{} contains {part}", p.display());
+                }
+            }
+        }
+        assert_eq!(n, 4);
+        let stdout = String::from_utf8_lossy(&o.stdout);
+        assert!(!stdout.contains("ZZsample") && !stdout.contains("QQfastq"), "{stdout}");
+    }
+}
+
 #[test]
 fn plain_run_dir_gets_sbatch_output_directive() {
     let s = slurm_scripts(&plan(7, 3, Path::new("/bigdata/lab/run1"))).unwrap();

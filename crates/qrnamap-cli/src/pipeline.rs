@@ -447,7 +447,7 @@ fn genecounts_path(out_dir: &Path, sample: &str) -> PathBuf {
 
 /// Ruling R24: remove every output a previous run of this sample may have left, before any
 /// tool runs, so a failed rerun cannot leave old counts for `matrix` to use.
-fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineError> {
+pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineError> {
     let sd = out_dir.join(sample);
     let gc = genecounts_path(out_dir, sample);
     let mut gc_partial = gc.as_os_str().to_owned();

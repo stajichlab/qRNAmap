@@ -222,7 +222,7 @@ fn forward_tail(bytes: &[u8]) -> String {
 
 /// Remove the output files of an earlier run (and their `.partial` files) so that a run that
 /// stops early leaves no stale results. Only NotFound is ignored.
-fn remove_old_outputs(prefix: &Path) -> Result<(), DeRunError> {
+pub fn remove_old_outputs(prefix: &Path) -> Result<(), DeRunError> {
     for suffix in [".results.csv", ".normalized.csv", ".vst.csv", ".versions.txt", ".results.shrunk.csv"] {
         for extra in ["", ".partial"] {
             let mut p = prefix.as_os_str().to_owned();

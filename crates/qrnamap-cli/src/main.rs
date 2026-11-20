@@ -69,6 +69,8 @@ enum Cmd {
         out: PathBuf,
         #[command(flatten)]
         run: RunFlags,
+        #[command(flatten)]
+        task: TaskFlags,
     },
     /// HISAT2 index, then HISAT2 and featureCounts per sample; writes DIR/<sample>.genecounts.tsv.zst.
     Align {
@@ -82,12 +84,76 @@ enum Cmd {
         out: PathBuf,
         #[command(flatten)]
         run: RunFlags,
+        #[command(flatten)]
+        task: TaskFlags,
         /// HISAT2 --max-intronlen. The default 5000 is a chosen value, UNVERIFIED for fungi.
         #[arg(long, default_value_t = 5000)]
         max_intron: u32,
         /// Keep a zstd copy of each SAM as DIR/<sample>/<sample>.sam.zst.
         #[arg(long)]
         keep_sam: bool,
+    },
+    /// All steps: reference files and index, per-sample counts, matrix, and DESeq2 when
+    /// --contrast is given. With --slurm, writes SLURM scripts to OUT/slurm/ and runs no tool.
+    Run {
+        #[arg(long)]
+        samples: PathBuf,
+        #[arg(long)]
+        reference: PathBuf,
+        #[arg(long)]
+        gff: PathBuf,
+        #[arg(long, value_enum)]
+        mode: ModeArg,
+        /// Run directory. On a cluster it must be on shared storage (for example /bigdata).
+        #[arg(long)]
+        out: PathBuf,
+        #[command(flatten)]
+        run: RunFlags,
+        /// HISAT2 --max-intronlen (align mode). The default 5000 is a chosen value, UNVERIFIED for fungi.
+        #[arg(long, default_value_t = 5000)]
+        max_intron: u32,
+        /// Design formula over sample sheet columns. Default with --contrast: '~ condition'.
+        #[arg(long, requires = "contrast")]
+        design: Option<String>,
+        /// FACTOR,LEVEL,REFERENCE. Runs DESeq2 after the matrix; writes OUT/deseq2.*.
+        #[arg(long)]
+        contrast: Option<String>,
+        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink.
+        #[arg(long, value_enum, requires = "contrast")]
+        shrink: Option<ShrinkArg>,
+        /// Read pairs per sample above which a warning is printed (spec 11a: a warning in the CLI).
+        #[arg(long, default_value_t = 20_000_000)]
+        reads_per_sample: u64,
+        /// Keep a zstd copy of each SAM (align mode).
+        #[arg(long)]
+        keep_sam: bool,
+        /// Run only a part: prepare (reference files, index, removal of old outputs) or final
+        /// (matrix and DESeq2). The SLURM scripts use these.
+        #[arg(long, value_enum, default_value = "all")]
+        step: StepArg,
+        /// Write SLURM scripts (prepare, sample array, final, submit.sh) instead of running.
+        #[arg(long)]
+        slurm: bool,
+        /// Samples per array task. Default 1 until a measured per-sample time exists (aim for
+        /// about 1 to 1.5 hours of work per task).
+        #[arg(long, default_value_t = 1, requires = "slurm")]
+        samples_per_task: usize,
+        /// CPUs per SLURM task. Default: the --threads value. UNMEASURED placeholder.
+        #[arg(long, requires = "slurm")]
+        cpus: Option<u32>,
+        /// Memory per SLURM task in GB. UNMEASURED placeholder.
+        #[arg(long, default_value_t = qrnamap_cli::slurm::DEFAULT_MEM_GB, requires = "slurm")]
+        mem_gb: u32,
+        /// SLURM time limit per task. UNMEASURED placeholder.
+        #[arg(long, default_value = qrnamap_cli::slurm::DEFAULT_TIME, requires = "slurm")]
+        time: String,
+        #[arg(long, requires = "slurm")]
+        partition: Option<String>,
+        #[arg(long, requires = "slurm")]
+        account: Option<String>,
+        /// The qrnamap binary the jobs call. Default: this program's absolute path.
+        #[arg(long, requires = "slurm")]
+        qrnamap_bin: Option<PathBuf>,
     },
     /// Gene-by-sample matrix DIR/counts.tsv.zst from DIR/<sample>.genecounts.tsv.zst.
     Matrix {
@@ -146,6 +212,32 @@ enum Cmd {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum ModeArg {
+    Quant,
+    Align,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum StepArg {
+    All,
+    Prepare,
+    Final,
+}
+
+/// SLURM array task flags of `quant` and `align`.
+#[derive(Args)]
+struct TaskFlags {
+    /// Process only the samples of this array task: samples [ID*K, (ID+1)*K) in sheet order.
+    /// The index is not built: it is taken from a run directory prepared by
+    /// `qrnamap run --step prepare` (it needs OUT/.prepared).
+    #[arg(long, value_name = "ID")]
+    task_id: Option<usize>,
+    /// K, the samples per array task (with --task-id).
+    #[arg(long, default_value_t = 1, requires = "task_id")]
+    samples_per_task: usize,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum SourceArg {
     Ncbi,
     Fungidb,
@@ -177,6 +269,26 @@ struct RunFlags {
     /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23).
     #[arg(long)]
     tmpdir: Option<PathBuf>,
+}
+
+impl ShrinkArg {
+    fn core(self) -> qrnamap_core::de::Shrink {
+        match self {
+            ShrinkArg::Normal => qrnamap_core::de::Shrink::Normal,
+            ShrinkArg::Apeglm => qrnamap_core::de::Shrink::Apeglm,
+            ShrinkArg::Ashr => qrnamap_core::de::Shrink::Ashr,
+        }
+    }
+}
+
+impl TaskFlags {
+    /// The slice of the sheet this invocation processes: all samples without --task-id.
+    fn range(&self, n: usize) -> Result<std::ops::Range<usize>, String> {
+        match self.task_id {
+            None => Ok(0..n),
+            Some(id) => qrnamap_cli::run::task_slice(n, id, self.samples_per_task).map_err(|x| x.to_string()),
+        }
+    }
 }
 
 fn parse_fragment_length(s: &str) -> Result<(f64, f64), String> {
@@ -252,28 +364,93 @@ fn run(cli: Cli) -> Result<(), String> {
             let n = run_transcripts(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref()).map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());
         }
-        Cmd::Quant { samples, transcripts, tx2gene, out, run } => {
+        Cmd::Quant { samples, transcripts, tx2gene, out, run, task } => {
             let samples = load_sheet(&samples)?;
             let cfg = run.config(Mode::Quant);
             check_samples(&samples, &cfg, Mode::Quant).map_err(e)?;
+            let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
-            let ctx = prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg).map_err(e)?;
-            for s in &samples {
+            let ctx = if task.task_id.is_some() {
+                qrnamap_cli::run::prepared_quant(&out, &tx2gene, scratch.clone(), cfg).map_err(|x| x.to_string())?
+            } else {
+                prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg).map_err(e)?
+            };
+            for s in &samples[range] {
                 report(&quant_sample(s, &ctx).map_err(e)?, "pseudoaligned");
             }
             scratch.cleanup();
         }
-        Cmd::Align { samples, reference, gff, out, run, max_intron, keep_sam } => {
+        Cmd::Align { samples, reference, gff, out, run, task, max_intron, keep_sam } => {
             let samples = load_sheet(&samples)?;
             let mut cfg = run.config(Mode::Align);
             cfg.max_intron = max_intron;
             check_samples(&samples, &cfg, Mode::Align).map_err(e)?;
+            let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
-            let ctx = prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam).map_err(e)?;
-            for s in &samples {
+            let ctx = if task.task_id.is_some() {
+                qrnamap_cli::run::prepared_align(&out, scratch.clone(), cfg, keep_sam).map_err(|x| x.to_string())?
+            } else {
+                prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam).map_err(e)?
+            };
+            for s in &samples[range] {
                 report(&align_sample(s, &ctx).map_err(e)?, "mapped");
             }
             scratch.cleanup();
+        }
+        Cmd::Run {
+            samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
+            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin,
+        } => {
+            use qrnamap_cli::run::{run_local, run_slurm, RunArgs, SlurmOptions, Step};
+            let mode = match mode {
+                ModeArg::Quant => Mode::Quant,
+                ModeArg::Align => Mode::Align,
+            };
+            let mut config = run.config(mode);
+            config.max_intron = max_intron;
+            config.reads_per_sample = reads_per_sample;
+            let step = match step {
+                StepArg::All => Step::All,
+                StepArg::Prepare => Step::Prepare,
+                StepArg::Final => Step::Final,
+            };
+            let args = RunArgs {
+                samples, reference, gff, mode, out, config, tmpdir: run.tmpdir.clone(), design, contrast,
+                shrink: shrink.map(ShrinkArg::core), keep_sam, step,
+            };
+            if slurm {
+                let qrnamap_bin = match qrnamap_bin {
+                    Some(p) => p,
+                    None => std::env::current_exe().map_err(|x| format!("cannot find the path of this program: {x}"))?,
+                };
+                let opts = SlurmOptions {
+                    per_task: samples_per_task,
+                    cpus: cpus.unwrap_or(run.threads),
+                    mem_gb,
+                    time,
+                    partition,
+                    account,
+                    qrnamap_bin,
+                };
+                let submit = run_slurm(&args, &opts).map_err(|x| x.to_string())?;
+                let q = qrnamap_cli::slurm::sh_quote(&submit.to_string_lossy()).map_err(|x| x.to_string())?;
+                println!("wrote SLURM scripts to {}", submit.parent().unwrap_or(&submit).display());
+                println!("submit with:\n  bash {q}");
+                println!("The --cpus, --mem-gb and --time values are UNMEASURED placeholders; check them before submitting.");
+            } else {
+                let what = if mode == Mode::Quant { "pseudoaligned" } else { "mapped" };
+                let r = run_local(&args, &mut |r| report(r, what), &mut |w| eprintln!("warning: {w}"))
+                    .map_err(|x| x.to_string())?;
+                if let Some(p) = &r.counts {
+                    eprintln!("wrote {}", p.display());
+                }
+                if let Some(v) = &r.deseq2_version {
+                    println!("DESeq2 {v}");
+                }
+                for f in &r.de_files {
+                    eprintln!("wrote {}", f.display());
+                }
+            }
         }
         Cmd::Matrix { out, samples, genes_from } => {
             let samples = load_sheet(&samples)?;
@@ -297,11 +474,7 @@ fn run(cli: Cli) -> Result<(), String> {
             eprintln!("wrote {}", path.display());
         }
         Cmd::De { counts, samples, design, contrast, shrink, out, tmpdir } => {
-            let shrink = shrink.map(|s| match s {
-                ShrinkArg::Normal => qrnamap_core::de::Shrink::Normal,
-                ShrinkArg::Apeglm => qrnamap_core::de::Shrink::Apeglm,
-                ShrinkArg::Ashr => qrnamap_core::de::Shrink::Ashr,
-            });
+            let shrink = shrink.map(ShrinkArg::core);
             let args = qrnamap_cli::de::DeArgs { counts, samples, design, contrast, shrink, out, tmpdir };
             let r = qrnamap_cli::de::run_de(&args).map_err(|x| x.to_string())?;
             println!("DESeq2 {}", r.deseq2_version);
