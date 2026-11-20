@@ -82,6 +82,10 @@ pub enum PipelineError {
     MissingSummaryFile { sample: String, path: PathBuf },
     /// A per-sample summary file names another sample, or is not a one-row summary table.
     SummaryFileSample { path: PathBuf, expected: String, found: String },
+    /// Genes of the tx2gene table are not genes of the GFF3 given for the gene table, so the
+    /// gene table would not match the count rows. `missing` holds the first few names (sorted),
+    /// `n_missing` the total.
+    GenesTableMismatch { missing: Vec<String>, n_missing: usize },
 }
 
 impl fmt::Display for PipelineError {
@@ -157,6 +161,15 @@ impl fmt::Display for PipelineError {
                  Check the strandedness setting (now {strandedness:?}) with `qrnamap strand-check`, \
                  and check that the reads match the transcripts. kallisto stderr:\n{stderr_tail}"
             ),
+            PipelineError::GenesTableMismatch { missing, n_missing } => {
+                let more = if *n_missing > missing.len() { ", ..." } else { "" };
+                write!(
+                    f,
+                    "{n_missing} gene(s) of the tx2gene table are not genes of the --gff GFF3: {}{more}. \
+                     The gene table would not match the count rows; give the GFF3 the transcripts were built from",
+                    missing.join(", ")
+                )
+            }
         }
     }
 }
@@ -380,7 +393,37 @@ pub fn write_genes_table(path: &Path, model: &GeneModel, mito_contigs: &[String]
         check_label(&g.label)?;
     }
     let rows = gene_table(model, mito_contigs);
-    write_output(path, gene_table_tsv(&rows).as_bytes())
+    write_output(path, gene_table_tsv(&rows).as_bytes())?;
+    // R35-7: a name that matches no contig is a note, not an error (the match is exact).
+    for c in unmatched_mito_contigs(model, mito_contigs) {
+        eprintln!("note: --mito-contig '{c}' matches no contig of the GFF3 (the match is exact and case-sensitive); it flags no gene");
+    }
+    Ok(())
+}
+
+/// The `mito_contigs` names that are neither the contig of a gene nor the seqid of a
+/// mitochondrial `region` feature of `model`, in the given order.
+pub fn unmatched_mito_contigs(model: &GeneModel, mito_contigs: &[String]) -> Vec<String> {
+    let known: HashSet<&str> =
+        model.genes.iter().map(|g| g.contig.as_str()).chain(model.mito_contigs.iter().map(String::as_str)).collect();
+    mito_contigs.iter().filter(|c| !known.contains(c.as_str())).cloned().collect()
+}
+
+/// At most this many gene names are listed in `GenesTableMismatch`.
+const MAX_MISSING_LISTED: usize = 10;
+
+/// Every gene of `tx2gene` must be a gene label of `model` (R35-3). More genes in the model is
+/// fine: genes without intervals are absent from tx2gene (ruling R15).
+pub fn check_tx2gene_in_model(tx2gene: &HashMap<String, String>, model: &GeneModel) -> Result<(), PipelineError> {
+    let labels: HashSet<&str> = model.genes.iter().map(|g| g.label.as_str()).collect();
+    let missing: BTreeSet<&str> = tx2gene.values().map(String::as_str).filter(|g| !labels.contains(g)).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(PipelineError::GenesTableMismatch {
+        n_missing: missing.len(),
+        missing: missing.iter().take(MAX_MISSING_LISTED).map(|g| g.to_string()).collect(),
+    })
 }
 
 /// Remove an old `<out>/genes.tsv.zst` (and its `.partial`) before a run (ruling R24).
@@ -914,6 +957,9 @@ pub fn prepare_quant(
     // Read and check the GFF3 before the index build; write the table after it, so a failed
     // prepare leaves no table.
     let model = genes.map(|g| load_model(g.gff)).transpose()?;
+    if let Some(m) = &model {
+        check_tx2gene_in_model(&tx2gene, m)?;
+    }
     let (fa, _guard) = plain_copy(transcripts, &scratch, "kallisto-index", "transcripts.fa")?;
     let index = out_dir.join("transcripts.kidx");
     let call = kallisto_index(utf8(&fa)?, utf8(&index)?);
@@ -1008,6 +1054,19 @@ pub fn prepare_align(
     keep_sam: bool,
     mito_contigs: &[String],
 ) -> Result<AlignContext, PipelineError> {
+    prepare_align_files(reference, gff, out_dir, scratch, config, keep_sam, Some(mito_contigs))
+}
+
+/// `prepare_align`; the gene table is written only when `genes_table` is `Some(mito_contigs)`.
+fn prepare_align_files(
+    reference: &Path,
+    gff: &Path,
+    out_dir: &Path,
+    scratch: Scratch,
+    config: RunConfig,
+    keep_sam: bool,
+    genes_table: Option<&[String]>,
+) -> Result<AlignContext, PipelineError> {
     let out_dir = absolute(out_dir)?;
     fs::create_dir_all(&out_dir).map_err(io_err(&out_dir))?;
     let (genome, model) = load_reference(reference, gff)?;
@@ -1024,7 +1083,9 @@ pub fn prepare_align(
     let call = hisat2_build(utf8(&fa)?, utf8(&prefix)?, &config)
         .map_err(|source| PipelineError::Config { sample: "(index)".into(), source })?;
     run_call(&call, &index_dir).map_err(|source| PipelineError::Exec { sample: None, source })?;
-    write_genes_table(&out_dir.join(GENES_TABLE), &model, mito_contigs)?;
+    if let Some(mito) = genes_table {
+        write_genes_table(&out_dir.join(GENES_TABLE), &model, mito)?;
+    }
     Ok(AlignContext {
         index_prefix: prefix,
         splice_sites: splice_path,
@@ -1034,6 +1095,18 @@ pub fn prepare_align(
         config,
         keep_sam,
     })
+}
+
+/// `prepare_align` for `strand-check`: the same reference files and index, but no
+/// `<out>/genes.tsv.zst` (R35-1: a finished run directory keeps its gene table).
+pub fn prepare_strand_check(
+    reference: &Path,
+    gff: &Path,
+    out_dir: &Path,
+    scratch: Scratch,
+    config: RunConfig,
+) -> Result<AlignContext, PipelineError> {
+    prepare_align_files(reference, gff, out_dir, scratch, config, false, None)
 }
 
 fn summary_field(m: &BTreeMap<String, u64>, path: &Path, f: &str) -> Result<u64, PipelineError> {
@@ -1327,8 +1400,11 @@ pub fn run_matrix_with_genes(
     samples: &[Sample],
     genes: Option<&[String]>,
 ) -> Result<(PathBuf, Vec<String>), PipelineError> {
-    // A failing matrix must not leave an old mapping summary next to new or old counts (R24).
+    // A failing matrix must not leave an old mapping summary or an old matrix (R24, R35-2).
+    // The DESeq2 outputs are removed by `de` itself (R26).
     remove_old_mapping_summary(out_dir)?;
+    remove_if_present(&out_dir.join("counts.tsv.zst"))?;
+    remove_if_present(&out_dir.join("counts.tsv.zst.partial"))?;
     let mut per_sample = Vec::with_capacity(samples.len());
     for s in samples {
         per_sample.push((s.name.clone(), read_gene_counts(&genecounts_path(out_dir, &s.name), &s.name)?));

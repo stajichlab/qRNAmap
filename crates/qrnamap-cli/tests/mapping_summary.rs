@@ -9,7 +9,7 @@ use std::path::Path;
 use common::{records, sample, sim, COUNTS};
 use qrnamap_cli::pipeline::{
     align_sample, build_mapping_summary, prepare_align, prepare_quant, quant_sample, read_table,
-    run_matrix, run_transcripts, write_gene_counts, write_sample_summary, PipelineError,
+    run_matrix, run_transcripts, write_gene_counts, write_output, write_sample_summary, PipelineError,
     QuantContext, SampleSummary, Scratch, MAPPING_SUMMARY,
 };
 use qrnamap_core::{Mode, RunConfig, SampleSheet, Strandedness};
@@ -272,4 +272,105 @@ fn align_sample_writes_summary_equal_to_printed_numbers() {
     eprintln!("align summary {:?}", res.summary);
     check_summary_file(&out.join("S1.summary.tsv.zst"), "align", "forward", &res.summary);
     assert!(!out.join("S1.summary.tsv.zst.partial").exists());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Final review fix wave: I3 (R35-2) and the error paths of the summary readers (R35-8)
+
+#[test]
+fn failed_matrix_removes_old_counts_matrix() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    // A run directory with an old matrix; S2 has lost its summary (for example a run made
+    // before summary files existed).
+    std::fs::write(d.join("counts.tsv.zst"), b"old matrix").unwrap();
+    std::fs::write(d.join("counts.tsv.zst.partial"), b"old").unwrap();
+    std::fs::remove_file(d.join("S2.summary.tsv.zst")).unwrap();
+    let err = run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap_err();
+    assert!(matches!(&err, PipelineError::MissingSummaryFile { sample, .. } if sample == "S2"), "{err:?}");
+    assert!(!d.join("counts.tsv.zst").exists(), "the old matrix survived a failed matrix");
+    assert!(!d.join("counts.tsv.zst.partial").exists());
+    assert!(!d.join(MAPPING_SUMMARY).exists());
+    // A failure before any summary is read (a missing count file) removes it too.
+    std::fs::write(d.join("counts.tsv.zst"), b"old matrix").unwrap();
+    let err = run_matrix(d, &samples_of(&["S1", "S9"]), None).unwrap_err();
+    assert!(matches!(err, PipelineError::MissingCountFile { .. }), "{err:?}");
+    assert!(!d.join("counts.tsv.zst").exists());
+}
+
+#[test]
+fn successful_matrix_still_writes_both() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2"]);
+    std::fs::write(d.join("counts.tsv.zst"), b"old matrix").unwrap();
+    std::fs::write(d.join(MAPPING_SUMMARY), b"old").unwrap();
+    run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap();
+    assert_eq!(read_table(&d.join("counts.tsv.zst")).unwrap(), "gene\tS1\tS2\ngeneA\t5\t6\n");
+    let m = read_table(&d.join(MAPPING_SUMMARY)).unwrap();
+    assert_eq!(m.lines().count(), 3, "{m}");
+    assert!(m.starts_with(HEADER), "{m}");
+}
+
+/// Write `text` as `<d>/S1.summary.tsv.zst` and return the error of the summary reader.
+fn summary_error(text: &str) -> PipelineError {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_output(&d.join("S1.summary.tsv.zst"), text.as_bytes()).unwrap();
+    build_mapping_summary(d, &names(&["S1"]), None).unwrap_err()
+}
+
+fn bad_table(e: &PipelineError) -> (usize, String) {
+    match e {
+        PipelineError::BadTable { line, detail, .. } => (*line, detail.clone()),
+        _ => panic!("expected BadTable, got {e:?}"),
+    }
+}
+
+#[test]
+fn sample_summary_reader_error_paths() {
+    let row = format!("S1\tquant\t10\t0.9\t0.8\treverse\t{}", env!("CARGO_PKG_VERSION"));
+    // Bad header.
+    let e = summary_error(&format!("sample\tmode\n{row}\n"));
+    assert_eq!(bad_table(&e), (1, "the summary header is not the expected one".into()));
+    assert!(e.to_string().contains("S1.summary.tsv.zst line 1:"), "{e}");
+    // Missing row.
+    let e = summary_error(&format!("{HEADER}\n"));
+    assert_eq!(bad_table(&e), (2, "the summary row is missing".into()));
+    // Extra row.
+    let e = summary_error(&format!("{HEADER}\n{row}\n{row}\n"));
+    assert_eq!(bad_table(&e), (2, "expected one row of 7 tab-separated fields".into()));
+    // Wrong field count (6 and 8).
+    let e = summary_error(&format!("{HEADER}\nS1\tquant\t10\t0.9\t0.8\treverse\n"));
+    assert_eq!(bad_table(&e), (2, "expected one row of 7 tab-separated fields".into()));
+    let e = summary_error(&format!("{HEADER}\n{row}\textra\n"));
+    assert_eq!(bad_table(&e), (2, "expected one row of 7 tab-separated fields".into()));
+}
+
+/// Return the error of the strand-check table reader for `text` (S1 has a valid summary).
+fn strand_error(text: &str) -> PipelineError {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1"]);
+    let t = d.join("strand_check.tsv");
+    std::fs::write(&t, text).unwrap();
+    build_mapping_summary(d, &names(&["S1"]), Some(&t)).unwrap_err()
+}
+
+#[test]
+fn strand_suggestion_reader_error_paths() {
+    // Column not found.
+    let e = strand_error("sample\tsense\nS1\t5\n");
+    assert_eq!(bad_table(&e), (1, "column 'suggested' not found".into()));
+    let e = strand_error("name\tsuggested\nS1\tforward\n");
+    assert_eq!(bad_table(&e), (1, "column 'sample' not found".into()));
+    // Too few fields on line 3 (line numbers count from 1 in the file).
+    let e = strand_error("sample\tsense\tsuggested\nS1\t5\tforward\nS2\t7\n");
+    assert_eq!(bad_table(&e), (3, "row has too few fields".into()));
+    assert!(e.to_string().contains("strand_check.tsv line 3:"), "{e}");
+    // An empty table: line 0 means the whole file, and the message names no line.
+    let e = strand_error("");
+    assert_eq!(bad_table(&e), (0, "the table is empty".into()));
+    assert!(e.to_string().ends_with("strand_check.tsv: the table is empty"), "{e}");
 }

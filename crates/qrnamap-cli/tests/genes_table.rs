@@ -332,3 +332,222 @@ fn run_slurm_forwards_mito_contig_quoted() {
     // The unquoted `$HOME` must not appear outside single quotes.
     assert!(!prepare.replace("'my contig$HOME'", "").contains("$HOME"), "{prepare}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Final review fix wave (R35)
+
+/// The mini GFF3 without geneU (and its transcript tU1).
+fn gff_without_gene_u(d: &Path) -> PathBuf {
+    let text: String = fs::read_to_string(common::mini_gff())
+        .unwrap()
+        .lines()
+        .filter(|l| !l.contains("geneU") && !l.contains("tU1"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let p = d.join("no_u.gff3");
+    fs::write(&p, text).unwrap();
+    p
+}
+
+/// C1 (R35-1), the reviewer's scenario: a finished quant run with `--mito-contig chrB`, then
+/// `strand-check` into the same directory. The gene table must keep its bytes.
+#[test]
+fn strand_check_leaves_existing_genes_table_untouched() {
+    if !common::require_tools(&["kallisto", "hisat2-build", "hisat2-align-s", "featureCounts"]) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("R");
+    let tmp = d.join("tmp");
+    ok(&qrnamap(
+        &[
+            "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out),
+            "--tmpdir", s(&tmp), "--mito-contig", "chrB",
+        ],
+        None,
+    ));
+    let table = out.join("genes.tsv.zst");
+    let before = fs::read(&table).unwrap();
+    assert_eq!(read_table(&table).unwrap(), expected("chrB"));
+    ok(&qrnamap(
+        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(&tmp)],
+        None,
+    ));
+    assert!(out.join("strand_check.tsv").is_file());
+    assert_eq!(fs::read(&table).unwrap(), before, "strand-check changed genes.tsv.zst");
+    assert!(!out.join("genes.tsv.zst.partial").exists());
+}
+
+#[test]
+fn strand_check_does_not_create_genes_table_in_a_fresh_dir() {
+    if !common::require_tools(&["hisat2-build", "hisat2-align-s", "featureCounts"]) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("sc");
+    ok(&qrnamap(
+        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(&d.join("tmp"))],
+        None,
+    ));
+    assert!(out.join("strand_check.tsv").is_file());
+    assert!(!out.join("genes.tsv.zst").exists(), "strand-check wrote a gene table");
+    assert!(!out.join("genes.tsv.zst.partial").exists());
+}
+
+fn tx2gene_map(t2g: &Path) -> std::collections::HashMap<String, String> {
+    qrnamap_cli::pipeline::read_tx2gene(t2g).unwrap()
+}
+
+fn model_of(gff: &Path) -> GeneModel {
+    qseq_io::parse_gff3(std::io::BufReader::new(fs::File::open(gff).unwrap())).unwrap()
+}
+
+/// I4 (R35-3), tool-free: the check itself, and the CLI with an empty PATH (the error comes
+/// before any tool and before the table is written).
+#[test]
+fn quant_gff_not_matching_tx2gene_is_named_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (g, gff) = mini();
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("t2g.tsv.zst"));
+    qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
+    let no_u = gff_without_gene_u(d);
+    let e = qrnamap_cli::pipeline::check_tx2gene_in_model(&tx2gene_map(&t2g), &model_of(&no_u)).unwrap_err();
+    assert!(
+        matches!(&e, PipelineError::GenesTableMismatch { missing, n_missing: 1 } if missing == &["geneU".to_string()]),
+        "{e:?}"
+    );
+    assert!(e.to_string().contains("geneU"), "{e}");
+
+    // A GFF3 with none of the genes: the list is bounded, the count is the full one.
+    let other = d.join("other.gff3");
+    let mut text = String::from("##gff-version 3\n");
+    for i in 0..30 {
+        text.push_str(&format!("chrA\tx\tgene\t1\t10\t.\t+\t.\tID=zz{i:02}\n"));
+    }
+    fs::write(&other, text).unwrap();
+    let e = qrnamap_cli::pipeline::check_tx2gene_in_model(&tx2gene_map(&t2g), &model_of(&other)).unwrap_err();
+    match &e {
+        PipelineError::GenesTableMismatch { missing, n_missing } => {
+            assert_eq!(*n_missing, 5);
+            assert_eq!(missing, &["geneA", "geneB", "geneC", "geneR", "geneU"]);
+        }
+        _ => panic!("{e:?}"),
+    }
+
+    // CLI: plain quant with the GFF3 that lacks geneU; no tool on PATH.
+    let sh = sheet(d);
+    let out = d.join("q");
+    fs::create_dir_all(&out).unwrap();
+    fs::write(out.join("genes.tsv.zst"), b"stale").unwrap();
+    let empty = d.join("empty_path");
+    fs::create_dir_all(&empty).unwrap();
+    let err = fail(&qrnamap(
+        &[
+            "quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir",
+            s(&d.join("tmp")), "--gff", s(&no_u),
+        ],
+        Some(&empty),
+    ));
+    assert!(err.contains("1 gene(s) of the tx2gene table are not genes of the --gff GFF3: geneU"), "{err}");
+    assert!(!err.contains("kallisto"), "the check must come before any tool: {err}");
+    assert!(!out.join("genes.tsv.zst").exists(), "no gene table after the error");
+    assert!(!out.join("transcripts.kidx").exists());
+}
+
+#[test]
+fn quant_gff_superset_of_tx2gene_is_ok() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (g, gff) = mini();
+    let no_u = gff_without_gene_u(d);
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("t2g.tsv.zst"));
+    // tx2gene without geneU; the full GFF3 has one gene more.
+    qrnamap_cli::pipeline::run_transcripts(&g, &no_u, &fa, &t2g, None, None).unwrap();
+    qrnamap_cli::pipeline::check_tx2gene_in_model(&tx2gene_map(&t2g), &model_of(&gff)).unwrap();
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let sh = sheet(d);
+    let out = d.join("q");
+    ok(&qrnamap(
+        &[
+            "quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir",
+            s(&d.join("tmp")), "--gff", s(&gff),
+        ],
+        None,
+    ));
+    assert_eq!(read_table(&out.join("genes.tsv.zst")).unwrap(), expected("none"));
+}
+
+/// R35-7: a `--mito-contig` name that matches no contig of the GFF3 gives a note, not an error.
+#[test]
+fn mito_contig_matching_no_contig_prints_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (g, gff) = mini();
+    let table = d.join("genes.tsv");
+    let o = qrnamap(
+        &[
+            "transcripts", "--reference", s(&g), "--gff", s(&gff), "--out", s(&d.join("tx.fa")), "--tx2gene",
+            s(&d.join("t2g.tsv")), "--genes-table", s(&table), "--mito-contig", "chrB", "--mito-contig", "chrb",
+        ],
+        None,
+    );
+    let err = ok(&o);
+    assert!(err.contains("note: --mito-contig 'chrb' matches no contig of the GFF3"), "{err}");
+    assert!(!err.contains("'chrB' matches"), "chrB exists: {err}");
+    assert_eq!(fs::read_to_string(&table).unwrap(), expected("chrB"));
+}
+
+#[test]
+fn transcripts_mito_contig_without_genes_table_prints_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (g, gff) = mini();
+    let err = ok(&qrnamap(
+        &[
+            "transcripts", "--reference", s(&g), "--gff", s(&gff), "--out", s(&d.join("tx.fa")), "--tx2gene",
+            s(&d.join("t2g.tsv")), "--mito-contig", "chrB",
+        ],
+        None,
+    ));
+    assert!(err.contains("note: --mito-contig has no effect without --genes-table"), "{err}");
+}
+
+#[test]
+fn quant_task_id_mito_contig_prints_note() {
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("run");
+    let tmp = d.join("tmp");
+    ok(&qrnamap(
+        &[
+            "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out),
+            "--step", "prepare", "--tmpdir", s(&tmp),
+        ],
+        None,
+    ));
+    let before = fs::read(out.join("genes.tsv.zst")).unwrap();
+    let err = ok(&qrnamap(
+        &[
+            "quant", "--samples", s(&sh), "--transcripts", s(&out.join("transcripts.fa.zst")), "--tx2gene",
+            s(&out.join("tx2gene.tsv.zst")), "--out", s(&out), "--tmpdir", s(&tmp), "--task-id", "0", "--reference", s(&g),
+            "--gff", s(&gff), "--mito-contig", "chrB",
+        ],
+        None,
+    ));
+    assert!(err.contains("note: --mito-contig has no effect with --task-id"), "{err}");
+    assert_eq!(fs::read(out.join("genes.tsv.zst")).unwrap(), before);
+}

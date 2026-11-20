@@ -421,6 +421,9 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         }
         Cmd::Transcripts { reference, gff, out, tx2gene, saf, splice_sites, genes_table, mito_contig } => {
+            if genes_table.is_none() && !mito_contig.is_empty() {
+                eprintln!("note: --mito-contig has no effect without --genes-table (no gene table is written)");
+            }
             let genes = genes_table.as_deref().map(|p| (p, mito_contig.as_slice()));
             let n = run_transcripts_with_genes(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref(), genes)
                 .map_err(e)?;
@@ -437,6 +440,9 @@ fn run(cli: Cli) -> Result<(), String> {
                     return Err("quant: --mito-contig needs --gff (the gene table comes from the GFF3)".into());
                 }
                 eprintln!("note: no --gff given, so {}/genes.tsv.zst is not written", out.display());
+            }
+            if task.task_id.is_some() && !mito_contig.is_empty() {
+                eprintln!("note: --mito-contig has no effect with --task-id (the prepare step writes genes.tsv.zst)");
             }
             let ctx = if task.task_id.is_some() {
                 let (Some(r), Some(g)) = (&reference, &gff) else {
@@ -467,6 +473,9 @@ fn run(cli: Cli) -> Result<(), String> {
             check_samples(&samples, &cfg, Mode::Align).map_err(e)?;
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
+            if task.task_id.is_some() && !mito_contig.is_empty() {
+                eprintln!("note: --mito-contig has no effect with --task-id (the prepare step writes genes.tsv.zst)");
+            }
             let ctx = if task.task_id.is_some() {
                 let ctx = qrnamap_cli::run::prepared_align(&out, &reference, &gff, scratch.clone(), cfg, keep_sam)
                     .map_err(|x| x.to_string())?;
@@ -601,7 +610,7 @@ fn run(cli: Cli) -> Result<(), String> {
             // Final review I1: the index, genes.saf and splice_sites.txt built below replace the
             // prepared ones in OUT, so the marker no longer describes them.
             qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
-            let ctx = prepare_align(&reference, &gff, &out, scratch.clone(), cfg, false, &[]).map_err(e)?;
+            let ctx = pipeline::prepare_strand_check(&reference, &gff, &out, scratch.clone(), cfg).map_err(e)?;
             let mut table = String::from(
                 "sample\tsense\tantisense\tambiguous\tsense_fraction\tantisense_fraction\tambiguous_fraction\tsuggested\tlow_fraction_warning\n",
             );
