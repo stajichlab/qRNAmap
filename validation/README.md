@@ -3,8 +3,10 @@
 Run on 2026-11-19 (US Pacific time) on the UCR HPCC cluster. The `qrnamap` binary was built
 from commit `81175d5` (`cargo build --release -p qrnamap-cli`, pixi env on PATH).
 All measured numbers in this file come from that `81175d5` build. A later commit, `f2bfb54`, changed
-only the SLURM script generation of `qrnamap run --slurm` (it also added the `--tool-path` flag for
-it); it fixes finding 1 below. The `f2bfb54` build was not re-run on the cluster.
+the `run --slurm` script generation and its CLI wiring (main.rs, run.rs, slurm.rs) and added the
+`--tool-path` flag; its tests are only in tests/slurm.rs. It targets finding 1 below (verified by
+unit tests with a stub sbatch and by `sbatch --test-only` option parsing only; not verified on the
+cluster). The `f2bfb54` build was not re-run on the cluster.
 Data lives outside the repository in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/`.
 This directory holds the scripts and small summary tables only.
 
@@ -155,6 +157,7 @@ the same mtime as `stat`), 2026-11-19:
     `SAMPLE/featurecounts.summary`, `SAMPLE.genecounts.tsv.zst` (21:55:03 to 21:58:44),
     `counts.tsv.zst` (21:58:56), `deseq2.*` (21:59:22 to 21:59:23).
 - Exceptions (earlier than 21:47):
+  - The directories `run_quant/slurm` and `run_align/slurm`: 21:40:31.
   - The 4 generated scripts in each `slurm/` directory (`prepare.sbatch`, `samples.sbatch`,
     `final.sbatch`, `submit.sh`): 21:40:31. They were written once by `qrnamap run --slurm`
     and not rewritten for the resubmission. Both attempts used the same scripts.
