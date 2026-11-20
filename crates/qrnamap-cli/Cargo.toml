@@ -8,3 +8,10 @@ publish.workspace = true
 [[bin]]
 name = "qrnamap"
 path = "src/main.rs"
+
+[dependencies]
+flate2 = "1"
+zstd = "0.13"
+
+[dev-dependencies]
+tempfile = "3"
