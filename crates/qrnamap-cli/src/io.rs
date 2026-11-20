@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
@@ -8,16 +8,26 @@ const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 
 #[derive(Debug)]
 pub enum InputError {
-    Io(io::Error),
+    /// An I/O failure. `path` is empty when built through `From<io::Error>`.
+    Io { path: PathBuf, source: io::Error },
     Truncated { path: PathBuf },
+    Corrupt { path: PathBuf, detail: String },
 }
 
 impl fmt::Display for InputError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InputError::Io(e) => write!(f, "input error: {e}"),
+            InputError::Io { path, source } if path.as_os_str().is_empty() => {
+                write!(f, "input error: {source}")
+            }
+            InputError::Io { path, source } => {
+                write!(f, "input error: {}: {source}", path.display())
+            }
             InputError::Truncated { path } => {
                 write!(f, "compressed input is truncated: {}", path.display())
+            }
+            InputError::Corrupt { path, detail } => {
+                write!(f, "corrupt compressed input: {}: {detail}", path.display())
             }
         }
     }
@@ -26,15 +36,18 @@ impl fmt::Display for InputError {
 impl std::error::Error for InputError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            InputError::Io(e) => Some(e),
-            InputError::Truncated { .. } => None,
+            InputError::Io { source, .. } => Some(source),
+            _ => None,
         }
     }
 }
 
 impl From<io::Error> for InputError {
     fn from(e: io::Error) -> Self {
-        InputError::Io(e)
+        InputError::Io {
+            path: PathBuf::new(),
+            source: e,
+        }
     }
 }
 
@@ -58,44 +71,159 @@ fn detect(head: &[u8]) -> Format {
     }
 }
 
-/// Wraps a decoder and maps its end-of-file errors to `InputError::Truncated`.
-struct TruncationMap<R> {
-    inner: R,
+fn truncated(path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        InputError::Truncated {
+            path: path.to_path_buf(),
+        },
+    )
+}
+
+fn corrupt(path: &Path, detail: String) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        InputError::Corrupt {
+            path: path.to_path_buf(),
+            detail,
+        },
+    )
+}
+
+/// Map a decoder error: EOF is truncation; data errors are corruption;
+/// other kinds (real device errors) pass through.
+fn map_decoder_error(path: &Path, e: io::Error) -> io::Error {
+    match e.kind() {
+        io::ErrorKind::UnexpectedEof => truncated(path),
+        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData | io::ErrorKind::Other => {
+            corrupt(path, e.to_string())
+        }
+        _ => e,
+    }
+}
+
+/// zstd decoder with error mapping.
+struct ZstdMap<R: BufRead> {
+    inner: zstd::Decoder<'static, R>,
     path: PathBuf,
 }
 
-impl<R: Read> Read for TruncationMap<R> {
+impl<R: BufRead> Read for ZstdMap<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.read(buf).map_err(|e| {
-            if e.kind() == io::ErrorKind::UnexpectedEof {
-                io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    InputError::Truncated {
-                        path: self.path.clone(),
-                    },
-                )
-            } else {
-                e
-            }
-        })
+        self.inner
+            .read(buf)
+            .map_err(|e| map_decoder_error(&self.path, e))
     }
+}
+
+enum GzState<R: BufRead> {
+    Active(flate2::bufread::GzDecoder<R>),
+    Between(R),
+    Done,
+}
+
+/// Multi-member gzip reader. It handles members one by one so that an EOF in
+/// the header of a later member (trailing bytes) is told apart from an EOF in
+/// a payload (truncation).
+struct GzMap<R: BufRead> {
+    state: GzState<R>,
+    members: usize,
+    path: PathBuf,
+}
+
+impl<R: BufRead> GzMap<R> {
+    fn new(r: R, path: PathBuf) -> Self {
+        GzMap {
+            state: GzState::Between(r),
+            members: 0,
+            path,
+        }
+    }
+}
+
+impl<R: BufRead> Read for GzMap<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            match std::mem::replace(&mut self.state, GzState::Done) {
+                GzState::Done => return Ok(0),
+                GzState::Between(mut r) => {
+                    if r.fill_buf()?.is_empty() {
+                        return Ok(0);
+                    }
+                    self.members += 1;
+                    self.state = GzState::Active(flate2::bufread::GzDecoder::new(r));
+                }
+                GzState::Active(mut d) => match d.read(buf) {
+                    Ok(0) => self.state = GzState::Between(d.into_inner()),
+                    Ok(n) => {
+                        self.state = GzState::Active(d);
+                        return Ok(n);
+                    }
+                    Err(e) => {
+                        if d.header().is_none() && self.members > 1 {
+                            return Err(corrupt(
+                                &self.path,
+                                "trailing bytes after last member".to_string(),
+                            ));
+                        }
+                        return Err(map_decoder_error(&self.path, e));
+                    }
+                },
+            }
+        }
+    }
+}
+
+/// Read up to 4 bytes, looping over short reads, until 4 bytes or EOF.
+fn read_head<R: Read>(r: &mut R) -> io::Result<Vec<u8>> {
+    let mut head = Vec::with_capacity(4);
+    let mut tmp = [0u8; 4];
+    while head.len() < 4 {
+        match r.read(&mut tmp[..4 - head.len()]) {
+            Ok(0) => break,
+            Ok(n) => head.extend_from_slice(&tmp[..n]),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(head)
 }
 
 /// Open a plain, gzip (multi-member) or zstd file for buffered reading.
 /// Decoding is lazy: a truncated stream is reported while reading, as an
 /// `io::Error` of kind `UnexpectedEof` that wraps `InputError::Truncated`.
+/// A corrupt stream is an `InvalidData` error that wraps `InputError::Corrupt`.
 pub fn open_input(path: &Path) -> Result<Box<dyn BufRead>, InputError> {
-    let mut file = BufReader::new(File::open(path)?);
-    let format = detect(file.fill_buf()?);
+    let file = File::open(path).map_err(|source| InputError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    open_reader(file, path)
+}
+
+/// Same as `open_input` for any reader. `path` is used in error messages.
+/// The first bytes are read in a loop, so a reader that returns short reads
+/// is still detected correctly.
+pub fn open_reader<R: Read + 'static>(
+    mut r: R,
+    path: &Path,
+) -> Result<Box<dyn BufRead>, InputError> {
+    let io_err = |source| InputError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    let head = read_head(&mut r).map_err(io_err)?;
+    let format = detect(&head);
+    let stream = BufReader::new(Cursor::new(head).chain(r));
     let path_buf = path.to_path_buf();
     Ok(match format {
-        Format::Plain => Box::new(file),
-        Format::Gzip => Box::new(BufReader::new(TruncationMap {
-            inner: flate2::bufread::MultiGzDecoder::new(file),
-            path: path_buf,
-        })),
-        Format::Zstd => Box::new(BufReader::new(TruncationMap {
-            inner: zstd::Decoder::with_buffer(file)?,
+        Format::Plain => Box::new(stream),
+        Format::Gzip => Box::new(BufReader::new(GzMap::new(stream, path_buf))),
+        Format::Zstd => Box::new(BufReader::new(ZstdMap {
+            inner: zstd::Decoder::with_buffer(stream).map_err(io_err)?,
             path: path_buf,
         })),
     })

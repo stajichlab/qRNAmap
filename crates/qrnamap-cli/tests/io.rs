@@ -1,6 +1,6 @@
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use qrnamap_cli::io::{open_input, InputError};
+use qrnamap_cli::io::{open_input, open_reader, InputError};
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -68,7 +68,7 @@ fn empty_file_reads_empty() {
 #[test]
 fn missing_file_is_io_error() {
     let r = open_input(Path::new("/nonexistent/qrnamap/none.txt"));
-    assert!(matches!(r, Err(InputError::Io(_))));
+    assert!(matches!(r, Err(InputError::Io { .. })));
 }
 
 fn assert_truncated(path: &Path) {
@@ -103,4 +103,113 @@ fn truncated_zstd_is_named_error() {
     let full = zstd::encode_all(&data[..], 3).unwrap();
     let (_d, p) = write_tmp("t.zst", &full[..full.len() / 2]);
     assert_truncated(&p);
+}
+
+fn read_until_end_or_error(path: &Path) -> (Vec<u8>, std::io::Error) {
+    let mut r = open_input(path).unwrap();
+    let mut out = Vec::new();
+    let err = r.read_to_end(&mut out).unwrap_err();
+    (out, err)
+}
+
+fn assert_corrupt(err: &std::io::Error, path: &Path) -> String {
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<InputError>())
+        .expect("inner InputError");
+    match inner {
+        InputError::Corrupt { path: p, detail } => {
+            assert_eq!(p, path);
+            let text = inner.to_string();
+            assert!(text.contains("corrupt"));
+            assert!(text.contains(&path.display().to_string()));
+            detail.clone()
+        }
+        other => panic!("wrong variant: {other:?}"),
+    }
+}
+
+#[test]
+fn corrupt_gzip_checksum_is_named_corrupt_error() {
+    let mut b = gz(b"some text to corrupt\n");
+    let n = b.len();
+    b[n - 5] ^= 0xff; // CRC32 field
+    let (_d, p) = write_tmp("c.gz", &b);
+    let (_out, err) = read_until_end_or_error(&p);
+    let detail = assert_corrupt(&err, &p);
+    assert!(detail.contains("checksum"), "detail: {detail}");
+}
+
+#[test]
+fn corrupt_zstd_is_named_corrupt_error() {
+    let mut enc = zstd::stream::Encoder::new(Vec::new(), 3).unwrap();
+    enc.include_checksum(true).unwrap();
+    enc.write_all(b"zstd text to corrupt\n").unwrap();
+    let mut b = enc.finish().unwrap();
+    let n = b.len();
+    b[n - 1] ^= 0xff; // checksum field
+    let (_d, p) = write_tmp("c.zst", &b);
+    let (_out, err) = read_until_end_or_error(&p);
+    let detail = assert_corrupt(&err, &p);
+    assert!(detail.contains("checksum"), "detail: {detail}");
+}
+
+#[test]
+fn gzip_trailing_junk_is_corrupt_not_truncated() {
+    let mut b = gz(b"first\n");
+    b.extend(gz(b"second\n"));
+    b.extend(b"junk\n");
+    let (_d, p) = write_tmp("j.gz", &b);
+    let (out, err) = read_until_end_or_error(&p);
+    assert_eq!(out, b"first\nsecond\n");
+    let detail = assert_corrupt(&err, &p);
+    assert_eq!(detail, "trailing bytes after last member");
+}
+
+#[test]
+fn gzip_trailing_zero_padding_is_corrupt() {
+    let mut b = gz(b"data\n");
+    b.extend(vec![0u8; 16]);
+    let (_d, p) = write_tmp("z.gz", &b);
+    let (out, err) = read_until_end_or_error(&p);
+    assert_eq!(out, b"data\n");
+    let detail = assert_corrupt(&err, &p);
+    assert_eq!(detail, "trailing bytes after last member");
+}
+
+struct OneByte(std::io::Cursor<Vec<u8>>);
+impl Read for OneByte {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = buf.len().min(1);
+        self.0.read(&mut buf[..n])
+    }
+}
+
+#[test]
+fn short_first_read_still_detects_gzip() {
+    let b = gz(b"slow pipe\nline2\n");
+    let mut r = open_reader(OneByte(std::io::Cursor::new(b)), Path::new("pipe.gz")).unwrap();
+    let mut s = String::new();
+    r.read_to_string(&mut s).unwrap();
+    assert_eq!(s, "slow pipe\nline2\n");
+}
+
+#[test]
+fn short_first_read_still_detects_zstd() {
+    let b = zstd::encode_all(&b"slow zstd\n"[..], 3).unwrap();
+    let mut r = open_reader(OneByte(std::io::Cursor::new(b)), Path::new("pipe")).unwrap();
+    let mut s = String::new();
+    r.read_to_string(&mut s).unwrap();
+    assert_eq!(s, "slow zstd\n");
+}
+
+#[test]
+fn open_missing_file_error_names_path() {
+    let path = Path::new("/nonexistent/qrnamap/none.txt");
+    let err = match open_input(path) {
+        Err(e) => e,
+        Ok(_) => panic!("expected error"),
+    };
+    assert!(err.to_string().contains("/nonexistent/qrnamap/none.txt"));
 }
