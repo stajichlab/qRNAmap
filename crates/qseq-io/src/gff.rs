@@ -44,6 +44,8 @@ pub enum GffError {
     /// Strand is not `+` or `-` on a gene or transcript that has children.
     BadStrand { line: usize, value: String },
     DuplicateGeneLabel(String),
+    /// An exon/CDS/UTR line whose `Parent` is missing (`parent` empty) or matches no feature. `line` is 1-based.
+    UnresolvedParent { line: usize, parent: String },
     Io(io::Error),
 }
 
@@ -55,6 +57,13 @@ impl fmt::Display for GffError {
                 write!(f, "GFF3 line {line}: strand must be '+' or '-', found '{value}'")
             }
             GffError::DuplicateGeneLabel(l) => write!(f, "two different genes have the label '{l}'"),
+            GffError::UnresolvedParent { line, parent } => {
+                if parent.is_empty() {
+                    write!(f, "GFF3 line {line}: child feature has no Parent")
+                } else {
+                    write!(f, "GFF3 line {line}: Parent '{parent}' matches no feature")
+                }
+            }
             GffError::Io(e) => write!(f, "I/O error reading GFF3: {e}"),
         }
     }
@@ -139,14 +148,56 @@ fn strand_of(f: &Feat) -> Result<Strand, GffError> {
     }
 }
 
+fn is_exon_kind(k: &str) -> bool {
+    k.ends_with("exon")
+}
+
 fn is_child_kind(k: &str) -> bool {
-    matches!(k, "exon" | "CDS" | "five_prime_UTR" | "three_prime_UTR")
+    is_exon_kind(k) || matches!(k, "CDS" | "five_prime_UTR" | "three_prime_UTR")
+}
+
+fn is_gene_kind(k: &str) -> bool {
+    k.ends_with("gene")
+}
+
+struct ChildRec {
+    line: usize,
+    kind: String,
+    parents: Vec<String>,
+    start: u64,
+    end: u64,
+}
+
+struct Builder<'a> {
+    feats: &'a [Feat],
+    genes: Vec<Gene>,
+    gene_of_feat: HashMap<usize, usize>,
+    label_owner: HashMap<String, usize>,
+}
+
+impl Builder<'_> {
+    /// Find or create the gene built from feature `fi`.
+    fn gene_for(&mut self, fi: usize) -> Result<usize, GffError> {
+        if let Some(&g) = self.gene_of_feat.get(&fi) {
+            return Ok(g);
+        }
+        let f = &self.feats[fi];
+        let strand = strand_of(f)?;
+        let label = f.label().unwrap_or_else(|| format!("{}@line{}", f.kind, f.line));
+        let gi = self.genes.len();
+        if self.label_owner.insert(label.clone(), gi).is_some() {
+            return Err(GffError::DuplicateGeneLabel(label));
+        }
+        self.genes.push(Gene { label, contig: f.contig.clone(), strand, transcripts: Vec::new() });
+        self.gene_of_feat.insert(fi, gi);
+        Ok(gi)
+    }
 }
 
 pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
-    // Pass 1: read features. Child features go straight into a map keyed by parent ID.
+    // Pass 1: read lines into features and child records.
     let mut feats: Vec<Feat> = Vec::new();
-    let mut children: HashMap<String, Children> = HashMap::new();
+    let mut child_recs: Vec<ChildRec> = Vec::new();
     for (idx, line) in reader.lines().enumerate() {
         let line = line?;
         let lineno = idx + 1;
@@ -179,69 +230,89 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             attrs,
         };
         if is_child_kind(&feat.kind) {
-            for p in feat.parents() {
-                let c = children.entry(p).or_default();
-                let list = match feat.kind.as_str() {
-                    "exon" => &mut c.exons,
-                    "CDS" => &mut c.cds,
-                    "five_prime_UTR" => &mut c.utr5,
-                    _ => &mut c.utr3,
-                };
-                list.push((start, end));
-            }
+            let parents = feat.parents();
+            child_recs.push(ChildRec { line: lineno, kind: feat.kind, parents, start, end });
         } else {
             feats.push(feat);
         }
     }
 
-    // Pass 2: index parents by ID (first occurrence wins), then build genes.
+    // Pass 2: index features by ID (first occurrence wins) and attach children.
     let mut by_id: HashMap<String, usize> = HashMap::new();
     for (i, f) in feats.iter().enumerate() {
         if let Some(id) = f.get("ID") {
             by_id.entry(id).or_insert(i);
         }
     }
-
-    let mut genes: Vec<Gene> = Vec::new();
-    let mut gene_of_feat: HashMap<usize, usize> = HashMap::new(); // feature index -> genes index
-    let mut label_owner: HashMap<String, usize> = HashMap::new();
-
-    for (i, f) in feats.iter().enumerate() {
-        let Some(id) = f.get("ID") else { continue };
-        if by_id.get(&id) != Some(&i) {
-            continue; // repeated ID on a non-child feature: first occurrence only
+    let mut children: HashMap<usize, Children> = HashMap::new();
+    for c in &child_recs {
+        if c.parents.is_empty() {
+            return Err(GffError::UnresolvedParent { line: c.line, parent: String::new() });
         }
-        let Some(ch) = children.get(&id) else { continue };
-        let tx_strand = strand_of(f)?;
-        let gene_fi = f
+        for p in &c.parents {
+            let Some(&fi) = by_id.get(p) else {
+                return Err(GffError::UnresolvedParent { line: c.line, parent: p.clone() });
+            };
+            let ch = children.entry(fi).or_default();
+            let list = match c.kind.as_str() {
+                "CDS" => &mut ch.cds,
+                "five_prime_UTR" => &mut ch.utr5,
+                "three_prime_UTR" => &mut ch.utr3,
+                _ => &mut ch.exons,
+            };
+            list.push((c.start, c.end));
+        }
+    }
+
+    // Pass 3: build genes and transcripts in file order.
+    let mut b = Builder { feats: &feats, genes: Vec::new(), gene_of_feat: HashMap::new(), label_owner: HashMap::new() };
+    for (i, f) in feats.iter().enumerate() {
+        let id = f.get("ID");
+        if let Some(id) = &id {
+            if by_id.get(id) != Some(&i) {
+                continue; // repeated ID: first occurrence only
+            }
+        }
+        let has_children = children.contains_key(&i);
+        let gene_parent = f
             .parents()
             .into_iter()
             .filter_map(|p| by_id.get(&p).copied())
-            .find(|&p| p != i)
-            .unwrap_or(i);
-        let gi = match gene_of_feat.get(&gene_fi) {
-            Some(&g) => g,
-            None => {
-                let gf = &feats[gene_fi];
-                let strand = if gene_fi == i { tx_strand } else { strand_of(gf)? };
-                let label = gf.label().unwrap_or_else(|| id.clone());
-                let gi = genes.len();
-                if label_owner.insert(label.clone(), gi).is_some() {
-                    return Err(GffError::DuplicateGeneLabel(label));
-                }
-                genes.push(Gene { label, contig: gf.contig.clone(), strand, transcripts: Vec::new() });
-                gene_of_feat.insert(gene_fi, gi);
-                gi
+            .find(|&p| p != i && is_gene_kind(&feats[p].kind));
+        let gene_kind = is_gene_kind(&f.kind);
+        if gene_kind {
+            let gi = b.gene_for(i)?;
+            if !has_children {
+                continue;
             }
+            // A gene-type feature that owns exons itself also yields a transcript.
+            push_transcript(&mut b.genes[gi], f, id, children.get(&i));
+            continue;
+        }
+        if !has_children && gene_parent.is_none() {
+            continue; // region, repeat_region, or other non-transcript feature
+        }
+        if has_children {
+            strand_of(f)?; // transcript strand first, then its gene's
+        }
+        let gi = match gene_parent {
+            Some(gp) => b.gene_for(gp)?,
+            None => b.gene_for(i)?, // own gene; also checks this feature's strand
         };
-        genes[gi].transcripts.push(Transcript {
-            id,
-            kind: f.kind.clone(),
-            exons: finish(ch.exons.clone()),
-            cds: finish(ch.cds.clone()),
-            utr5: finish(ch.utr5.clone()),
-            utr3: finish(ch.utr3.clone()),
-        });
+        push_transcript(&mut b.genes[gi], f, id, children.get(&i));
     }
-    Ok(GeneModel { genes })
+    Ok(GeneModel { genes: b.genes })
+}
+
+fn push_transcript(gene: &mut Gene, f: &Feat, id: Option<String>, ch: Option<&Children>) {
+    let empty = Children::default();
+    let ch = ch.unwrap_or(&empty);
+    gene.transcripts.push(Transcript {
+        id: id.unwrap_or_else(|| format!("{}@line{}", f.kind, f.line)),
+        kind: f.kind.clone(),
+        exons: finish(ch.exons.clone()),
+        cds: finish(ch.cds.clone()),
+        utr5: finish(ch.utr5.clone()),
+        utr3: finish(ch.utr3.clone()),
+    });
 }

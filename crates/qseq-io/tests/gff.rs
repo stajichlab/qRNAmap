@@ -60,7 +60,7 @@ chr1\ts\texon\t1\t100\t.\t.\t.\tParent=t1\n";
     match parse(s) {
         Err(GffError::BadStrand { line, value }) => {
             assert_eq!(value, ".");
-            assert_eq!(line, 3); // transcript line is checked first
+            assert_eq!(line, 2); // features are checked in file order; the gene line comes first
         }
         other => panic!("expected BadStrand, got {other:?}"),
     }
@@ -163,6 +163,105 @@ chr1\ts\tCDS\t10\t90\t.\t+\t0\tParent=a,b\n";
     assert_eq!(g.transcripts[1].exons, vec![(1, 100)]);
     assert_eq!(g.transcripts[0].cds, vec![(10, 90)]);
     assert_eq!(g.transcripts[1].cds, vec![(10, 90)]);
+}
+
+#[test]
+fn noncoding_exon_and_pseudogenic_exon_are_exons() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr1\ts\ttRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\ts\tnoncoding_exon\t1\t40\t.\t+\t.\tParent=t1\n\
+chr1\ts\tnoncoding_exon\t60\t100\t.\t+\t.\tParent=t1\n\
+chr1\ts\tpseudogene\t200\t300\t.\t-\t.\tID=p1\n\
+chr1\ts\tpseudogenic_transcript\t200\t300\t.\t-\t.\tID=pt1;Parent=p1\n\
+chr1\ts\tpseudogenic_exon\t200\t300\t.\t-\t.\tParent=pt1\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 2);
+    assert_eq!(m.genes[0].transcripts[0].exons, vec![(1, 40), (60, 100)]);
+    assert_eq!(m.genes[1].label, "p1");
+    assert_eq!(m.genes[1].transcripts[0].kind, "pseudogenic_transcript");
+    assert_eq!(m.genes[1].transcripts[0].exons, vec![(200, 300)]);
+}
+
+#[test]
+fn childless_gene_is_kept_with_no_transcripts() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1;Name=lonely\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 1);
+    assert_eq!(m.genes[0].label, "lonely");
+    assert_eq!(m.genes[0].strand, Strand::Plus);
+    assert!(m.genes[0].transcripts.is_empty());
+}
+
+#[test]
+fn childless_transcript_is_kept_with_empty_intervals() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr1\ts\tncRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 1);
+    let t = &m.genes[0].transcripts;
+    assert_eq!(t.len(), 1);
+    assert_eq!(t[0].id, "t1");
+    assert_eq!(t[0].kind, "ncRNA");
+    assert!(t[0].exons.is_empty() && t[0].cds.is_empty() && t[0].utr5.is_empty() && t[0].utr3.is_empty());
+}
+
+#[test]
+fn exon_with_unknown_parent_is_error() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr1\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\ts\texon\t1\t100\t.\t+\t.\tParent=nope\n";
+    match parse(s) {
+        Err(GffError::UnresolvedParent { line, parent }) => {
+            assert_eq!((line, parent.as_str()), (3, "nope"));
+        }
+        other => panic!("expected UnresolvedParent, got {other:?}"),
+    }
+}
+
+#[test]
+fn exon_without_parent_is_error() {
+    let s = "chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n\
+chr1\ts\texon\t1\t100\t.\t+\t.\tID=e1\n";
+    match parse(s) {
+        Err(GffError::UnresolvedParent { line, parent }) => {
+            assert_eq!((line, parent.as_str()), (2, ""));
+        }
+        other => panic!("expected UnresolvedParent, got {other:?}"),
+    }
+}
+
+#[test]
+fn child_line_before_parent_line_parses() {
+    let s = "chr1\ts\texon\t1\t100\t.\t+\t.\tParent=t1\n\
+chr1\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\ts\tgene\t1\t100\t.\t+\t.\tID=g1\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 1);
+    assert_eq!(m.genes[0].label, "g1");
+    assert_eq!(m.genes[0].transcripts[0].exons, vec![(1, 100)]);
+}
+
+#[test]
+fn transcript_with_region_parent_is_own_gene() {
+    let s = "chr1\ts\tregion\t1\t5000\t.\t.\t.\tID=chr1reg\n\
+chr1\ts\tlnc_RNA\t10\t100\t.\t+\t.\tID=r1;Parent=chr1reg\n\
+chr1\ts\texon\t10\t100\t.\t+\t.\tParent=r1\n\
+chr1\ts\tlnc_RNA\t200\t300\t.\t-\t.\tID=r2;Parent=chr1reg\n\
+chr1\ts\texon\t200\t300\t.\t-\t.\tParent=r2\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 2);
+    assert_eq!(m.genes[0].label, "r1");
+    assert_eq!(m.genes[0].strand, Strand::Plus);
+    assert_eq!(m.genes[1].label, "r2");
+    assert_eq!(m.genes[1].strand, Strand::Minus);
+    assert_eq!(m.genes[1].transcripts.len(), 1);
+}
+
+#[test]
+fn two_transcripts_one_gene_no_duplicate_label_error() {
+    let m = parse(TWO_ISOFORMS).unwrap();
+    assert_eq!(m.genes.len(), 1);
+    assert_eq!(m.genes[0].transcripts.len(), 2);
 }
 
 #[test]
