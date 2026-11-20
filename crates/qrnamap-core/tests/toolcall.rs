@@ -270,8 +270,7 @@ fn hisat2_mate_count_mismatch_is_named_error() {
 
 #[test]
 fn empty_fastq1_rejected_for_kallisto_and_hisat2() {
-    let mut c = RunConfig::default();
-    c.fragment_len = Some((200.0, 20.0));
+    let c = RunConfig { fragment_len: Some((200.0, 20.0)), ..RunConfig::default() };
     let e = Err(ConfigError::NoReads { sample: "S1".into() });
     assert_eq!(kallisto_quant(&sample(&[], &[]), "i", "o", &c), e);
     assert_eq!(hisat2_align(&sample(&[], &[]), "ix", "ss", "o.sam", &c), e);

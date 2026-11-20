@@ -106,7 +106,7 @@ impl FastqChunker {
             self.scan_work += 1;
             if b == b'\n' {
                 self.newlines += 1;
-                if self.newlines % 4 == 0 {
+                if self.newlines.is_multiple_of(4) {
                     consumed = i + 1;
                 }
             }

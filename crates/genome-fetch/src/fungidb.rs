@@ -74,6 +74,10 @@ fn choose<'a>(organisms: &'a [Organism], wanted: &str, base: &str) -> Result<&'a
 }
 
 /// One GET with manual redirects. The key is sent only while `key_allowed` is true for the current URL.
+// `ureq::Error` is large (clippy::result_large_err). It is kept unboxed on purpose: it is ureq's own
+// type, the one caller matches on its `Status` and `Transport` variants, and the function runs once
+// per downloaded file, so the size of the `Err` value costs nothing measurable.
+#[allow(clippy::result_large_err)]
 fn get(agent: &ureq::Agent, url: &str, auth: Option<&str>, base: &str) -> Result<ureq::Response, ureq::Error> {
     let mut url = url.to_string();
     for _ in 0..=MAX_REDIRECTS {
