@@ -32,8 +32,16 @@ pub struct ToolCall {
 pub enum ConfigError {
     /// Single-end kallisto needs a fragment length mean and SD.
     FragmentLengthRequired { sample: String },
+    /// Fragment length mean or SD is not finite or not > 0 (single-end kallisto).
+    InvalidFragmentLength { sample: String },
+    /// `threads` is 0.
+    InvalidThreads,
     /// Paired sample whose R1 and R2 lists differ in length.
     MateCountMismatch { sample: String },
+    /// Sample has no R1 files.
+    NoReads { sample: String },
+    /// A FASTQ path contains a comma. HISAT2 lanes are comma-joined, so it would split.
+    CommaInPath { sample: String, path: String },
 }
 
 impl fmt::Display for ConfigError {
@@ -42,6 +50,16 @@ impl fmt::Display for ConfigError {
             ConfigError::FragmentLengthRequired { sample } => write!(
                 f,
                 "sample '{sample}' is single-end: kallisto needs a fragment length mean and SD"
+            ),
+            ConfigError::InvalidFragmentLength { sample } => write!(
+                f,
+                "sample '{sample}': fragment length mean and SD must be finite and greater than 0"
+            ),
+            ConfigError::InvalidThreads => write!(f, "threads must be at least 1"),
+            ConfigError::NoReads { sample } => write!(f, "sample '{sample}' has no R1 files"),
+            ConfigError::CommaInPath { sample, path } => write!(
+                f,
+                "sample '{sample}': FASTQ path {path:?} contains a comma, which HISAT2 cannot take"
             ),
             ConfigError::MateCountMismatch { sample } => {
                 write!(f, "sample '{sample}' has different numbers of R1 and R2 files")
@@ -59,6 +77,24 @@ fn program(tool: Tool) -> &'static str {
         Tool::Hisat2Align => "hisat2",
         Tool::FeatureCounts => "featureCounts",
     }
+}
+
+fn check_threads(cfg: &RunConfig) -> Result<(), ConfigError> {
+    if cfg.threads == 0 {
+        return Err(ConfigError::InvalidThreads);
+    }
+    Ok(())
+}
+
+/// R1 must be non-empty. When R2 is non-empty, lane counts must match.
+fn check_reads(sample: &Sample) -> Result<(), ConfigError> {
+    if sample.fastq1.is_empty() {
+        return Err(ConfigError::NoReads { sample: sample.name.clone() });
+    }
+    if !sample.fastq2.is_empty() && sample.fastq1.len() != sample.fastq2.len() {
+        return Err(ConfigError::MateCountMismatch { sample: sample.name.clone() });
+    }
+    Ok(())
 }
 
 fn st(args: &[&str]) -> Vec<String> {
@@ -82,10 +118,9 @@ pub fn kallisto_quant(
     out: &str,
     cfg: &RunConfig,
 ) -> Result<ToolCall, ConfigError> {
+    check_threads(cfg)?;
+    check_reads(sample)?;
     let paired = !sample.fastq2.is_empty();
-    if paired && sample.fastq1.len() != sample.fastq2.len() {
-        return Err(ConfigError::MateCountMismatch { sample: sample.name.clone() });
-    }
     let mut args = st(&["quant", "-i", index, "-o", out, "--plaintext", "-t"]);
     args.push(cfg.threads.to_string());
     match cfg.strandedness {
@@ -103,6 +138,9 @@ pub fn kallisto_quant(
         let (mean, sd) = cfg.fragment_len.ok_or_else(|| ConfigError::FragmentLengthRequired {
             sample: sample.name.clone(),
         })?;
+        if !(mean.is_finite() && sd.is_finite() && mean > 0.0 && sd > 0.0) {
+            return Err(ConfigError::InvalidFragmentLength { sample: sample.name.clone() });
+        }
         // f64 Display gives the shortest round-trip form: 200.0 -> "200".
         args.extend(["--single".into(), "-l".into(), mean.to_string(), "-s".into(), sd.to_string()]);
         files.extend(sample.fastq1.iter());
@@ -122,8 +160,17 @@ pub fn kallisto_quant(
 }
 
 /// `hisat2-build -p <threads> <reference.fa> <index_prefix>`.
-pub fn hisat2_build(reference_fasta: &str, index_prefix: &str, cfg: &RunConfig) -> ToolCall {
-    ToolCall {
+///
+/// The eight-file output list `<prefix>.1.ht2` to `.8.ht2` is correct only for genomes
+/// below about 4 Gb. HISAT2 writes `.ht2l` files above that. The 50 Mb cap of the
+/// genome catalog keeps the list valid.
+pub fn hisat2_build(
+    reference_fasta: &str,
+    index_prefix: &str,
+    cfg: &RunConfig,
+) -> Result<ToolCall, ConfigError> {
+    check_threads(cfg)?;
+    Ok(ToolCall {
         tool: Tool::Hisat2Build,
         args: vec![
             "-p".into(),
@@ -133,7 +180,7 @@ pub fn hisat2_build(reference_fasta: &str, index_prefix: &str, cfg: &RunConfig) 
         ],
         inputs: vec![reference_fasta.into()],
         outputs: (1..=8).map(|i| PathBuf::from(format!("{index_prefix}.{i}.ht2"))).collect(),
-    }
+    })
 }
 
 /// `hisat2` alignment with known splice sites only. Lanes are comma-joined lists.
@@ -144,7 +191,17 @@ pub fn hisat2_align(
     splice_sites: &str,
     sam: &str,
     cfg: &RunConfig,
-) -> ToolCall {
+) -> Result<ToolCall, ConfigError> {
+    check_threads(cfg)?;
+    check_reads(sample)?;
+    for path in sample.fastq1.iter().chain(&sample.fastq2) {
+        if path.contains(',') {
+            return Err(ConfigError::CommaInPath {
+                sample: sample.name.clone(),
+                path: path.clone(),
+            });
+        }
+    }
     let paired = !sample.fastq2.is_empty();
     let mut args = vec!["-p".to_string(), cfg.threads.to_string()];
     args.extend(st(&[
@@ -177,11 +234,12 @@ pub fn hisat2_align(
         sample.fastq1.iter().chain(&sample.fastq2).map(PathBuf::from).collect();
     inputs.push(splice_sites.into());
     inputs.push(index_prefix.into());
-    ToolCall { tool: Tool::Hisat2Align, args, inputs, outputs: vec![sam.into()] }
+    Ok(ToolCall { tool: Tool::Hisat2Align, args, inputs, outputs: vec![sam.into()] })
 }
 
 /// `featureCounts` on a SAF built from our gene model.
-pub fn feature_counts(sam: &str, saf: &str, out: &str, paired: bool, cfg: &RunConfig) -> ToolCall {
+pub fn feature_counts(sam: &str, saf: &str, out: &str, paired: bool, cfg: &RunConfig) -> Result<ToolCall, ConfigError> {
+    check_threads(cfg)?;
     let mut args = vec!["-T".to_string(), cfg.threads.to_string()];
     args.extend(st(&["-F", "SAF", "-a", saf]));
     if paired {
@@ -193,12 +251,12 @@ pub fn feature_counts(sam: &str, saf: &str, out: &str, paired: bool, cfg: &RunCo
         Strandedness::Reverse => "2",
     };
     args.extend(st(&["-s", s, "-o", out, sam]));
-    ToolCall {
+    Ok(ToolCall {
         tool: Tool::FeatureCounts,
         args,
         inputs: vec![sam.into(), saf.into()],
         outputs: vec![out.into(), format!("{out}.summary").into()],
-    }
+    })
 }
 
 /// Full argv for native execution, program name first.

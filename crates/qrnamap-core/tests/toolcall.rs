@@ -85,7 +85,7 @@ fn kallisto_single_end_uses_l_and_s() {
 
 #[test]
 fn hisat2_pair_reverse_is_RF() {
-    let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse));
+    let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
@@ -97,7 +97,7 @@ fn hisat2_pair_reverse_is_RF() {
 
 #[test]
 fn hisat2_pair_forward_is_FR() {
-    let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Forward));
+    let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Forward)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
@@ -107,7 +107,7 @@ fn hisat2_pair_forward_is_FR() {
 
 #[test]
 fn hisat2_single_forward_is_F() {
-    let c = hisat2_align(&sample(&["a.fq"], &[]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Forward));
+    let c = hisat2_align(&sample(&["a.fq"], &[]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Forward)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
@@ -117,7 +117,7 @@ fn hisat2_single_forward_is_F() {
 
 #[test]
 fn hisat2_single_reverse_is_R() {
-    let c = hisat2_align(&sample(&["a.fq"], &[]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse));
+    let c = hisat2_align(&sample(&["a.fq"], &[]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
@@ -130,7 +130,7 @@ fn hisat2_has_no_temp_splicesite_and_known_sites() {
     let mut c0 = cfg(Strandedness::Unstranded);
     c0.threads = 4;
     c0.max_intron = 3000;
-    let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &c0);
+    let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &c0).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["hisat2", "-p", "4", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
@@ -140,7 +140,7 @@ fn hisat2_has_no_temp_splicesite_and_known_sites() {
 
 #[test]
 fn hisat2_build_outputs_eight_files() {
-    let c = hisat2_build("ref.fa", "idx/ref", &RunConfig::default());
+    let c = hisat2_build("ref.fa", "idx/ref", &RunConfig::default()).unwrap();
     assert_eq!(argv_native(&c), s(&["hisat2-build", "-p", "1", "ref.fa", "idx/ref"]));
     assert_eq!(c.inputs, p(&["ref.fa"]));
     let want: Vec<PathBuf> = (1..=8).map(|i| PathBuf::from(format!("idx/ref.{i}.ht2"))).collect();
@@ -150,7 +150,7 @@ fn hisat2_build_outputs_eight_files() {
 
 #[test]
 fn featurecounts_paired_has_p_and_countreadpairs() {
-    let c = feature_counts("a.sam", "g.saf", "counts.txt", true, &cfg(Strandedness::Unstranded));
+    let c = feature_counts("a.sam", "g.saf", "counts.txt", true, &cfg(Strandedness::Unstranded)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["featureCounts", "-T", "1", "-F", "SAF", "-a", "g.saf", "-p", "--countReadPairs", "-s", "0", "-o", "counts.txt", "a.sam"])
@@ -160,7 +160,7 @@ fn featurecounts_paired_has_p_and_countreadpairs() {
 
 #[test]
 fn featurecounts_single_end_has_no_p() {
-    let c = feature_counts("a.sam", "g.saf", "counts.txt", false, &cfg(Strandedness::Forward));
+    let c = feature_counts("a.sam", "g.saf", "counts.txt", false, &cfg(Strandedness::Forward)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["featureCounts", "-T", "1", "-F", "SAF", "-a", "g.saf", "-s", "1", "-o", "counts.txt", "a.sam"])
@@ -169,7 +169,7 @@ fn featurecounts_single_end_has_no_p() {
 
 #[test]
 fn featurecounts_reverse_is_s2() {
-    let c = feature_counts("a.sam", "g.saf", "counts.txt", true, &cfg(Strandedness::Reverse));
+    let c = feature_counts("a.sam", "g.saf", "counts.txt", true, &cfg(Strandedness::Reverse)).unwrap();
     assert_eq!(
         argv_native(&c),
         s(&["featureCounts", "-T", "1", "-F", "SAF", "-a", "g.saf", "-p", "--countReadPairs", "-s", "2", "-o", "counts.txt", "a.sam"])
@@ -178,7 +178,7 @@ fn featurecounts_reverse_is_s2() {
 
 #[test]
 fn featurecounts_outputs_include_summary() {
-    let c = feature_counts("a.sam", "g.saf", "counts.txt", true, &RunConfig::default());
+    let c = feature_counts("a.sam", "g.saf", "counts.txt", true, &RunConfig::default()).unwrap();
     assert_eq!(c.outputs, p(&["counts.txt", "counts.txt.summary"]));
 }
 
@@ -190,7 +190,7 @@ fn lanes_kallisto_adjacent_pairs_hisat2_comma_lists() {
         argv_native(&k),
         s(&["kallisto", "quant", "-i", "i.idx", "-o", "out", "--plaintext", "-t", "1", "a1.fq", "a2.fq", "b1.fq", "b2.fq"])
     );
-    let h = hisat2_align(&smp, "ix", "ss.txt", "o.sam", &RunConfig::default());
+    let h = hisat2_align(&smp, "ix", "ss.txt", "o.sam", &RunConfig::default()).unwrap();
     assert_eq!(
         argv_native(&h),
         s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
@@ -208,4 +208,88 @@ fn run_config_default_values() {
     assert_eq!(c.fragment_len, None);
     assert_eq!(c.max_intron, 5000);
     assert_eq!(c.threads, 1);
+}
+
+// ---- R20: input validation ----
+
+#[test]
+fn fragment_length_nan_inf_zero_negative_rejected() {
+    let smp = sample(&["a.fq"], &[]);
+    let err = Err(ConfigError::InvalidFragmentLength { sample: "S1".into() });
+    for bad in [f64::NAN, f64::INFINITY, 0.0, -5.0] {
+        let mut c = cfg(Strandedness::Unstranded);
+        c.fragment_len = Some((bad, 20.0));
+        assert_eq!(kallisto_quant(&smp, "i.idx", "out", &c), err, "mean {bad}");
+        c.fragment_len = Some((200.0, bad));
+        assert_eq!(kallisto_quant(&smp, "i.idx", "out", &c), err, "sd {bad}");
+    }
+    // paired kallisto ignores fragment_len
+    let mut c = cfg(Strandedness::Unstranded);
+    c.fragment_len = Some((f64::NAN, -1.0));
+    assert!(kallisto_quant(&sample(&["a_1.fq"], &["a_2.fq"]), "i.idx", "out", &c).is_ok());
+}
+
+#[test]
+fn threads_zero_rejected_by_every_builder() {
+    let mut c = cfg(Strandedness::Unstranded);
+    c.threads = 0;
+    c.fragment_len = Some((200.0, 20.0));
+    let e = Err(ConfigError::InvalidThreads);
+    assert_eq!(kallisto_quant(&sample(&["a_1.fq"], &["a_2.fq"]), "i", "o", &c), e);
+    assert_eq!(kallisto_quant(&sample(&["a.fq"], &[]), "i", "o", &c), e);
+    assert_eq!(hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss", "o.sam", &c), e);
+    assert_eq!(hisat2_build("ref.fa", "idx/ref", &c), e);
+    assert_eq!(feature_counts("a.sam", "g.saf", "c.txt", true, &c), e);
+}
+
+#[test]
+fn kallisto_mate_count_mismatch_is_named_error() {
+    let r = kallisto_quant(&sample(&["a1.fq", "b1.fq"], &["a2.fq"]), "i", "o", &RunConfig::default());
+    assert_eq!(r, Err(ConfigError::MateCountMismatch { sample: "S1".into() }));
+}
+
+#[test]
+fn hisat2_mate_count_mismatch_is_named_error() {
+    let r = hisat2_align(&sample(&["a1.fq", "b1.fq"], &["a2.fq"]), "ix", "ss", "o.sam", &RunConfig::default());
+    assert_eq!(r, Err(ConfigError::MateCountMismatch { sample: "S1".into() }));
+}
+
+#[test]
+fn empty_fastq1_rejected_for_kallisto_and_hisat2() {
+    let mut c = RunConfig::default();
+    c.fragment_len = Some((200.0, 20.0));
+    let e = Err(ConfigError::NoReads { sample: "S1".into() });
+    assert_eq!(kallisto_quant(&sample(&[], &[]), "i", "o", &c), e);
+    assert_eq!(hisat2_align(&sample(&[], &[]), "ix", "ss", "o.sam", &c), e);
+    // empty fastq1 with non-empty fastq2 is also no usable R1 reads
+    assert_eq!(kallisto_quant(&sample(&[], &["a2.fq"]), "i", "o", &c), e);
+    assert_eq!(hisat2_align(&sample(&[], &["a2.fq"]), "ix", "ss", "o.sam", &c), e);
+}
+
+#[test]
+fn hisat2_comma_in_path_rejected_kallisto_accepts_it() {
+    let smp = sample(&["a,1.fq"], &["a2.fq"]);
+    let r = hisat2_align(&smp, "ix", "ss", "o.sam", &RunConfig::default());
+    assert_eq!(r, Err(ConfigError::CommaInPath { sample: "S1".into(), path: "a,1.fq".into() }));
+    let smp2 = sample(&["a1.fq"], &["a,2.fq"]);
+    let r = hisat2_align(&smp2, "ix", "ss", "o.sam", &RunConfig::default());
+    assert_eq!(r, Err(ConfigError::CommaInPath { sample: "S1".into(), path: "a,2.fq".into() }));
+    let k = kallisto_quant(&smp, "i.idx", "out", &RunConfig::default()).unwrap();
+    assert_eq!(
+        argv_native(&k),
+        s(&["kallisto", "quant", "-i", "i.idx", "-o", "out", "--plaintext", "-t", "1", "a,1.fq", "a2.fq"])
+    );
+}
+
+#[test]
+fn config_error_display_names_sample() {
+    let m = |e: ConfigError| e.to_string();
+    assert!(m(ConfigError::FragmentLengthRequired { sample: "S1".into() }).contains("S1"));
+    assert!(m(ConfigError::InvalidFragmentLength { sample: "S1".into() }).contains("S1"));
+    assert!(m(ConfigError::MateCountMismatch { sample: "S1".into() }).contains("S1"));
+    assert!(m(ConfigError::NoReads { sample: "S1".into() }).contains("S1"));
+    let d = m(ConfigError::CommaInPath { sample: "S1".into(), path: "a,\"1\n.fq".into() });
+    assert!(d.contains("S1"));
+    assert!(d.contains("a,\\\"1\\n.fq"), "{d}");
+    assert!(m(ConfigError::InvalidThreads).contains("threads"));
 }
