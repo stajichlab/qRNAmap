@@ -166,7 +166,7 @@ enum Cmd {
         #[arg(long, requires = "slurm")]
         cpus: Option<u32>,
         /// Memory per SLURM task in GB. The default is an UNMEASURED placeholder and is small on
-        /// purpose: on the AMB data HISAT2 used 41 MB and featureCounts 36 MB resident, and a
+        /// purpose: on the AMB data HISAT2 used about 40 MiB (41,208 KB) and featureCounts about 35 MiB (36,144 KB) resident, and a
         /// 4 GB job gave identical counts. Not measured for genomes near 50 Mb or for 20 million
         /// read pairs per sample: raise it for those.
         #[arg(long, default_value_t = qrnamap_cli::slurm::DEFAULT_MEM_GB, requires = "slurm")]
@@ -304,9 +304,10 @@ struct RunFlags {
     #[arg(long, default_value_t = 1)]
     threads: u32,
     /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23). With `run --slurm`
-    /// the directory is written into the scripts instead of the $SCRATCH check. The jobs do
-    /// not create it: it must exist on the compute nodes (for example a directory on
-    /// /bigdata). qrnamap makes its own `qrnamap-<pid>` subdirectory inside it.
+    /// the directory is written into the scripts instead of the $SCRATCH check. The jobs
+    /// create it (qrnamap runs create_dir_all, with its own `qrnamap-<pid>` subdirectory) when
+    /// the parent is writable. Use storage that every compute node can reach (for example
+    /// /bigdata). A /scratch or $SCRATCH path gives a warning: it is job-specific.
     #[arg(long)]
     tmpdir: Option<PathBuf>,
 }
@@ -488,10 +489,18 @@ fn run(cli: Cli) -> Result<(), String> {
             samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
             step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path, mito_contig,
         } => {
-            use qrnamap_cli::run::{run_local, run_slurm, scratch_out_warning, RunArgs, SlurmOptions, Step};
+            use qrnamap_cli::run::{run_local, run_slurm, scratch_out_warning, scratch_tmpdir_warning, RunArgs, SlurmOptions, Step};
             let abs_out = std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
             if let Some(w) = scratch_out_warning(&abs_out, std::env::var_os("SCRATCH").as_deref()) {
                 eprintln!("warning: {w}");
+            }
+            if slurm {
+                if let Some(t) = &run.tmpdir {
+                    let abs_t = std::path::absolute(t).map_err(|x| format!("{}: {x}", t.display()))?;
+                    if let Some(w) = scratch_tmpdir_warning(&abs_t, std::env::var_os("SCRATCH").as_deref()) {
+                        eprintln!("warning: {w}");
+                    }
+                }
             }
             let mode = match mode {
                 ModeArg::Quant => Mode::Quant,

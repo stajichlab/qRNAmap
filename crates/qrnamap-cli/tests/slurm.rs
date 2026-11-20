@@ -739,6 +739,12 @@ fn tmpdir_with_newline_is_refused() {
     let mut p = plan(7, 3, Path::new("/bigdata/lab/run1"));
     p.tmpdir = Some(PathBuf::from("/bigdata/lab/t\nmp"));
     assert!(matches!(slurm_scripts(&p), Err(SlurmError::NewlineOrNul(_))));
+    let tmp = tempfile::tempdir().unwrap();
+    let run_dir = tmp.path().join("run");
+    let mut q = plan(7, 3, &run_dir);
+    q.tmpdir = Some(PathBuf::from("/bigdata/lab/t\nmp"));
+    assert!(matches!(write_slurm_scripts(&q), Err(SlurmError::NewlineOrNul(_))));
+    assert!(!run_dir.exists(), "no run directory is written when --tmpdir is refused");
     p.tmpdir = Some(PathBuf::from("relative/tmp"));
     assert!(matches!(slurm_scripts(&p), Err(SlurmError::RelativePath(_))));
 }
@@ -782,7 +788,7 @@ fn without_tmpdir_scratch_check_remains_with_new_message() {
 fn hostile_tmpdir_round_trips() {
     let tmp = tempfile::tempdir().unwrap();
     let d = tmp.path();
-    let hostile = d.join("tmp dir $HOME it's `echo pwned`");
+    let hostile = d.join("tmp dir $HOME it's `echo pwned` 100% back\\slash; a&b *");
     let tools = d.join("tools");
     let log = d.join("calls.log");
     stub_tools(&tools, &["kallisto"], &d.join("tool.log"));
@@ -843,4 +849,46 @@ fn scripts_never_contain_sample_names_or_fastq_paths_with_tmpdir() {
             assert!(!text.contains("ZZsample") && !text.contains("QQfastq"), "{}", p.display());
         }
     }
+}
+
+#[test]
+fn tmpdir_under_scratch_warns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    stub_tools(&tools, &["kallisto"], &d.join("log"));
+    let o = generate(d, "quant", tools.to_str().unwrap(), &["--tmpdir", "/scratch/someone/12345/jobtmp"]);
+    assert!(o.status.success(), "a warning, not an error: {}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    let w = err.lines().find(|l| l.contains("--tmpdir")).unwrap_or_else(|| panic!("no --tmpdir warning: {err}"));
+    assert!(w.starts_with("warning:") && w.contains("job-specific") && w.contains("other nodes"), "{w}");
+    // A directory under $SCRATCH warns too.
+    let d2 = d.join("two");
+    fs::create_dir_all(&d2).unwrap();
+    let sheet = small_sheet(&d2, 2);
+    let fx = common::mini_fixture();
+    let o = Command::new(env!("CARGO_BIN_EXE_qrnamap"))
+        .args([
+            "run", "--samples", sheet.to_str().unwrap(), "--reference", fx.join("genome.fa").to_str().unwrap(), "--gff",
+            fx.join("genes.gff3").to_str().unwrap(), "--mode", "quant", "--out", d2.join("run").to_str().unwrap(), "--slurm",
+            "--tmpdir", "/node/local/x/jobtmp",
+        ])
+        .env("PATH", tools.to_str().unwrap())
+        .env("SCRATCH", "/node/local/x")
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).lines().any(|l| l.contains("--tmpdir")), "{}", String::from_utf8_lossy(&o.stderr));
+}
+
+#[test]
+fn tmpdir_under_scratchy_does_not_warn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    stub_tools(&tools, &["kallisto"], &d.join("log"));
+    let o = generate(d, "quant", tools.to_str().unwrap(), &["--tmpdir", "/scratchy/jobtmp"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!err.contains("--tmpdir"), "{err}");
 }

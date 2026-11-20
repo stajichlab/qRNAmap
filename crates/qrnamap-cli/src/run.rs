@@ -204,6 +204,21 @@ pub fn scratch_out_warning(out: &Path, scratch_env: Option<&std::ffi::OsStr>) ->
     }
 }
 
+/// R34: a warning when the `--tmpdir` of `run --slurm` (absolute) is under `$SCRATCH` or under
+/// `/scratch` (component-wise, so `/scratchy` does not match). Such a path is job-specific and
+/// not valid on other nodes. A warning only, never an error.
+pub fn scratch_tmpdir_warning(tmpdir: &Path, scratch_env: Option<&std::ffi::OsStr>) -> Option<String> {
+    let under_env = scratch_env.filter(|v| !v.is_empty()).is_some_and(|s| tmpdir.starts_with(Path::new(s)));
+    if under_env || tmpdir.starts_with("/scratch") {
+        Some(format!(
+            "--tmpdir {} is on node-local scratch ($SCRATCH or /scratch/); node-local scratch paths are job-specific and not valid on other nodes. Use a directory on shared storage (for example /bigdata)",
+            tmpdir.display()
+        ))
+    } else {
+        None
+    }
+}
+
 /// Samples `[task_id * per_task, min((task_id + 1) * per_task, n))`, in sheet order.
 pub fn task_slice(n_samples: usize, task_id: usize, per_task: usize) -> Result<Range<usize>, RunError> {
     let out_of_range = || RunError::TaskOutOfRange { task_id, per_task, n_samples };
