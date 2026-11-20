@@ -78,6 +78,29 @@ enum Cmd {
         #[arg(long, num_args = 2, value_names = ["KIND", "FILE"])]
         genes_from: Option<Vec<String>>,
     },
+    /// DESeq2 differential expression (Wald test) with Rscript.
+    De {
+        /// counts.tsv from `qrnamap matrix` (plain, .gz or .zst).
+        #[arg(long)]
+        counts: PathBuf,
+        #[arg(long)]
+        samples: PathBuf,
+        /// Design formula over sample sheet columns.
+        #[arg(long, default_value = "~ condition")]
+        design: String,
+        /// FACTOR,LEVEL,REFERENCE.
+        #[arg(long)]
+        contrast: String,
+        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none.
+        #[arg(long, value_enum)]
+        shrink: Option<ShrinkArg>,
+        /// Output prefix: PREFIX.results.csv, .normalized.csv, .vst.csv, .versions.txt.
+        #[arg(long)]
+        out: PathBuf,
+        /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23).
+        #[arg(long)]
+        tmpdir: Option<PathBuf>,
+    },
     /// Estimate library strandedness from the first N pairs of each sample.
     StrandCheck {
         #[arg(long)]
@@ -106,6 +129,13 @@ enum StrandArg {
     Unstranded,
     Forward,
     Reverse,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ShrinkArg {
+    Normal,
+    Apeglm,
+    Ashr,
 }
 
 #[derive(Args)]
@@ -222,6 +252,19 @@ fn run(cli: Cli) -> Result<(), String> {
                 eprintln!("warning: {w}");
             }
             eprintln!("wrote {}", path.display());
+        }
+        Cmd::De { counts, samples, design, contrast, shrink, out, tmpdir } => {
+            let shrink = shrink.map(|s| match s {
+                ShrinkArg::Normal => qrnamap_core::de::Shrink::Normal,
+                ShrinkArg::Apeglm => qrnamap_core::de::Shrink::Apeglm,
+                ShrinkArg::Ashr => qrnamap_core::de::Shrink::Ashr,
+            });
+            let args = qrnamap_cli::de::DeArgs { counts, samples, design, contrast, shrink, out, tmpdir };
+            let r = qrnamap_cli::de::run_de(&args).map_err(|x| x.to_string())?;
+            println!("DESeq2 {}", r.deseq2_version);
+            for f in &r.files {
+                eprintln!("wrote {}", f.display());
+            }
         }
         Cmd::StrandCheck { samples, reference, gff, out, pairs, max_intron, threads, tmpdir } => {
             let samples = load_sheet(&samples)?;

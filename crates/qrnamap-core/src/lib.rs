@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod counts;
+pub mod de;
 pub mod design;
 pub mod saf;
 pub mod sheet;
