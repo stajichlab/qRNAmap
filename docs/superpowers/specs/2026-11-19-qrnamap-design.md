@@ -169,6 +169,9 @@ Each step has tests before the next one starts. Tests use real small datasets wi
 
 - **Catalog ownership:** `genome-catalog` owns the schema, the list and its generator; it does not depend on PopSeq (user, 2026-11-19: PopSeq matters less now than a general catalog for qmutfind and qRNAmap). PopSeq can become a consumer or an upstream input later; see `docs/notes/2026-11-19-popseq-shared-schema-handoff.md` (deferred). Python tools read the published catalog file, not the Rust code. I have not read the generator's tests, if it has any.
 
+- **Reads per sample:** target 20 million read pairs per sample, as a parameter, not a constant (user, 2026-11-19; "or we can set a limit"). The parameter is `reads_per_sample` (pairs, default 20,000,000). Resource requests for SLURM tasks, the browser limit check, and the size of test fixtures all read it. A user can lower it to set a limit. A run whose input exceeds the parameter or the browser memory estimate is blocked with a reason, in the CLI as a warning and in the browser as a stop.
+- **Licence:** GPL-3.0-only for qRNAmap (user, 2026-11-19). The `LICENSE` file is copied from qmutfind.
+
 ## 11b. Calls added after the builder check (mine, open to change)
 
 - qmutfind is the user's own code, local at `../qmutfind` (GPL-3.0-only, verified in its `Cargo.toml`). The "MIT" in section 3 is the genomics-wasm repository's own `LICENSE`, not qmutfind's. Extracting code from it is allowed. Take the current working tree and record the qmutfind commit in the first extraction commit.
@@ -206,6 +209,10 @@ Design changes
 - **Licence.** qRNAmap is GPL-3.0-only, as qmutfind (proposed; the user may change it). A page that serves GPL binaries also offers the matching source archives, which the bundles include. Add the source offer to build step 6. Check GitHub Pages size limits in spike 0e (the DESeq2 package zip is about 438 MB with sources and test data; runtime size UNMEASURED).
 - **Catalog.** Entries without a GFF3 (for example CEA10) are disabled in qRNAmap. qmutfind's list allows up to 70 Mb with 9 genomes above 50 Mb; qRNAmap's catalog view warns above 50 Mb.
 - **Build order.** Move the sample sheet model before the CLI commands. Add `gffread` to step 1. `hisat2-build` reading gzip FASTA is UNVERIFIED, so decompress into `$SCRATCH`. A SLURM array starts only after the index is on shared storage (`/bigdata`), because `$SCRATCH` is node-local.
+
+## 11d. What 20 million pairs means for the browser (arithmetic, not a measurement)
+
+Assume 150 base reads (not given by the user; change if wrong). One FASTQ record is about 2 x 150 bases plus a header of about 60 bytes, roughly 360 bytes. 20 million pairs is 40 million records, about 14 GB of decompressed FASTQ. The browser heap is 2 GiB and each tool call copies its inputs. So a 20 million pair sample cannot go through one browser call, and kallisto cannot be chunked exactly. Expect the browser to run a subsample or small samples, with the CLI doing full-size samples. Spike 0f finds the real browser cap. The CLI has no such limit and runs per-sample steps as SLURM tasks.
 
 ## 12. Open items
 
