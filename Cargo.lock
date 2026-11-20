@@ -457,6 +457,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "flate2",
+ "genome-catalog",
+ "genome-fetch",
  "qrnamap-core",
  "qseq-io",
  "tempfile",

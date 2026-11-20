@@ -20,6 +20,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Download a genome FASTA and its GFF3 (NCBI from the genome catalog, or FungiDB).
+    Fetch {
+        #[arg(long, value_enum)]
+        source: SourceArg,
+        /// NCBI: a catalog accession (for example GCF_000146045.2). FungiDB: an organism name.
+        #[arg(long)]
+        id: String,
+        /// Output directory. NCBI files keep the catalog names; FungiDB files get a .gz name.
+        #[arg(long)]
+        out: PathBuf,
+        /// FungiDB API key file. It wins over $EUPATHDB_KEY when both are given.
+        #[arg(long)]
+        eupathdb_key_file: Option<PathBuf>,
+        /// FungiDB site URL (FungiDB only). Default: https://fungidb.org. Tests point it at a
+        /// local server.
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Test only: read the genome catalog from this JSON file instead of the built-in one.
+        #[arg(long, hide = true)]
+        catalog: Option<PathBuf>,
+    },
     /// Transcript FASTA and tx2gene (optionally SAF and HISAT2 splice sites) from a genome and GFF3.
     Transcripts {
         #[arg(long)]
@@ -125,6 +146,12 @@ enum Cmd {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum SourceArg {
+    Ncbi,
+    Fungidb,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum StrandArg {
     Unstranded,
     Forward,
@@ -205,6 +232,22 @@ fn report(r: &SampleResult, what: &str) {
 fn run(cli: Cli) -> Result<(), String> {
     let e = |x: pipeline::PipelineError| x.to_string();
     match cli.cmd {
+        Cmd::Fetch { source, id, out, eupathdb_key_file, base_url, catalog } => {
+            use qrnamap_cli::fetch_cmd::{run_fetch, FetchArgs, Source};
+            let source = match source {
+                SourceArg::Ncbi => Source::Ncbi,
+                SourceArg::Fungidb => Source::Fungidb,
+            };
+            let args = FetchArgs { source, id, out, key_file: eupathdb_key_file, base_url, catalog };
+            let r = run_fetch(&args).map_err(|x| x.to_string())?;
+            for w in &r.warnings {
+                eprintln!("warning: {w}");
+            }
+            println!("fasta\t{}", r.fetched.fasta.display());
+            if let Some(g) = &r.fetched.gff {
+                println!("gff\t{}", g.display());
+            }
+        }
         Cmd::Transcripts { reference, gff, out, tx2gene, saf, splice_sites } => {
             let n = run_transcripts(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref()).map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());
