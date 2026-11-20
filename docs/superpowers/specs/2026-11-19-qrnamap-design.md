@@ -226,6 +226,14 @@ Questions the spike answers, in order:
 
 Outcome rules: if chunked genome mode does not match, the browser keeps a byte cap in genome mode too. The CLI is not affected, since it has no heap limit.
 
+## 11f. Compressed reads (user, 2026-11-19)
+
+Reads are accepted compressed.
+- **Formats:** plain, `.gz` (multi-member files too), and `.zst` in the CLI. In the browser, `.gz` only at first (qmutfind's `gz.js` with fflate and CRC check). Browser `.zst` is UNVERIFIED: qmutfind's site has no zstd code and no WASM zstd build was checked.
+- **How:** decompress in our layer, chunk by chunk, and pass plain FASTQ chunks to the tools. HISAT2's package needs plain FASTQ, and kallisto's would hold the whole file, so we do not rely on tool-side decompression. Both mates are read in step and cut at record boundaries, so a pair is never split.
+- **CLI:** the Rust side streams decompressed text to the tool. HISAT2 reads standard input in its WASM package; native behaviour is UNVERIFIED. If a tool cannot read a pipe, decompress into `$SCRATCH` and delete after the step (lab rule). Intermediate text kept for later is written as `.zst`, and as `.gz` when it is shared outside the cluster.
+- **Checks:** a truncated or corrupt compressed file stops the sample with a named error. The spike measures gzip decompression speed in the browser (UNMEASURED) and whether native `hisat2` reads `.gz` directly (UNVERIFIED).
+
 ## 12. Open items
 
 - Result of spike 0 (may remove genome mode from the browser).
