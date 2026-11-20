@@ -716,6 +716,51 @@ fn plain_quant_removes_stale_marker() {
 // ---------------------------------------------------------------------------------------------
 // Final review I1, I2, I3: stale state.
 
+const STALE_STRAND_CHECK: &str = "sample\tsense\tantisense\tambiguous\tsense_fraction\tantisense_fraction\tambiguous_fraction\tsuggested\tlow_fraction_warning\n\
+     c1\t90\t5\t1\t0.9474\t0.0526\t0.0104\tSTALE_SUGGESTION\tfalse\n";
+
+#[test]
+fn strand_check_removes_old_table_before_running_tools() {
+    // R33: no tool is on PATH, so strand-check fails at its first tool, after the removal.
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("run");
+    fs::create_dir_all(&out).unwrap();
+    let old = out.join("strand_check.tsv");
+    fs::write(&old, STALE_STRAND_CHECK).unwrap();
+    fs::write(out.join("strand_check.tsv.partial"), b"old").unwrap();
+    let err = fail(&qrnamap(
+        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(&d.join("tmp"))],
+        Some(&no_tools(d)),
+    ));
+    eprintln!("error: {err}");
+    assert!(!old.exists(), "the old strand_check.tsv survived a failed strand-check");
+    assert!(!out.join("strand_check.tsv.partial").exists());
+}
+
+#[test]
+fn bad_input_leaves_old_strand_check_table() {
+    // R33 order: check inputs, then remove stale outputs. A missing FASTQ stops strand-check
+    // before the removal, so the old table stays (documents the order).
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("run");
+    fs::create_dir_all(&out).unwrap();
+    let old = out.join("strand_check.tsv");
+    fs::write(&old, STALE_STRAND_CHECK).unwrap();
+    fs::remove_file(d.join("t1_2.fq")).unwrap();
+    let err = fail(&qrnamap(
+        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(&d.join("tmp"))],
+        Some(&no_tools(d)),
+    ));
+    assert!(err.contains("sample 't1'") && err.contains("t1_2.fq"), "the missing FASTQ must be named: {err}");
+    assert_eq!(fs::read_to_string(&old).unwrap(), STALE_STRAND_CHECK, "old table must survive a bad-input failure");
+}
+
 #[test]
 fn strand_check_into_prepared_dir_removes_marker() {
     // I1: strand-check rebuilds the index, genes.saf and splice_sites.txt in --out from its own

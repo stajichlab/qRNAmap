@@ -107,11 +107,15 @@ fn matrix_refuses_missing_summary_naming_the_sample() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
     write_both(d, &["S1", "S2"]);
+    assert!(!d.join("counts.tsv.zst").exists());
     std::fs::remove_file(d.join("S2.summary.tsv.zst")).unwrap();
     let err = run_matrix(d, &samples_of(&["S1", "S2"]), None).unwrap_err();
     assert!(matches!(&err, PipelineError::MissingSummaryFile { sample, .. } if sample == "S2"), "{err:?}");
     let msg = err.to_string();
     assert!(msg.contains("S2") && msg.contains("S2.summary.tsv.zst") && msg.contains("rerun"), "{msg}");
+    // The directory started without a counts file, so this proves the matrix was not written
+    // before the summary check failed.
+    assert!(!d.join("counts.tsv.zst").exists());
     assert!(!d.join(MAPPING_SUMMARY).exists());
 }
 
@@ -130,6 +134,9 @@ fn matrix_refuses_summary_for_another_sample() {
     );
     let msg = err.to_string();
     assert!(msg.contains("S1") && msg.contains("S9") && msg.contains("rerun"), "{msg}");
+    // The directory started without a counts file, so this proves the matrix was not written
+    // before the summary check failed.
+    assert!(!d.join("counts.tsv.zst").exists());
     assert!(!d.join(MAPPING_SUMMARY).exists());
 }
 

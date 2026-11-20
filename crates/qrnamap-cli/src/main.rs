@@ -572,6 +572,16 @@ fn run(cli: Cli) -> Result<(), String> {
             let samples = load_sheet(&samples)?;
             let cfg = RunConfig { mode: Mode::Align, max_intron, threads, ..RunConfig::default() };
             check_samples(&samples, &cfg, Mode::Align).map_err(e)?;
+            check_fastq_files(&samples).map_err(e)?;
+            // Ruling R33 (R24 order: check inputs, remove stale outputs, then build): an old
+            // table must not survive a failed rerun and be joined into the mapping summary.
+            for name in ["strand_check.tsv", "strand_check.tsv.partial"] {
+                match std::fs::remove_file(out.join(name)) {
+                    Ok(()) => {}
+                    Err(x) if x.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(x) => return Err(e(pipeline::PipelineError::Io { path: out.join(name), source: x })),
+                }
+            }
             let scratch = Scratch::from_flag_or_env(tmpdir);
             // Final review I1: the index, genes.saf and splice_sites.txt built below replace the
             // prepared ones in OUT, so the marker no longer describes them.
