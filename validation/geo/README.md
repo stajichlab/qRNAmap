@@ -18,10 +18,14 @@ This builds on `validation/amb/README.md` (data, samples, run directories, stran
   `qrnamap de` again on our quant counts (a check of the binary), then `compare_geo.R`.
 - `compare_geo.R`: counts agreement, DE agreement, sign-convention checks, checks of the authors'
   tables.
+- `column_proof.R`: recomputes the CPM-table columns from the counts file (which count columns each
+  CPM column reproduces) and the two data checks of the replicate mapping (totals vs ENA, 6x6
+  Spearman).
 - `results/`: `download_provenance.tsv`, `srx_to_srr.tsv`, `column_mapping.tsv`,
   `gene_id_overlap.tsv`, `unmatched_summary.tsv`, `unmatched_top.tsv`, `counts_agreement.tsv`,
   `de_agreement.tsv`, `sign_convention.tsv`, `sign_convention_top10.tsv`,
-  `authors_table_checks.tsv`, `compare_sessioninfo.txt`.
+  `authors_table_checks.tsv`, `compare_sessioninfo.txt`, `cpm_column_proof.tsv`,
+  `mapping_totals_vs_ena.tsv`, `mapping_spearman_6x6.tsv`.
 
 Outputs outside the repository: `$DATA/geo/download/` (the three files), `$DATA/geo/gsm/`
 (GEO sample records), `$DATA/geo/gse80357_series_full.txt`, `$DATA/geo/prep/`
@@ -54,7 +58,13 @@ Jobs (all `short`, 1 CPU requested, `--mem=4G`, node c17, `COMPLETED 0:0`):
 |---|---|---|---|
 | 32322745 | 1:14 | 871,628 KB | first run; the check table had NA values (93 NA rows in the LF_only columns, see below) |
 | 32322830 | 1:03 | 859,668 KB | checks with NA rows removed |
-| 32322903 | 1:13 | 877,212 KB | final: adds the DE rows restricted to the authors' DE genes; all tables in `results/` are from this job |
+| 32322903 | 1:13 | 877,212 KB | final: adds the DE rows restricted to the authors' DE genes; all tables in `results/` except the three below are from this job |
+| 32323076 | 0:06 | not read | node c07: `column_proof.R` (`cpm_column_proof.tsv`, `mapping_totals_vs_ena.tsv`, `mapping_spearman_6x6.tsv`) |
+
+Command of job 32323076 (submitted the same way, `--time=00:15:00`, pixi env on PATH):
+`Rscript $W/validation/geo/column_proof.R $D/geo/download/GSE80357_counts_of_mapped_reads.csv.gz
+$D/geo/download/GSE80357_average_cpm_per_treatment_group.csv.gz $W/validation/amb/results/ena_runs.tsv
+$W/validation/geo/results/column_mapping.tsv $D/run_quant/counts.tsv.zst $W/validation/geo/results`.
 
 The printed `counts_agreement.tsv` section of the three logs is byte-identical (same md5 of the
 section). The printed `de_agreement.tsv` was extended in the last job (its column layout changed), so
@@ -64,8 +74,9 @@ Versions: `qrnamap` built from `d64f917` (`cargo build --release -p qrnamap-cli`
 `CARGO_TARGET_DIR=/bigdata/stajichlab/jstajich/projects/qRNAmap_data/target-harden`). R 4.5.3,
 DESeq2 1.50.2 (`$DATA/geo/de_authors/deseq2.versions.txt`; design `~ condition`, contrast
 `condition,AmpB,Control`, Wald, no shrinkage). Python 3.15.2, zstd 1.5.7 (pixi env `default` of
-this worktree). Our quant and align DESeq2 results are the files of the earlier AMB runs (binary
-`ff611ae`). Check: `qrnamap de` from `d64f917` on the quant counts gave the same results (6,477
+this worktree). Our quant and align DESeq2 results are the files of the earlier AMB runs. Their binary
+is recorded in `validation/amb/README.md`, lines 5 and 6: "The `qrnamap` binary was built from commit
+`ff611ae` (branch `harden-cli`, created from `main` at `ff611ae`)". Check: `qrnamap de` from `d64f917` on the quant counts gave the same results (6,477
 genes; max |log2FC difference| 1.0e-14; max |padj difference| 2.9e-13; NA padj in the same genes).
 
 ## 1. Data, provenance and mapping
@@ -110,6 +121,71 @@ Authors' method (GEO `!Sample_data_processing`, same two lines in all 18 sample 
 counted", SGD GFF converted to GTF, R64-1-1. The records and the series text do not name a DE
 method (a search for "edger", "limma" and "deseq" in the 18 records found nothing). The DE column
 names are `logFC`, `LR`, `PValue`, `FDR`. I did not determine the method from them.
+
+### Column identification from the data (`column_proof.R`, job 32323076)
+
+The CPM table holds log2 of the group mean CPM, not linear CPM. I computed CPM per count column
+(count / column total over all 6,692 genes x 1e6), took the mean of the 3 columns of each group,
+and compared log2 of that mean with each CPM-table column (genes of the CPM table with a finite
+value on both sides). Against the log2 value, the matching group gives Pearson 0.99999; against the
+linear mean CPM the Pearson is 0.466 to 0.581 for every pair. Excerpt of
+`results/cpm_column_proof.tsv` (|difference| on the log2 scale):
+
+| CPM-table column | count columns | genes | median abs diff | max abs diff |
+|---|---|---|---|---|
+| AMB_only | 2I, 4E, 9E (AMB only) | 5,456 | 0.0081 | 0.102 |
+| AMB_only | 3F, 5G, 8A (control for AMB only) | 5,456 | 0.1926 | 3.260 |
+| AMB_only | 10B, 10D, 10F (LF only) | 5,453 | 0.3908 | 13.368 |
+| control_for_AMB_only | 3F, 5G, 8A | 5,456 | 0.0080 | 0.078 |
+| AMB_LF | 2F, 5C, 9D (AMB + LF) | 5,456 | 0.0080 | 0.086 |
+| control_for_AMB_LF | 1B, 3G, 4I | 5,456 | 0.0069 | 0.071 |
+| LF_only | 2I, 4E, 9E (AMB only) | 5,363 | 0.0086 | 0.057 |
+| LF_only | 10B, 10D, 10F (LF only) | 5,361 | 0.3888 | 13.365 |
+| control_for_LF_only | 3F, 5G, 8A (control for AMB only) | 5,363 | 0.0086 | 0.051 |
+| control_for_LF_only | 10G, 10H, 10I (control for LF only) | 5,361 | 0.2922 | 16.141 |
+
+What this shows:
+- `AMB_only` reproduces the count columns 2I, 4E, 9E, and `control_for_AMB_only` reproduces 3F,
+  5G, 8A. These are the columns that the GEO codes map to the AMB-only samples and their controls.
+  So `AMB_only` (not `LF_only`) is the group that matches the AMB-only counts, and the AMB_only
+  columns used in this comparison are the right ones.
+- `LF_only` also reproduces 2I, 4E, 9E (median 0.0086) and not its own LF count columns 10B, 10D,
+  10F (median 0.3888). `control_for_LF_only` reproduces 3F, 5G, 8A (median 0.0086) and not 10G,
+  10H, 10I (median 0.2922). So the published LF_only columns look like copies of the AMB-only data.
+  This explains the Pearson 0.9976 of `LF_only_logFC` with `AMB_only_logFC` and the CPM difference
+  of at most 0.008 (section 5). I did not investigate whether the LF count-column codes are
+  mislabeled or the LF tables were built from the wrong columns. It is not relevant to this
+  comparison.
+
+### Replicate mapping: evidence and limit
+
+Evidence: (1) the GSM titles and `!Sample_description` codes (table above); (2) the SRX-to-run map
+of ENA (`results/srx_to_srr.tsv`), whose sample titles equal the GSM titles; (3) two data checks.
+
+(a) Column totals of the authors' counts against the ENA `read_count` of the assigned run
+(`results/mapping_totals_vs_ena.tsv`): Spearman 1.0, Pearson 0.9877; ratio authors' total / ENA
+pairs 0.7849 to 0.8089.
+
+(b) Spearman per pair of authors' column and our quant sample, over the 6,008 common genes
+(`results/mapping_spearman_6x6.tsv`):
+
+| authors' column (assigned) | Control_1 | Control_2 | Control_3 | AmpB_1 | AmpB_2 | AmpB_3 |
+|---|---|---|---|---|---|---|
+| 3F (Control_1) | **0.9456** | 0.9390 | 0.9356 | 0.9093 | 0.9027 | 0.9155 |
+| 5G (Control_2) | 0.9378 | **0.9449** | 0.9367 | 0.9092 | 0.8950 | 0.9126 |
+| 8A (Control_3) | 0.9326 | 0.9354 | **0.9445** | 0.9239 | 0.9152 | 0.9249 |
+| 2I (AmpB_1) | 0.9045 | 0.9054 | 0.9211 | **0.9489** | 0.9409 | 0.9432 |
+| 4E (AmpB_2) | 0.8991 | 0.8926 | 0.9144 | 0.9422 | **0.9486** | 0.9411 |
+| 9E (AmpB_3) | 0.9120 | 0.9102 | 0.9237 | 0.9444 | 0.9409 | **0.9491** |
+
+For every authors' column the highest value is the assigned sample. Diagonal 0.9445 to 0.9491;
+off-diagonal within a condition 0.9326 to 0.9444; across conditions 0.8926 to 0.9249. Margin of the
+diagonal over the best other sample of the same condition, per row: 0.0047 to 0.0091.
+
+Limit: the within-condition margin is small (0.0047 to 0.0091). So the replicate labels inside a
+condition rest on the GEO titles and codes and on a weak data check. A swap of replicates inside one
+condition cannot be strongly ruled out by the data. Such a swap would not change the group means or
+the DESeq2 result of `~ condition`; it would change only the per-sample rows of section 2.
 
 ### Gene ids
 
@@ -265,9 +341,10 @@ that drive it.
   (5,363 rows without NA), median |difference| 0.0155, max 1.213. In the CPM file, max |AMB_only -
   LF_only| is 0.008 and max |control_for_AMB_only - control_for_LF_only| is 0.007; for comparison
   max |AMB_only - AMB_LF| is 2.12 and the Pearson of `AMB_only_logFC` with `AMB_and_LF_logFC` is
-  0.4211 (`results/authors_table_checks.tsv`). I did not investigate this. It does not affect the
-  AMB_only columns used here: their logFC matches the AMB-only columns of the authors' counts
-  (Spearman 0.9943, section 3).
+  0.4211 (`results/authors_table_checks.tsv`). Section 1 ("Column identification") shows that the
+  LF_only CPM columns reproduce the AMB-only count columns. It does not affect the AMB_only columns
+  used here: they reproduce the AMB-only count columns, and their logFC matches the AMB-only columns
+  of the authors' counts (Spearman 0.9943, section 3).
 - Replicate-level normalization: the ratio statistics in section 2 use raw counts; library size
   differences are in them.
 - Everything parsed. The 93 `NA` cells in the LF_only columns read as NA (not used).
