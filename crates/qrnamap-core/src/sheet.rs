@@ -9,7 +9,12 @@
 //! * Blank lines and lines that start with `#` are ignored. CRLF line endings are accepted.
 //!
 //! The sample names, covariate names and factor values end up in a generated R script, so they
-//! are restricted to safe characters here (see [`SampleSheet::parse`]).
+//! are restricted to safe characters here (see [`SampleSheet::parse`]). Covariate names that are
+//! reserved words or constants in R are rejected with `ReservedName`.
+//!
+//! Downstream contract: fastq paths and sample names are passed only as argv elements. They are
+//! never pasted into generated R or shell text. Fastq paths are checked for control characters
+//! only.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -45,8 +50,9 @@ pub struct SampleSheet {
 pub enum SheetError {
     /// Two rows have the same sample name.
     DuplicateSample(String),
-    /// A sample name, covariate column name, factor value or file path has a forbidden form.
-    /// The field holds the offending text.
+    /// A sample name, covariate column name or factor value has a forbidden form, or a fastq
+    /// path contains a control character. The field holds the offending text. Fastq paths are
+    /// not otherwise restricted (paths with spaces are allowed).
     BadName(String),
     /// A required column (`sample` or `fastq1`) is absent from the header.
     MissingColumn(String),
@@ -62,6 +68,9 @@ pub enum SheetError {
     EmptyValue { sample: String, column: String },
     /// A row has a different number of cells than the header. The field is the first cell.
     BadRow(String),
+    /// A covariate column name is a reserved word or constant in R (for example `if`, `TRUE`,
+    /// `NA`, `..1`). The field is the column name.
+    ReservedName(String),
 }
 
 impl fmt::Display for SheetError {
@@ -83,6 +92,9 @@ impl fmt::Display for SheetError {
             SheetError::EmptyValue { sample, column } => {
                 write!(f, "sample {sample:?}: column {column:?} is empty")
             }
+            SheetError::ReservedName(c) => {
+                write!(f, "column {c:?} is a reserved R name and cannot be a covariate")
+            }
             SheetError::BadRow(s) => {
                 write!(f, "row for {s:?} has a different number of cells than the header")
             }
@@ -102,6 +114,33 @@ fn is_column_name(s: &str) -> bool {
     let mut it = s.chars();
     matches!(it.next(), Some(c) if c.is_ascii_alphabetic())
         && it.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.'))
+}
+
+/// R reserved words and constants, plus `..N` style names and dot-digit names, which R does not
+/// read as ordinary variables. `T` and `F` are ordinary variables in R and are not listed.
+fn is_r_reserved(s: &str) -> bool {
+    matches!(
+        s,
+        "if" | "else"
+            | "repeat"
+            | "while"
+            | "function"
+            | "for"
+            | "in"
+            | "next"
+            | "break"
+            | "TRUE"
+            | "FALSE"
+            | "NULL"
+            | "Inf"
+            | "NaN"
+            | "NA"
+            | "NA_integer_"
+            | "NA_real_"
+            | "NA_character_"
+            | "NA_complex_"
+    ) || s.starts_with("..")
+        || (s.starts_with('.') && s.chars().nth(1).is_some_and(|c| c.is_ascii_digit()))
 }
 
 /// Factor values must be non-empty and use only `[A-Za-z0-9_.-]`. This is the same set the
@@ -147,6 +186,8 @@ impl SampleSheet {
     ///
     /// If the header has errors, row checks are skipped.
     pub fn parse(tsv: &str) -> Result<SampleSheet, Vec<SheetError>> {
+        // A UTF-8 byte order mark (Excel "CSV UTF-8") is not part of the first cell.
+        let tsv = tsv.strip_prefix('\u{feff}').unwrap_or(tsv);
         let mut lines = tsv
             .split('\n')
             .map(|l| l.strip_suffix('\r').unwrap_or(l))
@@ -169,6 +210,8 @@ impl SampleSheet {
             let reserved = matches!(name, "sample" | "fastq1" | "fastq2");
             if reserved && numeric {
                 errors.push(SheetError::BadName(cell.into()));
+            } else if !reserved && is_r_reserved(name) {
+                errors.push(SheetError::ReservedName(name.into()));
             } else if !reserved && !is_column_name(name) {
                 errors.push(SheetError::BadName(name.into()));
             } else if !seen.insert(name.to_string()) {

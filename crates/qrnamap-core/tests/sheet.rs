@@ -211,6 +211,73 @@ fn ragged_row_is_error() {
 }
 
 #[test]
+fn bom_before_header_is_stripped() {
+    let t = format!("\u{feff}{MINIMAL}");
+    let sh = SampleSheet::parse(&t).unwrap();
+    assert_eq!(sh, SampleSheet::parse(MINIMAL).unwrap());
+    assert_eq!(sh.samples[0].name, "s1");
+}
+
+#[test]
+fn bom_before_comment_line_is_stripped() {
+    let t = format!("\u{feff}# comment\n{MINIMAL}");
+    assert_eq!(SampleSheet::parse(&t).unwrap(), SampleSheet::parse(MINIMAL).unwrap());
+}
+
+#[test]
+fn reserved_word_column_name_rejected() {
+    for bad in [
+        "if", "else", "repeat", "while", "function", "for", "in", "next", "break", "TRUE",
+        "FALSE", "NULL", "Inf", "NaN", "NA", "NA_integer_", "NA_real_", "NA_character_",
+        "NA_complex_", "..1", "..x", ".5x",
+    ] {
+        let t = format!("sample\tfastq1\t{bad}\ns1\ta.fq\tx\n");
+        assert_eq!(errs(&t), vec![SheetError::ReservedName(bad.into())], "{bad:?}");
+        let t = format!("sample\tfastq1\t{bad}:numeric\ns1\ta.fq\t1\n");
+        assert_eq!(errs(&t), vec![SheetError::ReservedName(bad.into())], "{bad:?}:numeric");
+    }
+    assert!(SheetError::ReservedName("if".into()).to_string().contains("reserved R name"));
+}
+
+#[test]
+fn non_reserved_lookalikes_accepted() {
+    // `T` and `F` are ordinary variables in R, not reserved words, so they are accepted.
+    for ok in ["iffy", "Total", "na", "true", "T", "F", "a..1", "x.5"] {
+        let t = format!("sample\tfastq1\t{ok}\ns1\ta.fq\tx\n");
+        let sh = SampleSheet::parse(&t).unwrap_or_else(|e| panic!("{ok:?}: {e:?}"));
+        assert_eq!(sh.columns, vec![(ok.to_string(), ColType::Factor)]);
+    }
+}
+
+#[test]
+fn non_ascii_names_rejected() {
+    // U+00E9 and Cyrillic U+0430 (looks like Latin a)
+    for bad in ["\u{e9}1", "s\u{430}1"] {
+        let t = format!("sample\tfastq1\n{bad}\ta.fq\n");
+        assert_eq!(errs(&t), vec![SheetError::BadName(bad.into())]);
+        let t = format!("sample\tfastq1\t{bad}\ns1\ta.fq\tx\n");
+        assert_eq!(errs(&t), vec![SheetError::BadName(bad.into())]);
+    }
+}
+
+#[test]
+fn extra_cells_and_trailing_tab_give_bad_row() {
+    let t = "sample\tfastq1\ns1\ta.fq\textra\n";
+    assert_eq!(errs(t), vec![SheetError::BadRow("s1".into())]);
+    let t = "sample\tfastq1\ns1\ta.fq\t\n";
+    assert_eq!(errs(t), vec![SheetError::BadRow("s1".into())]);
+}
+
+#[test]
+fn cell_whitespace_is_trimmed() {
+    let t = "sample\tfastq1\tcondition\n s1 \t a.fq \t ctrl \n";
+    let sh = SampleSheet::parse(t).unwrap();
+    assert_eq!(sh.samples[0].name, "s1");
+    assert_eq!(sh.samples[0].fastq1, vec!["a.fq"]);
+    assert_eq!(sh.samples[0].covariates.get("condition").map(String::as_str), Some("ctrl"));
+}
+
+#[test]
 fn errors_display() {
     let m = SheetError::DuplicateSample("s1".into()).to_string();
     assert!(m.contains("s1"));
