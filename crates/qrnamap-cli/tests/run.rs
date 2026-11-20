@@ -235,6 +235,15 @@ fn run_end_to_end_quant_on_mini_fixture() {
     assert_eq!(genes, ["geneA", "geneB", "geneR", "geneC", "geneU"], "{m}");
     assert!(out.join(".prepared").is_file());
     assert!(!stderr.contains("read pairs (reads_per_sample"), "no reads warning at the default: {stderr}");
+    // The marker written by the local run matches a task run with the same inputs (R27).
+    let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
+    ok(&qrnamap(
+        &[
+            "quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--reference", s(&g),
+            "--gff", s(&gff), "--task-id", "1", "--samples-per-task", "2", "--tmpdir", s(&tmp),
+        ],
+        None,
+    ));
     if with_de {
         for f in ["deseq2.results.csv", "deseq2.normalized.csv", "deseq2.vst.csv", "deseq2.versions.txt"] {
             assert!(out.join(f).is_file(), "{f}\n{stderr}");
@@ -320,8 +329,19 @@ fn task_id_needs_prepared_run_dir() {
     let sh = d.join("sheet.tsv");
     fs::write(&sh, "sample\tfastq1\tfastq2\nA\t/x/a_1.fq\t/x/a_2.fq\n").unwrap();
     let out = d.join("out");
+    let (g, gff) = mini();
+    // R27: with --task-id, quant needs --reference and --gff (checked against the marker).
     let o = qrnamap(
         &["quant", "--samples", s(&sh), "--transcripts", "/x/t.fa", "--tx2gene", "/x/t2g", "--out", s(&out), "--task-id", "0", "--tmpdir", s(d)],
+        None,
+    );
+    let err = fail(&o);
+    assert!(err.contains("--task-id") && err.contains("--reference") && err.contains("--gff"), "{err}");
+    let o = qrnamap(
+        &[
+            "quant", "--samples", s(&sh), "--transcripts", "/x/t.fa", "--tx2gene", "/x/t2g", "--out", s(&out), "--task-id", "0",
+            "--tmpdir", s(d), "--reference", s(&g), "--gff", s(&gff),
+        ],
         None,
     );
     let err = fail(&o);
@@ -450,4 +470,178 @@ fn run_single_end_without_fragment_length_fails_before_any_tool() {
         assert!(err.contains("SE1") && err.contains("fragment length"), "{err}");
         assert!(!out.exists());
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ruling R27: the prepared marker records the inputs; a stale prepared state is refused.
+
+use qrnamap_cli::run::{check_prepared, write_prepared_marker, RunError, PREPARED_MARKER};
+use qrnamap_core::Mode;
+
+/// Copies of the mini reference and GFF (so tests can change them) and an empty run dir.
+struct Prepared {
+    _dir: tempfile::TempDir,
+    d: PathBuf,
+    reference: PathBuf,
+    gff: PathBuf,
+    out: PathBuf,
+    sheet: PathBuf,
+}
+
+fn prepared_align_dir() -> Prepared {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().to_path_buf();
+    let (g, gff) = mini();
+    let (reference, gff_copy) = (d.join("genome.fa"), d.join("genes.gff3"));
+    fs::copy(g, &reference).unwrap();
+    fs::copy(gff, &gff_copy).unwrap();
+    let out = d.join("run");
+    fs::create_dir_all(&out).unwrap();
+    write_prepared_marker(&out, Mode::Align, &[("reference", &reference), ("gff", &gff_copy)]).unwrap();
+    let sheet = mini_sheet(&d);
+    Prepared { _dir: dir, d, reference, gff: gff_copy, out, sheet }
+}
+
+fn not_prepared_reason(r: Result<(), RunError>) -> String {
+    match r {
+        Err(RunError::NotPrepared { reason, .. }) => reason,
+        other => panic!("expected NotPrepared, got {other:?}"),
+    }
+}
+
+fn align_task(p: &Prepared, gff: &Path) -> Output {
+    qrnamap(
+        &[
+            "align", "--samples", s(&p.sheet), "--reference", s(&p.reference), "--gff", s(gff), "--out", s(&p.out),
+            "--task-id", "0", "--tmpdir", s(&p.d),
+        ],
+        Some(&no_tools(&p.d)),
+    )
+}
+
+#[test]
+fn marker_records_inputs_and_version() {
+    let p = prepared_align_dir();
+    let text = fs::read_to_string(p.out.join(PREPARED_MARKER)).unwrap();
+    eprintln!("{text}");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "qrnamap-prepared\t1");
+    assert_eq!(lines[1], format!("version\t{}", env!("CARGO_PKG_VERSION")));
+    assert_eq!(lines[2], "mode\talign");
+    for (i, (role, path)) in [("reference", &p.reference), ("gff", &p.gff)].iter().enumerate() {
+        let m = fs::metadata(path).unwrap();
+        let t = m.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap();
+        let canon = fs::canonicalize(path).unwrap();
+        assert_eq!(
+            lines[3 + i],
+            format!("input\t{role}\t{}\t{}\t{}\t{}", m.len(), t.as_secs(), t.subsec_nanos(), canon.display())
+        );
+    }
+    assert_eq!(lines.len(), 5);
+    assert!(check_prepared(&p.out, Mode::Align, &[("reference", &p.reference), ("gff", &p.gff)]).is_ok());
+    // Mode and version are checked too.
+    let r = not_prepared_reason(check_prepared(&p.out, Mode::Quant, &[("reference", &p.reference), ("gff", &p.gff)]));
+    assert!(r.contains("mode") && r.contains("align") && r.contains("quant"), "{r}");
+    let text2 = text.replace(&format!("version\t{}", env!("CARGO_PKG_VERSION")), "version\t0.0.0-old");
+    fs::write(p.out.join(PREPARED_MARKER), text2).unwrap();
+    let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, &[("reference", &p.reference), ("gff", &p.gff)]));
+    assert!(r.contains("version") && r.contains("0.0.0-old"), "{r}");
+}
+
+#[test]
+fn task_run_with_different_gff_is_not_prepared() {
+    let p = prepared_align_dir();
+    let other = p.d.join("other.gff3");
+    fs::copy(&p.gff, &other).unwrap();
+    let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, &[("reference", &p.reference), ("gff", &other)]));
+    assert!(r.starts_with("gff: path differs"), "{r}");
+    assert!(r.contains("genes.gff3") && r.contains("other.gff3"), "{r}");
+    let err = fail(&align_task(&p, &other));
+    assert!(err.contains("not prepared") && err.contains("gff: path differs"), "{err}");
+    assert!(!err.contains("hisat2"), "refused before any tool: {err}");
+}
+
+#[test]
+fn task_run_with_modified_reference_mtime_is_not_prepared() {
+    let p = prepared_align_dir();
+    let f = fs::OpenOptions::new().write(true).open(&p.reference).unwrap();
+    f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600)).unwrap();
+    drop(f);
+    let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, &[("reference", &p.reference), ("gff", &p.gff)]));
+    assert!(r.starts_with("reference: mtime changed"), "{r}");
+    let err = fail(&align_task(&p, &p.gff));
+    assert!(err.contains("reference: mtime changed"), "{err}");
+}
+
+#[test]
+fn task_run_with_modified_reference_size_is_not_prepared() {
+    let p = prepared_align_dir();
+    let before = fs::metadata(&p.reference).unwrap().modified().unwrap();
+    let mut f = fs::OpenOptions::new().append(true).open(&p.reference).unwrap();
+    f.write_all(b"ACGT\n").unwrap();
+    f.set_modified(before).unwrap();
+    drop(f);
+    let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, &[("reference", &p.reference), ("gff", &p.gff)]));
+    assert!(r.starts_with("reference: size changed"), "{r}");
+    let err = fail(&align_task(&p, &p.gff));
+    assert!(err.contains("reference: size changed"), "{err}");
+}
+
+fn final_step(p: &Prepared, gff: &Path) -> Output {
+    qrnamap(
+        &[
+            "run", "--samples", s(&p.sheet), "--reference", s(&p.reference), "--gff", s(gff), "--mode", "align", "--out",
+            s(&p.out), "--step", "final", "--tmpdir", s(&p.d),
+        ],
+        Some(&no_tools(&p.d)),
+    )
+}
+
+#[test]
+fn final_step_with_different_gff_is_not_prepared() {
+    let p = prepared_align_dir();
+    let other = p.d.join("other.gff3");
+    fs::copy(&p.gff, &other).unwrap();
+    let err = fail(&final_step(&p, &other));
+    assert!(err.contains("not prepared") && err.contains("gff: path differs"), "{err}");
+    assert!(!p.out.join("counts.tsv.zst").exists());
+}
+
+#[test]
+fn final_step_without_marker_is_not_prepared() {
+    let p = prepared_align_dir();
+    fs::remove_file(p.out.join(PREPARED_MARKER)).unwrap();
+    let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, &[("reference", &p.reference), ("gff", &p.gff)]));
+    assert!(r.contains("is missing"), "{r}");
+    let err = fail(&final_step(&p, &p.gff));
+    assert!(err.contains("not prepared") && err.contains("is missing"), "{err}");
+}
+
+#[test]
+fn plain_quant_removes_stale_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("run");
+    fs::create_dir_all(&out).unwrap();
+    let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
+    qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
+    write_prepared_marker(&out, Mode::Quant, &[("reference", &g), ("gff", &gff), ("transcripts", &fa), ("tx2gene", &t2g)]).unwrap();
+    // No kallisto on PATH: the index build fails, but the old marker must already be gone.
+    let o = qrnamap(
+        &["quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir", s(d)],
+        Some(&no_tools(d)),
+    );
+    let err = fail(&o);
+    assert!(err.contains("kallisto"), "{err}");
+    assert!(!out.join(PREPARED_MARKER).exists(), "plain quant must remove the stale marker");
+    // The same for align.
+    write_prepared_marker(&out, Mode::Align, &[("reference", &g), ("gff", &gff)]).unwrap();
+    let o = qrnamap(
+        &["align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(d)],
+        Some(&no_tools(d)),
+    );
+    fail(&o);
+    assert!(!out.join(PREPARED_MARKER).exists(), "plain align must remove the stale marker");
 }

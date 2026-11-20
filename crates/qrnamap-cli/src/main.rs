@@ -71,6 +71,13 @@ enum Cmd {
         run: RunFlags,
         #[command(flatten)]
         task: TaskFlags,
+        /// With --task-id (required then): the genome FASTA the run directory was prepared
+        /// from. Checked against OUT/.prepared.
+        #[arg(long, requires = "task_id")]
+        reference: Option<PathBuf>,
+        /// With --task-id (required then): the GFF3 the run directory was prepared from.
+        #[arg(long, requires = "task_id")]
+        gff: Option<PathBuf>,
     },
     /// HISAT2 index, then HISAT2 and featureCounts per sample; writes DIR/<sample>.genecounts.tsv.zst.
     Align {
@@ -364,15 +371,21 @@ fn run(cli: Cli) -> Result<(), String> {
             let n = run_transcripts(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref()).map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());
         }
-        Cmd::Quant { samples, transcripts, tx2gene, out, run, task } => {
+        Cmd::Quant { samples, transcripts, tx2gene, out, run, task, reference, gff } => {
             let samples = load_sheet(&samples)?;
             let cfg = run.config(Mode::Quant);
             check_samples(&samples, &cfg, Mode::Quant).map_err(e)?;
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
             let ctx = if task.task_id.is_some() {
-                qrnamap_cli::run::prepared_quant(&out, &tx2gene, scratch.clone(), cfg).map_err(|x| x.to_string())?
+                let (Some(r), Some(g)) = (&reference, &gff) else {
+                    return Err("quant --task-id needs --reference and --gff (the inputs the run directory was prepared from)".into());
+                };
+                qrnamap_cli::run::prepared_quant(&out, r, g, &transcripts, &tx2gene, scratch.clone(), cfg)
+                    .map_err(|x| x.to_string())?
             } else {
+                // Ruling R27: an index built here was not made by `run --step prepare`.
+                qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg).map_err(e)?
             };
             for s in &samples[range] {
@@ -388,8 +401,11 @@ fn run(cli: Cli) -> Result<(), String> {
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
             let ctx = if task.task_id.is_some() {
-                qrnamap_cli::run::prepared_align(&out, scratch.clone(), cfg, keep_sam).map_err(|x| x.to_string())?
+                qrnamap_cli::run::prepared_align(&out, &reference, &gff, scratch.clone(), cfg, keep_sam)
+                    .map_err(|x| x.to_string())?
             } else {
+                // Ruling R27: an index built here was not made by `run --step prepare`.
+                qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam).map_err(e)?
             };
             for s in &samples[range] {

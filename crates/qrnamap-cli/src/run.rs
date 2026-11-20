@@ -26,7 +26,7 @@ use crate::de::{run_de, DeArgs, DeRunError};
 use crate::io::{open_input, InputError};
 use crate::pipeline::{
     align_sample, check_samples, prepare_align, prepare_quant, quant_sample, read_table, read_tx2gene,
-    remove_old_outputs, run_matrix, run_transcripts, write_output, AlignContext, GenesFrom, PipelineError,
+    gene_list_from_gff, read_gene_list, remove_old_outputs, run_matrix_with_genes, run_transcripts, write_output, AlignContext, GenesFrom, PipelineError,
     QuantContext, SampleResult, Scratch,
 };
 use crate::slurm::{write_slurm_scripts, Plan, SlurmError};
@@ -89,8 +89,12 @@ pub enum RunError {
     Slurm(SlurmError),
     /// `--task-id` points past the last sample.
     TaskOutOfRange { task_id: usize, per_task: usize, n_samples: usize },
-    /// `--task-id` needs a run directory prepared by `qrnamap run --step prepare`.
-    NotPrepared { dir: PathBuf, detail: String },
+    /// `--task-id` and `--step final` need a run directory prepared by
+    /// `qrnamap run --step prepare` from the same inputs (ruling R27). `reason` names what
+    /// differs: a missing marker, the mode, the version, or an input's path, size or mtime.
+    NotPrepared { dir: PathBuf, reason: String },
+    /// A path with a newline cannot be recorded in the marker.
+    UnsupportedPath(PathBuf),
     /// `--slurm` with a `--step` other than `all`.
     SlurmWithStep,
     /// A path is not valid UTF-8, so it cannot go into the scripts.
@@ -111,11 +115,12 @@ impl fmt::Display for RunError {
                 f,
                 "task {task_id} with {per_task} sample(s) per task starts past the end of the sheet ({n_samples} samples)"
             ),
-            RunError::NotPrepared { dir, detail } => write!(
+            RunError::NotPrepared { dir, reason } => write!(
                 f,
-                "run directory {} is not prepared ({detail}); run `qrnamap run --step prepare` first (it writes {PREPARED_MARKER})",
+                "run directory {} is not prepared for these inputs: {reason}. Run `qrnamap run --step prepare` with the same inputs first (it writes {PREPARED_MARKER})",
                 dir.display()
             ),
+            RunError::UnsupportedPath(p) => write!(f, "path {:?} contains a newline and cannot be recorded", p),
             RunError::SlurmWithStep => write!(f, "--slurm writes the scripts for all steps; do not combine it with --step"),
             RunError::NonUtf8Path(p) => write!(f, "path {} is not valid UTF-8", p.display()),
             RunError::Io { path, source } => write!(f, "{}: {source}", path.display()),
@@ -204,14 +209,131 @@ fn remove_if_present(p: &Path) -> Result<(), RunError> {
     }
 }
 
-/// Read the completion marker and check that it was written for `mode`.
-fn check_prepared(out: &Path, mode: Mode) -> Result<(), RunError> {
+/// First line of the marker file.
+const MARKER_HEADER: &str = "qrnamap-prepared\t1";
+
+/// One recorded input: role, canonical path, size in bytes, mtime (seconds, nanoseconds).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InputStamp {
+    role: String,
+    path: PathBuf,
+    size: u64,
+    secs: u64,
+    nanos: u32,
+}
+
+fn stamp(role: &str, path: &Path) -> Result<InputStamp, String> {
+    let canon = fs::canonicalize(path).map_err(|e| format!("{role}: cannot read {}: {e}", path.display()))?;
+    let meta = fs::metadata(&canon).map_err(|e| format!("{role}: cannot read {}: {e}", canon.display()))?;
+    let t = meta
+        .modified()
+        .map_err(|e| format!("{role}: no mtime for {}: {e}", canon.display()))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| format!("{role}: mtime of {} is before 1970", canon.display()))?;
+    Ok(InputStamp { role: role.to_string(), path: canon, size: meta.len(), secs: t.as_secs(), nanos: t.subsec_nanos() })
+}
+
+/// Write `<out>/.prepared` (ruling R27). Only the prepare step calls this, last, after the
+/// index is built. The file is written through `.partial` and a rename.
+///
+/// Format (tab-separated lines):
+/// ```text
+/// qrnamap-prepared<TAB>1
+/// version<TAB><qrnamap version>
+/// mode<TAB>quant|align
+/// input<TAB><role><TAB><size bytes><TAB><mtime seconds><TAB><mtime nanoseconds><TAB><canonical path>
+/// ```
+/// One `input` line per entry of `inputs`, in order. Roles: `reference`, `gff`, and in quant
+/// mode `transcripts` and `tx2gene`. The path is the last field, so it may hold a tab; a path
+/// with a newline is refused (`UnsupportedPath`).
+pub fn write_prepared_marker(out: &Path, mode: Mode, inputs: &[(&str, &Path)]) -> Result<(), RunError> {
+    let mut text = format!("{MARKER_HEADER}\nversion\t{}\nmode\t{}\n", env!("CARGO_PKG_VERSION"), mode_word(mode));
+    for (role, path) in inputs {
+        let st = stamp(role, path).map_err(|reason| RunError::NotPrepared { dir: out.to_path_buf(), reason })?;
+        let ps = st.path.to_str().ok_or_else(|| RunError::NonUtf8Path(st.path.clone()))?;
+        if ps.contains(['\n', '\r']) {
+            return Err(RunError::UnsupportedPath(st.path.clone()));
+        }
+        text.push_str(&format!("input\t{}\t{}\t{}\t{}\t{ps}\n", st.role, st.size, st.secs, st.nanos));
+    }
+    write_output(&out.join(PREPARED_MARKER), text.as_bytes())?;
+    Ok(())
+}
+
+/// Remove `<out>/.prepared`. Plain `quant` and `align` call this before they build an index in
+/// `<out>`, so a marker never describes an index it did not see built.
+pub fn remove_prepared_marker(out: &Path) -> Result<(), RunError> {
+    remove_if_present(&out.join(PREPARED_MARKER))
+}
+
+fn parse_marker(text: &str) -> Result<(String, String, Vec<InputStamp>), String> {
+    let mut lines = text.lines();
+    if lines.next() != Some(MARKER_HEADER) {
+        return Err(format!("{PREPARED_MARKER} has an unknown format"));
+    }
+    let (mut version, mut mode, mut inputs) = (None, None, Vec::new());
+    for l in lines {
+        let f: Vec<&str> = l.splitn(6, '\t').collect();
+        match f.as_slice() {
+            ["version", v] => version = Some(v.to_string()),
+            ["mode", m] => mode = Some(m.to_string()),
+            ["input", role, size, secs, nanos, path] => {
+                let bad = || format!("{PREPARED_MARKER}: bad input line for {role}");
+                inputs.push(InputStamp {
+                    role: role.to_string(),
+                    path: PathBuf::from(path),
+                    size: size.parse().map_err(|_| bad())?,
+                    secs: secs.parse().map_err(|_| bad())?,
+                    nanos: nanos.parse().map_err(|_| bad())?,
+                });
+            }
+            _ => return Err(format!("{PREPARED_MARKER} has an unknown line")),
+        }
+    }
+    match (version, mode) {
+        (Some(v), Some(m)) => Ok((v, m, inputs)),
+        _ => Err(format!("{PREPARED_MARKER} lacks the version or mode line")),
+    }
+}
+
+/// Compare `<out>/.prepared` with this run (ruling R27): the mode, the qrnamap version, and for
+/// each input the role set, the canonical path, the current size and the current mtime. Any
+/// difference is `NotPrepared` with a reason that names the input and what changed.
+pub fn check_prepared(out: &Path, mode: Mode, inputs: &[(&str, &Path)]) -> Result<(), RunError> {
+    let not = |reason: String| RunError::NotPrepared { dir: out.to_path_buf(), reason };
     let marker = out.join(PREPARED_MARKER);
-    let not = |detail: String| RunError::NotPrepared { dir: out.to_path_buf(), detail };
-    let text = fs::read_to_string(&marker).map_err(|e| not(format!("{}: {e}", marker.display())))?;
-    let want = format!("mode\t{}", mode_word(mode));
-    if !text.lines().any(|l| l == want) {
-        return Err(not(format!("{PREPARED_MARKER} was not written for mode {}", mode_word(mode))));
+    let text = match fs::read_to_string(&marker) {
+        Ok(t) => t,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not(format!("marker {} is missing", marker.display()))),
+        Err(e) => return Err(not(format!("marker {}: {e}", marker.display()))),
+    };
+    let (version, prep_mode, recorded) = parse_marker(&text).map_err(not)?;
+    if prep_mode != mode_word(mode) {
+        return Err(not(format!("mode differs: prepared for {prep_mode}, this run is {}", mode_word(mode))));
+    }
+    if version != env!("CARGO_PKG_VERSION") {
+        return Err(not(format!("version differs: prepared by qrnamap {version}, this is qrnamap {}", env!("CARGO_PKG_VERSION"))));
+    }
+    let roles = |v: Vec<&str>| v.join(", ");
+    let rec_roles: Vec<&str> = recorded.iter().map(|r| r.role.as_str()).collect();
+    let given_roles: Vec<&str> = inputs.iter().map(|(r, _)| *r).collect();
+    if rec_roles != given_roles {
+        return Err(not(format!("inputs differ: prepared with [{}], given [{}]", roles(rec_roles), roles(given_roles))));
+    }
+    for (rec, (role, path)) in recorded.iter().zip(inputs) {
+        let now = stamp(role, path).map_err(not)?;
+        if now.path != rec.path {
+            return Err(not(format!("{role}: path differs: prepared from {}, given {}", rec.path.display(), now.path.display())));
+        }
+        if now.size != rec.size {
+            return Err(not(format!("{role}: size changed: {} bytes when prepared, now {} bytes", rec.size, now.size)));
+        }
+        if (now.secs, now.nanos) != (rec.secs, rec.nanos) {
+            return Err(not(format!(
+                "{role}: mtime changed: {}.{:09} when prepared, now {}.{:09}",
+                rec.secs, rec.nanos, now.secs, now.nanos
+            )));
+        }
     }
     Ok(())
 }
@@ -220,23 +342,49 @@ fn require_file(out: &Path, p: &Path) -> Result<(), RunError> {
     if p.is_file() {
         Ok(())
     } else {
-        Err(RunError::NotPrepared { dir: out.to_path_buf(), detail: format!("{} is missing", p.display()) })
+        Err(RunError::NotPrepared { dir: out.to_path_buf(), reason: format!("{} is missing", p.display()) })
     }
 }
 
-/// The kallisto context of a prepared run directory, without building anything.
-pub fn prepared_quant(out: &Path, tx2gene: &Path, scratch: Scratch, config: RunConfig) -> Result<QuantContext, RunError> {
+/// The marker inputs of a run directory, in marker order.
+fn marker_inputs<'a>(mode: Mode, reference: &'a Path, gff: &'a Path, tx: Option<(&'a Path, &'a Path)>) -> Vec<(&'static str, &'a Path)> {
+    let mut v = vec![("reference", reference), ("gff", gff)];
+    if let (Mode::Quant, Some((fa, t2g))) = (mode, tx) {
+        v.extend([("transcripts", fa), ("tx2gene", t2g)]);
+    }
+    v
+}
+
+/// The kallisto context of a prepared run directory, without building anything. The marker
+/// must match `reference`, `gff`, `transcripts` and `tx2gene` (ruling R27).
+pub fn prepared_quant(
+    out: &Path,
+    reference: &Path,
+    gff: &Path,
+    transcripts: &Path,
+    tx2gene: &Path,
+    scratch: Scratch,
+    config: RunConfig,
+) -> Result<QuantContext, RunError> {
     let out = std::path::absolute(out).map_err(io_err(out))?;
-    check_prepared(&out, Mode::Quant)?;
+    check_prepared(&out, Mode::Quant, &marker_inputs(Mode::Quant, reference, gff, Some((transcripts, tx2gene))))?;
     let index = out.join("transcripts.kidx");
     require_file(&out, &index)?;
     Ok(QuantContext { index, tx2gene: read_tx2gene(tx2gene)?, out_dir: out, scratch, config })
 }
 
 /// The HISAT2 + featureCounts context of a prepared run directory, without building anything.
-pub fn prepared_align(out: &Path, scratch: Scratch, config: RunConfig, keep_sam: bool) -> Result<AlignContext, RunError> {
+/// The marker must match `reference` and `gff` (ruling R27).
+pub fn prepared_align(
+    out: &Path,
+    reference: &Path,
+    gff: &Path,
+    scratch: Scratch,
+    config: RunConfig,
+    keep_sam: bool,
+) -> Result<AlignContext, RunError> {
     let out = std::path::absolute(out).map_err(io_err(out))?;
-    check_prepared(&out, Mode::Align)?;
+    check_prepared(&out, Mode::Align, &marker_inputs(Mode::Align, reference, gff, None))?;
     let index_prefix = out.join("index").join("genome");
     let splice_sites = out.join("splice_sites.txt");
     let saf = out.join("genes.saf");
@@ -291,17 +439,18 @@ fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&
         }
         Mode::Align => Prepared::Align(prepare_align(&args.reference, &args.gff, out, scratch.clone(), cfg, args.keep_sam)?),
     };
-    let marker = format!("qrnamap prepared run directory\nmode\t{}\n", mode_word(args.mode));
-    write_output(&out.join(PREPARED_MARKER), marker.as_bytes())?;
+    let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
+    write_prepared_marker(out, args.mode, &marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g))))?;
     Ok((sheet, ctx))
 }
 
 fn finish(args: &RunArgs, out: &Path, sheet: &SampleSheet, warn: &mut dyn FnMut(&str)) -> Result<RunOutput, RunError> {
-    let genes_from = match args.mode {
-        Mode::Quant => (GenesFrom::Tx2Gene, out.join("tx2gene.tsv.zst")),
-        Mode::Align => (GenesFrom::Saf, out.join("genes.saf")),
+    // Rows: quant from the tx2gene table the marker checked; align from the --gff given.
+    let genes = match args.mode {
+        Mode::Quant => read_gene_list(GenesFrom::Tx2Gene, &out.join("tx2gene.tsv.zst"))?,
+        Mode::Align => gene_list_from_gff(&args.gff)?,
     };
-    let (counts, warnings) = run_matrix(out, &sheet.samples, Some((genes_from.0, genes_from.1.as_path())))?;
+    let (counts, warnings) = run_matrix_with_genes(out, &sheet.samples, Some(&genes))?;
     for w in &warnings {
         warn(w);
     }
@@ -335,6 +484,8 @@ pub fn run_local(
     let result = match args.step {
         Step::Final => {
             let sheet = check_inputs(args)?;
+            let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
+            check_prepared(&out, args.mode, &marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g))))?;
             finish(args, &out, &sheet, warn)
         }
         Step::Prepare => prepare(args, &out, &scratch, warn).map(|_| RunOutput::default()),
@@ -410,6 +561,10 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
     let mut task_args = vec!["--samples".to_string(), utf8(&samples)?];
     match args.mode {
         Mode::Quant => task_args.extend([
+            "--reference".into(),
+            utf8(&reference)?,
+            "--gff".into(),
+            utf8(&gff)?,
             "--transcripts".into(),
             utf8(&out.join("transcripts.fa.zst"))?,
             "--tx2gene".into(),

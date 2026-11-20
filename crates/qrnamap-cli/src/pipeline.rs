@@ -893,7 +893,21 @@ pub enum GenesFrom {
 
 /// Unique gene ids in order of first appearance.
 pub fn read_gene_list(kind: GenesFrom, path: &Path) -> Result<Vec<String>, PipelineError> {
-    let text = read_table(path)?;
+    gene_list_from_text(kind, &read_table(path)?, path)
+}
+
+/// The gene list (SAF order) built from a GFF3 file, as `prepare_align` writes it to
+/// `genes.saf`. Labels with a tab, newline or CR are `BadGeneLabel`.
+pub fn gene_list_from_gff(gff: &Path) -> Result<Vec<String>, PipelineError> {
+    let model = parse_gff3(open_input(gff).map_err(PipelineError::Input)?)
+        .map_err(|e| PipelineError::Gff { path: gff.to_path_buf(), detail: e.to_string() })?;
+    for g in &model.genes {
+        check_label(&g.label)?;
+    }
+    gene_list_from_text(GenesFrom::Saf, &saf(&model), gff)
+}
+
+fn gene_list_from_text(kind: GenesFrom, text: &str, path: &Path) -> Result<Vec<String>, PipelineError> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for (i, l) in text.lines().enumerate() {
@@ -967,15 +981,24 @@ pub fn run_matrix(
     samples: &[Sample],
     genes_from: Option<(GenesFrom, &Path)>,
 ) -> Result<(PathBuf, Vec<String>), PipelineError> {
-    let mut per_sample = Vec::with_capacity(samples.len());
-    for s in samples {
-        per_sample.push((s.name.clone(), read_gene_counts(&genecounts_path(out_dir, &s.name), &s.name)?));
-    }
     let genes = match genes_from {
         Some((kind, p)) => Some(read_gene_list(kind, p)?),
         None => None,
     };
-    let (matrix, warnings) = build_matrix(&per_sample, genes.as_deref())?;
+    run_matrix_with_genes(out_dir, samples, genes.as_deref())
+}
+
+/// `run_matrix` with the row list given directly (`None`: the sorted union of sample genes).
+pub fn run_matrix_with_genes(
+    out_dir: &Path,
+    samples: &[Sample],
+    genes: Option<&[String]>,
+) -> Result<(PathBuf, Vec<String>), PipelineError> {
+    let mut per_sample = Vec::with_capacity(samples.len());
+    for s in samples {
+        per_sample.push((s.name.clone(), read_gene_counts(&genecounts_path(out_dir, &s.name), &s.name)?));
+    }
+    let (matrix, warnings) = build_matrix(&per_sample, genes)?;
     let path = out_dir.join("counts.tsv.zst");
     write_output(&path, matrix.to_tsv().as_bytes())?;
     Ok((path, warnings))
