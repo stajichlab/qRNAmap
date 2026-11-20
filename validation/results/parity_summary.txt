@@ -1,0 +1,5 @@
+records ours=6478 gffread=6478 identical=6478
+duplicate ids ours=0 gffread=0
+only_ours=0
+only_gffread=0
+seq_differs=0

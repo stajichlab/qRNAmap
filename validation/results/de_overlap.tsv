@@ -1,0 +1,13 @@
+metric	value
+genes_tested_quant	6477
+genes_tested_align	6477
+padj_na_quant	496
+padj_na_align	400
+sig_quant	2648
+sig_align	2632
+sig_both	2571
+sig_only_quant	77
+sig_only_align	61
+jaccard	0.94905869324474
+sig_both_same_lfc_sign	2571
+spearman_lfc_all_genes_with_lfc	0.955239188776533

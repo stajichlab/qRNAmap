@@ -1,0 +1,7 @@
+sample	sense	antisense	ambiguous	sense_fraction	antisense_fraction	ambiguous_fraction	suggested	low_fraction_warning
+WT_1	1130	89500	936	0.0125	0.9875	0.0102	reverse	false
+WT_2	1086	89636	737	0.0120	0.9880	0.0081	reverse	false
+WT_3	1261	89803	668	0.0138	0.9862	0.0073	reverse	false
+ups1KO_1	1305	88724	1217	0.0145	0.9855	0.0133	reverse	false
+ups1KO_2	1194	88758	1475	0.0133	0.9867	0.0161	reverse	false
+ups1KO_3	1194	88818	1464	0.0133	0.9867	0.0160	reverse	false
