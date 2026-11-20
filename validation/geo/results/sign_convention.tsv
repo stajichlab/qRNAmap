@@ -1,0 +1,3 @@
+check	genes	spearman	authors_fdr_lt_0.05	same_sign_among_them
+authors' counts: log2((mean CPM AmpB+0.5)/(mean CPM Control+0.5)) vs AMB_only_logFC	5456	0.994279788326057	1828	1828
+our DESeq2 quant (AmpB vs Control) log2FC vs AMB_only_logFC	5405	0.988440353313029	1816	1816

@@ -1,0 +1,31 @@
+side	gene	class	reads_sum6_primary	reads_sum6_other
+only_ours	YNCL0012C	SGD ncRNA systematic name (YNC?####W/C)	quant=175157	align=0
+only_ours	YNCL0021C	SGD ncRNA systematic name (YNC?####W/C)	quant=175157	align=0
+only_ours	YDR134C	systematic ORF name (Y??###W/C)	quant=118171	align=120439
+only_ours	YNCL0025C	SGD ncRNA systematic name (YNC?####W/C)	quant=76726	align=0
+only_ours	YNCL0016C	SGD ncRNA systematic name (YNC?####W/C)	quant=76726	align=0
+only_ours	YNCM0001W	SGD ncRNA systematic name (YNC?####W/C)	quant=43463	align=2031
+only_ours	YNCL0020C	SGD ncRNA systematic name (YNC?####W/C)	quant=21612	align=4
+only_ours	YNCL0010C	SGD ncRNA systematic name (YNC?####W/C)	quant=21612	align=19
+only_ours	YNCH0008W	SGD ncRNA systematic name (YNC?####W/C)	quant=18380	align=255
+only_ours	YNCH0007W	SGD ncRNA systematic name (YNC?####W/C)	quant=18380	align=75
+only_ours	YNCB0010W	SGD ncRNA systematic name (YNC?####W/C)	quant=9135	align=9070
+only_ours	YNCG0006C	SGD ncRNA systematic name (YNC?####W/C)	quant=6074	align=108
+only_ours	YNCB0014W	SGD ncRNA systematic name (YNC?####W/C)	quant=4228	align=92
+only_ours	YNCL0014C	SGD ncRNA systematic name (YNC?####W/C)	quant=4173	align=0
+only_ours	YNCL0023C	SGD ncRNA systematic name (YNC?####W/C)	quant=4173	align=0
+only_theirs	YDR133C	systematic ORF name (Y??###W/C)	authors=92566	-
+only_theirs	YLR154W-A	systematic ORF name (Y??###W/C)	authors=12869	-
+only_theirs	YLR154W-E	systematic ORF name (Y??###W/C)	authors=7217	-
+only_theirs	YLR154W-B	systematic ORF name (Y??###W/C)	authors=4159	-
+only_theirs	YGR182C	systematic ORF name (Y??###W/C)	authors=2322	-
+only_theirs	YMR193C-A	systematic ORF name (Y??###W/C)	authors=1650	-
+only_theirs	YJL188C	systematic ORF name (Y??###W/C)	authors=1303	-
+only_theirs	YKL066W	systematic ORF name (Y??###W/C)	authors=1210	-
+only_theirs	YFL031C-A	systematic ORF name (Y??###W/C)	authors=1183	-
+only_theirs	YHR214W-A	systematic ORF name (Y??###W/C)	authors=1096	-
+only_theirs	YBR076C-A	systematic ORF name (Y??###W/C)	authors=1047	-
+only_theirs	YKL153W	systematic ORF name (Y??###W/C)	authors=1002	-
+only_theirs	YLR230W	systematic ORF name (Y??###W/C)	authors=972	-
+only_theirs	YLR294C	systematic ORF name (Y??###W/C)	authors=956	-
+only_theirs	YDL016C	systematic ORF name (Y??###W/C)	authors=917	-

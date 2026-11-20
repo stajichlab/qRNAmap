@@ -1,0 +1,19 @@
+authors_column	gsm	gsm_title	gsm_description_code	srx	srr	our_sample
+1B	GSM2125081	Matched control for AMB + LF rep 1	1b	SRX1709862		
+2F	GSM2125078	AMB + LF rep 1	2f	SRX1709859		
+2I	GSM2125072	AMB only rep 1	2i	SRX1709853	SRR3396381	AmpB_1
+3F	GSM2125075	Matched control for AMB only rep 1	3f	SRX1709856	SRR3396385	Control_1
+3G	GSM2125082	Matched control for AMB + LF rep 2	3g	SRX1709863		
+4E	GSM2125073	AMB only rep 2	4e	SRX1709854	SRR3396382	AmpB_2
+4I	GSM2125083	Matched control for AMB + LF rep 3	4i	SRX1709864		
+5C	GSM2125079	AMB + LF rep 2	5c	SRX1709860		
+5G	GSM2125076	Matched control for AMB only rep 2	5g	SRX1709857	SRR3396386	Control_2
+8A	GSM2125077	Matched control for AMB only rep 3	8a	SRX1709858	SRR3396387	Control_3
+9D	GSM2125080	AMB + LF rep 3	9d	SRX1709861		
+9E	GSM2125074	AMB only rep 3	9e	SRX1709855	SRR3396384	AmpB_3
+10B	GSM2125084	LF only rep 1	10b	SRX1709865		
+10D	GSM2125085	LF only rep 2	10d	SRX1709866		
+10F	GSM2125086	LF only rep 3	10f	SRX1709867		
+10G	GSM2125087	Matched control for LF only rep  2	10g	SRX1709868		
+10H	GSM2125088	Matched control for LF only rep  1	10h	SRX1709869		
+10I	GSM2125089	Matched control for LF only rep  3	10i	SRX1709870		
