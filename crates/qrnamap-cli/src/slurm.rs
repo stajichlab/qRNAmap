@@ -31,9 +31,13 @@ use qrnamap_core::Mode;
 pub const DEFAULT_TIME: &str = "02:00:00";
 /// Default `--mem-gb`. Placeholder, small on purpose. Measured on the AMB data set (see
 /// `validation/amb/README.md`): HISAT2 used 41,208 KB and featureCounts used 36,144 KB resident
-/// memory. The 13 GB that `sacct` reported as MaxRSS was page cache of the staged scratch files.
-/// A job with `--mem 4G` finished with identical counts. NOT measured for genomes near 50 Mb or
-/// for 20 million read pairs per sample: raise `--mem-gb` for those.
+/// memory. The 13 GB that `sacct` reported as MaxRSS was, in the one job examined, page cache of
+/// the staged scratch files. Two jobs with `--mem 4G` finished with identical counts. No job was
+/// run at 8 GB (the tested limits were 32 GB and 4 GB); the two 4 GB runs took 10:32 and 19:26
+/// against 6:28 at 32 GB, on different nodes, so the effect of the limit on run time is open. The
+/// yeast align tasks peaked at 6.7 to 8.0 GB MaxRSS (`validation/README.md`), at or near 8 GB.
+/// NOT measured for genomes near 50 Mb or for 20 million read pairs per sample: raise `--mem-gb`
+/// for those.
 pub const DEFAULT_MEM_GB: u32 = 8;
 
 /// Message of the `${SCRATCH:?...}` check. In the generated script `$SCRATCH` is written as

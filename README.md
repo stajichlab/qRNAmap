@@ -77,10 +77,11 @@ qrnamap strand-check --samples samples.tsv --reference genome.fna.gz --gff genes
 qrnamap run --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz --mode quant \
   --out run/ --strandedness reverse --contrast condition,ko,wild_type
 
-# SLURM scripts instead of running (the run directory must be on shared storage)
+# SLURM scripts instead of running (the run directory must be on shared storage).
+# The jobs put temporary files in node-local $SCRATCH: run submit.sh from a login shell.
 qrnamap run --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz --mode align \
   --out /bigdata/lab/run/ --strandedness reverse --contrast condition,ko,wild_type \
-  --slurm --tool-path "$PWD/.pixi/envs/default/bin" --tmpdir /bigdata/lab/tmp --time 02:00:00
+  --slurm --tool-path "$PWD/.pixi/envs/default/bin" --time 02:00:00
 bash /bigdata/lab/run/slurm/submit.sh
 ```
 
@@ -89,22 +90,38 @@ The temporary directory is `--tmpdir`, then `$SCRATCH`, then `$TMPDIR`. A run di
 
 ### SLURM and the temporary directory
 
-- `run --slurm --tmpdir DIR` writes `DIR` into the scripts. The jobs do not need `$SCRATCH`. A job
-  creates `DIR` (with its own `qrnamap-<pid>` subdirectory) when the parent of `DIR` is writable. Use
-  storage that every compute node can reach, for example `/bigdata`. A `--tmpdir` under `$SCRATCH` or
-  `/scratch` gives a warning, because such a path is job-specific. It is not an error.
-- Without `--tmpdir`, each job needs `$SCRATCH`. A job that was submitted from a bare environment has
+- Default (no `--tmpdir`): each job puts its temporary files in node-local `$SCRATCH`. Submit
+  `submit.sh` from a login shell. A job that was submitted from a bare environment has
   no `$SCRATCH` and stops at its first check with this message: `SCRATCH is not set: this job needs
   node-local scratch. Submit from a login shell where $SCRATCH is set, or regenerate the scripts with
-  --tmpdir DIR.` Submit from a login shell, or use `--tmpdir`. Evidence: `validation/amb/README.md`, D3.
+  --tmpdir DIR.` Evidence: `validation/amb/README.md`, D3.
+- Fallback for a submit from a bare environment: `run --slurm --tmpdir DIR` writes `DIR` into the
+  scripts. The jobs then do not need `$SCRATCH`. A job creates `DIR` (and a `qrnamap-<pid>`
+  subdirectory in it) when the parent of `DIR` is writable. Use storage that every compute node can
+  reach, for example `/bigdata`. A `--tmpdir` under `$SCRATCH` or `/scratch` gives a warning, because
+  such a path is job-specific. It is not an error.
+- The cost of `--tmpdir` on shared storage: the staged FASTQ files and the SAM are written there. For
+  one AMB align sample of 10,302,142 pairs, the staged FASTQ plus the SAM were 13,312,702,275 bytes
+  (`validation/amb/README.md`, E3). qrnamap removes these files when a sample ends, also after an
+  error. A job that SLURM stops (time limit, `scancel`, out of memory) cannot run this cleanup, so its
+  files stay in `DIR`; remove them by hand. This follows from how the cleanup works (it runs in the
+  program); it was not tested.
+- Process IDs can repeat on different nodes, so two jobs on a shared `--tmpdir` can get the same
+  `qrnamap-<pid>` subdirectory. The per-sample subdirectories in it keep the files of different
+  samples apart. No collision was found.
 - `--mem-gb` default: 8 (GB). The value is an unmeasured placeholder. Reason, from `validation/amb/README.md`
   (E3, one align sample of 10,302,142 pairs): `sacct` MaxRSS of an align job was 13,073,276 KB with the
-  temporary files on `$SCRATCH` and 39,392 KB with them on GPFS (`/bigdata`). The 13 GB is the page cache of the
-  staged files in `$SCRATCH` that the job accounting counts. The tools themselves were small: HISAT2 used 41,208 KB
+  temporary files on `$SCRATCH` and 39,392 KB with them on GPFS (`/bigdata`). The 13 GB was, in the one job
+  examined, the page cache of the staged files in `$SCRATCH` that the job accounting counts. The tools themselves were small: HISAT2 used 41,208 KB
   and featureCounts 36,144 KB resident. A job with `--mem 4G` finished with identical gene counts
   (`sacct` MaxRSS 4,192,060 KB on node x01 and 4,191,164 KB on node c17). That is two runs of one sample on
-  two nodes. It was NOT measured for genomes near 50 Mb or for 20 million pairs per sample: raise `--mem-gb`
-  for those. The `--time` and `--cpus` defaults are still unmeasured placeholders.
+  two nodes. No job was run at 8 GB (the tested limits were 32 GB and 4 GB), and the two 4 GB runs took
+  10:32 and 19:26 against 6:28 at 32 GB on different nodes, so the effect of the limit on run time is not
+  attributed and stays open (`validation/amb/README.md`, E3). The yeast align tasks peaked at 6.7 to 8.0 GB
+  MaxRSS (`validation/README.md`), at or near 8 GB. It was NOT measured for genomes near 50 Mb or for 20
+  million pairs per sample: raise `--mem-gb` for those. The `--time` and `--cpus` defaults are still
+  unmeasured placeholders. Measured AMB rates with `--threads 1`: quant 22.7 to 26.8 s and align 35.2 to
+  52.1 s per million read pairs (`validation/amb/README.md`, "Bundling").
 
 ## Gene table and mapping summaries
 
@@ -124,15 +141,23 @@ One row per gene, tab-separated, with a header. Columns: `gene contig strand bio
   else gives `other`.
 - `mito`: `yes` or `no`. A gene is `yes` when its contig has a `region` feature with the attribute
   `genome=mitochondrion` or `genome=mitochondrial` in the GFF3 (the match is case-sensitive), or when the
-  contig is named with `--mito-contig NAME` (repeatable). The two sources are added together.
+  contig is named with `--mito-contig NAME` (repeatable). The two sources are added together. The
+  `--mito-contig` match is exact and case-sensitive. A name that matches no contig of the GFF3 gives a
+  note on stderr, not an error.
 - `n_transcripts`: the number of transcripts of the gene.
 
 Which subcommands write it:
 
 - `qrnamap transcripts --genes-table PATH` (the compression follows the file suffix).
 - `qrnamap quant --gff GFF`: writes `OUT/genes.tsv.zst`. Plain `quant` without `--gff` writes no table
-  (stderr says so). `--mito-contig` without `--gff` on plain `quant` is an error.
+  (stderr says so). `--mito-contig` without `--gff` on plain `quant` is an error. Every gene of the
+  `--tx2gene` table must be a gene of the `--gff` GFF3, else `quant` stops with an error that names the
+  missing genes, before kallisto runs. A GFF3 with more genes is accepted.
+- `quant --task-id` and `align --task-id` do not write the table (the prepare step does); `--mito-contig`
+  there gives a note that it has no effect. `transcripts --mito-contig` without `--genes-table` gives the
+  same note.
 - `qrnamap align` and `qrnamap run`: write `OUT/genes.tsv.zst` from the required `--gff`.
+- `qrnamap strand-check` does not write or change `genes.tsv.zst`, also when its `--out` is a run directory.
 
 The table is written after the index is built, so a failed prepare step leaves no table. A rerun
 removes an old table first.
@@ -154,7 +179,9 @@ header and one row. Columns: `sample mode reads_processed fraction_mapped fracti
   column in which every value is 1 is therefore read by pandas as integer.
 - `matrix` stops with a named error when the summary of a listed sample is missing or belongs to
   another sample. Run directories made before this version have no summary files: rerun each
-  sample (`quant` or `align`) before `matrix` or `run --step final`.
+  sample (`quant` or `align`) before `matrix` or `run --step final`. Before any check, `matrix` (and
+  `run --step final`) removes the old `counts.tsv.zst` and `mapping_summary.tsv.zst`, so a failed `matrix`
+  leaves neither. It does not remove old `deseq2.*` files; `de` removes those itself.
 - `strand-check` removes an old `strand_check.tsv` in its `--out` after its input checks and before it
   runs any tool.
 
@@ -192,8 +219,8 @@ These values are chosen, not measured or calibrated. Check them for your data.
 - `LOW_ASSIGNED_FRACTION` 0.5: a sample with an assigned (or pseudoaligned) fraction below 0.5 gives a warning.
 
 Align memory, measured on the yeast validation (`validation/README.md`): 6.7 to 8.0 GB MaxRSS per
-array task at 5.2 to 6.1 million pairs with `--threads 1`. The AMB experiments explain this as page
-cache of the staged scratch files (`validation/amb/README.md`, E3; one job showed the equality of
+array task at 5.2 to 6.1 million pairs with `--threads 1`. This is consistent with page cache of the
+staged scratch files, as measured in the AMB experiments (`validation/amb/README.md`, E3; one job showed the equality of
 `sacct` MaxRSS and the cgroup peak that counts page cache).
 
 ## Not in this version

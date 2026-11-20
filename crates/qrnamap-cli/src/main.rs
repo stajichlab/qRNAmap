@@ -166,9 +166,11 @@ enum Cmd {
         #[arg(long, requires = "slurm")]
         cpus: Option<u32>,
         /// Memory per SLURM task in GB. The default is an UNMEASURED placeholder and is small on
-        /// purpose: on the AMB data HISAT2 used about 40 MiB (41,208 KB) and featureCounts about 35 MiB (36,144 KB) resident, and a
-        /// 4 GB job gave identical counts. Not measured for genomes near 50 Mb or for 20 million
-        /// read pairs per sample: raise it for those.
+        /// purpose: on the AMB data HISAT2 used about 40 MiB (41,208 KB) and featureCounts about 35 MiB (36,144 KB) resident, and two
+        /// 4 GB jobs gave identical counts. No job ran at 8 GB (tested: 32 GB and 4 GB); the 4 GB runs
+        /// took 10:32 and 19:26 against 6:28 at 32 GB on different nodes, so the effect on run time is
+        /// open (validation/amb/README.md). Yeast align tasks peaked at 6.7 to 8.0 GB MaxRSS. Not
+        /// measured for genomes near 50 Mb or for 20 million read pairs per sample: raise it for those.
         #[arg(long, default_value_t = qrnamap_cli::slurm::DEFAULT_MEM_GB, requires = "slurm")]
         mem_gb: u32,
         /// SLURM time limit per task. UNMEASURED placeholder.
@@ -305,7 +307,7 @@ struct RunFlags {
     threads: u32,
     /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23). With `run --slurm`
     /// the directory is written into the scripts instead of the $SCRATCH check. The jobs
-    /// create it (qrnamap runs create_dir_all, with its own `qrnamap-<pid>` subdirectory) when
+    /// create it (qrnamap runs create_dir_all, with a `qrnamap-<pid>` subdirectory) when
     /// the parent is writable. Use storage that every compute node can reach (for example
     /// /bigdata). A /scratch or $SCRATCH path gives a warning: it is job-specific.
     #[arg(long)]

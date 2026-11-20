@@ -10,7 +10,7 @@ cluster). The `f2bfb54` build was not re-run on the cluster.
 Later experiments on the same cluster are in `validation/amb/README.md` (AMB, GSE80357; experiments E0 to E3).
 They ran the `f2bfb54` fix (finding 1, D1) on real jobs in E1 and E2: after a failed prepare job, SLURM
 cancelled the dependent array and final jobs 12 s later in 2 of 2 attempts (E1), and the baked PATH worked
-on real jobs (E2). Finding 2 (D2, align memory) is explained there as page cache of the scratch files (E3).
+on real jobs (E2). Finding 2 (D2, align memory) is consistent with page cache of the scratch files, as measured there (E3).
 Data lives outside the repository in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/`.
 This directory holds the scripts and small summary tables only.
 
@@ -293,7 +293,8 @@ The plan has no pass or fail criterion for these numbers. I do not call them goo
 2. **Align tasks have a MaxRSS of 6.7 to 8.0 GB with `hisat2 -p 1`** (quant tasks: about 0.1 GB).
    The SAM goes to a file in `$SCRATCH`, not to memory. I did not find the cause. The cluster's
    memory accounting may count the page cache of the files written in the job; this was UNVERIFIED
-   in this run. The AMB experiment E3 (`validation/amb/README.md`) explains it as page cache.
+   in this run. It is consistent with page cache: in the AMB experiment E3 (`validation/amb/README.md`)
+   the high MaxRSS was, in the one job examined, page cache of the scratch files.
    The 16 GB request was enough.
 
 ## Not measured, or not done
