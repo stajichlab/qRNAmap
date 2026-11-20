@@ -4,3 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[dependencies]
+genome-catalog = { path = "../genome-catalog" }
+ureq = "2"
+serde_json = "1"
+flate2 = "1"
+
+[dev-dependencies]
+tempfile = "3"
+flate2 = "1"
