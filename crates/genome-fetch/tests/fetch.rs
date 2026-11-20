@@ -159,12 +159,21 @@ fn assert_no_leak(err: &FetchError, parts: &[&str]) {
 }
 
 #[test]
-fn key_with_newline_is_rejected_without_leak() {
+fn key_file_second_line_is_ignored_and_401_error_has_no_leak() {
+    // The file parser takes the first one-word line as the key, so the key is `SENTINEL-A` (valid) and the
+    // server answers 401. This checks only that the "key rejected" error does not hold either word.
     let s = list_server(|| Response::status(401));
     let dir = tempfile::tempdir().unwrap();
     let key = write_key_file(dir.path(), "SENTINEL-A\nSENTINEL-B\n");
     let err = fetch_fungidb("Testus fungus", &key, &s.base, &dir.path().join("o")).unwrap_err();
+    assert!(err.to_string().contains("rejected"), "{err}");
     assert_no_leak(&err, &["SENTINEL-A", "SENTINEL-B"]);
+}
+
+#[test]
+fn key_file_with_curly_quotes_is_rejected_without_leak() {
+    let s = list_server(|| Response::status(401));
+    let dir = tempfile::tempdir().unwrap();
     // Curly quotes are not removed by the parser, so the key holds non-ASCII bytes and must be refused before any request.
     let key = write_key_file(dir.path(), "EUPATHDB_KEY=\u{201c}SENTINEL-A\u{201d}\n");
     let before = s.requests().len();

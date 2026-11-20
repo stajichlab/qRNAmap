@@ -189,7 +189,7 @@ fn validate_key(key: &str, described_source: &str) -> Result<(), FetchError> {
     }
 }
 
-/// Resolve the key.Returns the key (if any) and a description of its source for messages.
+/// Resolve the key. Returns the key (if any) and a description of its source for messages.
 fn resolve_key(source: &KeySource, base_host: &str) -> Result<(Option<String>, String), FetchError> {
     match source {
         KeySource::File(path) => {
@@ -252,6 +252,40 @@ mod tests {
         assert_eq!(key_from_text(text, "third.org").as_deref(), Some("DEFAULTKEY"));
         assert_eq!(key_from_text("export EUPATHDB_KEY=\"abc==\"\n", "x").as_deref(), Some("abc=="));
         assert_eq!(key_from_text("# only a comment\n", "x"), None);
+    }
+
+    #[test]
+    fn validate_key_rejects_unsafe_bytes_without_leak() {
+        let source = "the environment variable EUPATHDB_KEY";
+        let cases = [
+            "SENTINEL-A\nSENTINEL-B",
+            "SENTINEL-A\rSENTINEL-B",
+            "SENTINEL-A\tSENTINEL-B",
+            "SENTINEL-A SENTINEL-B",
+            "a b",
+            "SENTINEL-A\u{7f}SENTINEL-B",
+            "SENTINEL-\u{e9}",
+        ];
+        for key in cases {
+            let err = validate_key(key, source).expect_err(key);
+            let (d, g) = (err.to_string(), format!("{err:?}"));
+            assert!(d.contains(source) && d.contains("not allowed"), "{d}");
+            for part in ["SENTINEL-A", "SENTINEL-B", "SENTINEL-\u{e9}", "SENTINEL"] {
+                assert!(!d.contains(part) && !g.contains(part), "leak of {part} for {key:?}: {d} / {g}");
+            }
+        }
+        // "a b" holds no sentinel; check its parts are absent too.
+        let err = validate_key("a b", source).unwrap_err();
+        assert!(!err.to_string().contains("a b") && !format!("{err:?}").contains("a b"));
+    }
+
+    #[test]
+    fn validate_key_accepts_printable_ascii_and_empty() {
+        assert!(validate_key("AbC-123_x.y/z=+", "x").is_ok());
+        assert!(validate_key("!~", "x").is_ok(), "0x21 and 0x7E are the limits");
+        // The empty string is accepted by validate_key (no byte is outside the range). The callers never pass it:
+        // resolve_key drops an empty env value and the key file parser never returns an empty key.
+        assert!(validate_key("", "x").is_ok());
     }
 
     #[test]
