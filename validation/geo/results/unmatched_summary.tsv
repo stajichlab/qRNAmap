@@ -1,0 +1,13 @@
+side	table	class	genes	genes_with_reads	reads_sum6
+only_ours	quant	SGD ncRNA systematic name (YNC?####W/C)	410	400	701335
+only_ours	quant	mitochondrial ORF (Q####)	3	2	63
+only_ours	quant	other	1	1	1409
+only_ours	quant	systematic ORF name (Y??###W/C)	31	28	142935
+only_ours	quant	tRNA (t?(NNN)?)	24	0	0
+only_ours	align	SGD ncRNA systematic name (YNC?####W/C)	410	359	53398
+only_ours	align	mitochondrial ORF (Q####)	3	0	0
+only_ours	align	other	1	1	928
+only_ours	align	systematic ORF name (Y??###W/C)	31	25	140233
+only_ours	align	tRNA (t?(NNN)?)	24	0	0
+only_theirs	authors	mitochondrial ORF (Q####)	9	0	0
+only_theirs	authors	systematic ORF name (Y??###W/C)	675	498	173320

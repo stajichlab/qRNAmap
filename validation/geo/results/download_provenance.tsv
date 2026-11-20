@@ -1,0 +1,4 @@
+file	url	bytes	md5	last_modified	downloaded
+GSE80357_counts_of_mapped_reads.csv.gz	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE80nnn/GSE80357/suppl/GSE80357_counts_of_mapped_reads.csv.gz	236984	18f5c27d74400d4dceb70c56e7d9935f	Sat, 16 Apr 2016 15:41:14 GMT	2026-11-20T15:27:21-08:00
+GSE80357_log_fold_change_and_FDR_values.csv.gz	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE80nnn/GSE80357/suppl/GSE80357_log_fold_change_and_FDR_values.csv.gz	294334	373e129cd344fd46afe69f446d89766e	Sat, 16 Apr 2016 15:41:14 GMT	2026-11-20T15:27:21-08:00
+GSE80357_average_cpm_per_treatment_group.csv.gz	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE80nnn/GSE80357/suppl/GSE80357_average_cpm_per_treatment_group.csv.gz	78915	0cc7fbd7e7ced5ace9472a13d0b88fe0	Sat, 16 Apr 2016 15:41:14 GMT	2026-11-20T15:27:22-08:00
