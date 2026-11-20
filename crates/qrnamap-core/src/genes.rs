@@ -94,6 +94,11 @@ pub fn gene_table(model: &GeneModel, extra_mito_contigs: &[String]) -> Vec<GeneR
 }
 
 /// Tab-separated table with a header line; every line ends with a newline.
+///
+/// Labels and contig names are written as they are: this function does not escape or check
+/// them. A gene label with a tab, newline or carriage return gives a broken table. Callers must
+/// refuse such labels first (the CLI does this in `write_genes_table`, `BadGeneLabel`); a caller
+/// without that check (for example a browser build) must add it.
 pub fn gene_table_tsv(rows: &[GeneRow]) -> String {
     let mut s = String::from("gene\tcontig\tstrand\tbiotype\tclass\tmito\tn_transcripts\n");
     for r in rows {

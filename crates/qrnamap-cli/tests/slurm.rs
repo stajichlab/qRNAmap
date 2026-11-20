@@ -892,3 +892,38 @@ fn tmpdir_under_scratchy_does_not_warn() {
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(!err.contains("--tmpdir"), "{err}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Final review fix wave (R35-6): timing pointer and the conditional --mem comment
+
+const MEM_DEFAULT_LINE: &str = "# The --mem default is small:";
+
+#[test]
+fn header_points_to_amb_timing_not_to_missing_timing() {
+    let s = slurm_scripts(&plan(7, 3, Path::new("/bigdata/lab/run1"))).unwrap();
+    for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
+        assert!(!text.contains("timing exists yet"), "{name}:\n{text}");
+        assert!(
+            text.contains("quant 22.7 to 26.8 s and align 35.2 to 52.1 s per million read pairs"),
+            "{name}:\n{text}"
+        );
+        assert!(text.contains("validation/amb/README.md"), "{name}:\n{text}");
+        assert!(text.contains("#SBATCH --time=02:00:00\n"), "{name}:\n{text}");
+        assert!(text.contains("The --time default is a placeholder"), "{name}:\n{text}");
+    }
+}
+
+#[test]
+fn mem_default_comment_only_with_the_default() {
+    let s = slurm_scripts(&plan(7, 3, Path::new("/bigdata/lab/run1"))).unwrap();
+    for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
+        assert!(text.contains(MEM_DEFAULT_LINE), "{name}:\n{text}");
+    }
+    let mut p = plan(7, 3, Path::new("/bigdata/lab/run1"));
+    p.mem_gb = 16;
+    let s = slurm_scripts(&p).unwrap();
+    for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
+        assert!(!text.contains(MEM_DEFAULT_LINE), "{name}:\n{text}");
+        assert!(text.contains("#SBATCH --mem=16G\n"), "{name}:\n{text}");
+    }
+}
