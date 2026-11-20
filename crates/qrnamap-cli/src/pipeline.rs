@@ -42,7 +42,8 @@ pub enum PipelineError {
     /// A tool failed. `sample` is `None` for index builds.
     Exec { sample: Option<String>, source: ExecError },
     /// Opening or reading an input file failed (includes truncated or corrupt compression).
-    Input(InputError),
+    /// `sample` names the sample when the file is one of its FASTQ files.
+    Input { sample: Option<String>, source: InputError },
     /// Reading or writing a file failed.
     Io { path: PathBuf, source: io::Error },
     /// The GFF3 file cannot be parsed.
@@ -69,6 +70,13 @@ pub enum PipelineError {
     CountFileSample { path: PathBuf, expected: String, found: String },
     /// A sample has no gene count file (its run failed or did not happen).
     MissingCountFile { sample: String, path: PathBuf },
+    /// Mate 1 and mate 2 of one lane hold different numbers of FASTQ records. `lane` is 1-based.
+    MateCountMismatch { sample: String, lane: usize, r1: u64, r2: u64 },
+    /// A FASTQ file of the sample holds no record.
+    NoReads { sample: String, file: PathBuf },
+    /// kallisto's `n_processed` differs from the pairs (reads, for single-end) counted in the
+    /// input files.
+    PairCountMismatch { sample: String, input: u64, kallisto: u64 },
 }
 
 impl fmt::Display for PipelineError {
@@ -79,7 +87,8 @@ impl fmt::Display for PipelineError {
             }
             PipelineError::Exec { sample: Some(s), source } => write!(f, "sample '{s}': {source}"),
             PipelineError::Exec { sample: None, source } => write!(f, "{source}"),
-            PipelineError::Input(e) => write!(f, "{e}"),
+            PipelineError::Input { sample: Some(s), source } => write!(f, "sample '{s}': {source}"),
+            PipelineError::Input { sample: None, source } => write!(f, "{source}"),
             PipelineError::Io { path, source } => write!(f, "{}: {source}", path.display()),
             PipelineError::Gff { path, detail } => {
                 write!(f, "GFF3 {}: {detail}", path.display())
@@ -116,6 +125,17 @@ impl fmt::Display for PipelineError {
             PipelineError::NonUtf8Path(p) => {
                 write!(f, "path {} is not valid UTF-8", p.display())
             }
+            PipelineError::MateCountMismatch { sample, lane, r1, r2 } => write!(
+                f,
+                "sample '{sample}': lane {lane}: mate 1 holds {r1} FASTQ records and mate 2 holds {r2}; the mate files must hold the same reads"
+            ),
+            PipelineError::NoReads { sample, file } => {
+                write!(f, "sample '{sample}': {} holds no FASTQ record", file.display())
+            }
+            PipelineError::PairCountMismatch { sample, input, kallisto } => write!(
+                f,
+                "sample '{sample}': the input files hold {input} read pairs (reads, for single-end), but kallisto processed {kallisto}"
+            ),
             PipelineError::NoReadsPseudoaligned { sample, strandedness, stderr_tail } => write!(
                 f,
                 "sample '{sample}': kallisto pseudoaligned 0 reads (pseudoaligned fraction 0). \
@@ -131,13 +151,18 @@ impl std::error::Error for PipelineError {
         match self {
             PipelineError::Config { source, .. } => Some(source),
             PipelineError::Exec { source, .. } => Some(source),
-            PipelineError::Input(e) => Some(e),
+            PipelineError::Input { source, .. } => Some(source),
             PipelineError::Io { source, .. } => Some(source),
             PipelineError::Build(e) => Some(e),
             PipelineError::Count { source, .. } => Some(source),
             _ => None,
         }
     }
+}
+
+/// An input error that is not tied to one sample.
+fn input_err(source: InputError) -> PipelineError {
+    PipelineError::Input { sample: None, source }
 }
 
 fn io_err(path: &Path) -> impl FnOnce(io::Error) -> PipelineError + '_ {
@@ -214,7 +239,7 @@ fn utf8(p: &Path) -> Result<&str, PipelineError> {
 
 /// Read a whole plain, gzip or zstd text file.
 pub fn read_table(path: &Path) -> Result<String, PipelineError> {
-    let mut r = open_input(path).map_err(PipelineError::Input)?;
+    let mut r = open_input(path).map_err(input_err)?;
     let mut s = String::new();
     r.read_to_string(&mut s).map_err(io_err(path))?;
     Ok(s)
@@ -290,7 +315,7 @@ pub fn write_output(path: &Path, data: &[u8]) -> Result<(), PipelineError> {
 
 /// Copy `src` (any compression) to `dst` (compressed by extension of `dst`).
 fn copy_converted(src: &Path, dst: &Path) -> Result<(), PipelineError> {
-    let mut r = open_input(src).map_err(PipelineError::Input)?;
+    let mut r = open_input(src).map_err(input_err)?;
     let mut out = Output::create(dst)?;
     io::copy(&mut r, &mut out).map_err(io_err(src))?;
     out.finish()
@@ -310,9 +335,9 @@ fn check_label(l: &str) -> Result<(), PipelineError> {
 type Genome = Vec<(String, Vec<u8>)>;
 
 fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), PipelineError> {
-    let genome = read_fasta(open_input(reference).map_err(PipelineError::Input)?)
+    let genome = read_fasta(open_input(reference).map_err(input_err)?)
         .map_err(io_err(reference))?;
-    let model = parse_gff3(open_input(gff).map_err(PipelineError::Input)?).map_err(|e| {
+    let model = parse_gff3(open_input(gff).map_err(input_err)?).map_err(|e| {
         PipelineError::Gff { path: gff.to_path_buf(), detail: e.to_string() }
     })?;
     for g in &model.genes {
@@ -368,23 +393,70 @@ pub fn check_samples(samples: &[Sample], cfg: &RunConfig, mode: Mode) -> Result<
     Ok(())
 }
 
+/// Writes every byte read through it to `out` (a staged copy), so one pass both decompresses a
+/// file and counts its records.
+struct Tee<'a> {
+    inner: Box<dyn BufRead>,
+    out: &'a mut Output,
+}
+
+impl Read for Tee<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.out.write_all(&buf[..n]).map_err(|e| {
+            io::Error::new(e.kind(), format!("writing {}: {e}", self.out.path.display()))
+        })?;
+        Ok(n)
+    }
+}
+
+/// Copy `src` (any compression) to the plain file `dst` and count its FASTQ records in the
+/// same pass. A truncated or corrupt stream, or a bad record, is an `InputError` for `sample`.
+fn copy_counting(src: &Path, dst: &Path, sample: &str) -> Result<u64, PipelineError> {
+    let named = |source| PipelineError::Input { sample: Some(sample.to_string()), source };
+    let r = open_input(src).map_err(named)?;
+    let mut out = Output::create(dst)?;
+    let n = crate::run::count_records(io::BufReader::new(Tee { inner: r, out: &mut out }), src, None)
+        .map_err(named)?;
+    out.finish()?;
+    Ok(n)
+}
+
+/// FASTQ paths of a sample after staging, and (when validated) the record count of every
+/// lane of mate 1 (`counts[0]`) and mate 2 (`counts[1]`).
+struct Staged {
+    sample: Sample,
+    counts: [Vec<u64>; 2],
+}
+
 /// Make every FASTQ path absolute and decompress the ones the tool cannot read into
 /// `scratch_dir`. `gzip_ok`: the tool reads gzip itself (kallisto). Plain files always pass.
 /// zstd files (and gzip when `!gzip_ok`) are decompressed, because neither tool reads zstd and
 /// native HISAT2 reading gzip is UNVERIFIED (spec 11f).
+///
+/// `validate` (final review C1): read every file to its end and count its records; a
+/// decompressed file is counted while it is copied, so it is read once. A truncated or corrupt
+/// stream or a bad record is a named `Input` error for the sample. The tool then never reads a
+/// file that was not checked to the end (spec 11f: no reliance on tool-side decompression).
 fn stage_reads(
     sample: &Sample,
     gzip_ok: bool,
+    validate: bool,
     scratch: &Scratch,
     guard: &mut ScratchGuard,
-) -> Result<Sample, PipelineError> {
+) -> Result<Staged, PipelineError> {
+    let named = |source| PipelineError::Input { sample: Some(sample.name.clone()), source };
     let mut staged = sample.clone();
+    let mut counts: [Vec<u64>; 2] = [Vec::new(), Vec::new()];
     for (mate, list) in [(1, &mut staged.fastq1), (2, &mut staged.fastq2)] {
         for (lane, p) in list.iter_mut().enumerate() {
             let path = absolute(Path::new(p.as_str()))?;
-            let fmt = file_format(&path).map_err(PipelineError::Input)?;
+            let fmt = file_format(&path).map_err(named)?;
             let keep = fmt == Format::Plain || (fmt == Format::Gzip && gzip_ok);
             let new = if keep {
+                if validate {
+                    counts[mate - 1].push(crate::run::count_pairs(&path, None).map_err(named)?);
+                }
                 path
             } else {
                 let dir = match &guard.0 {
@@ -396,19 +468,53 @@ fn stage_reads(
                     }
                 };
                 let dst = dir.join(format!("lane{}_R{mate}.fq", lane + 1));
-                copy_converted(&path, &dst)?;
+                if validate {
+                    counts[mate - 1].push(copy_counting(&path, &dst, &sample.name)?);
+                } else {
+                    copy_converted(&path, &dst)?;
+                }
                 dst
             };
             *p = utf8(&new)?.to_string();
         }
     }
-    Ok(staged)
+    Ok(Staged { sample: staged, counts })
+}
+
+/// Check the record counts from `stage_reads` (final review C1): no file may be empty, and in
+/// each lane mate 1 and mate 2 must hold the same number of records. Returns the total pairs
+/// (reads, for single-end).
+fn check_read_counts(sample: &Sample, counts: &[Vec<u64>; 2]) -> Result<u64, PipelineError> {
+    for (files, c) in [(&sample.fastq1, &counts[0]), (&sample.fastq2, &counts[1])] {
+        for (f, &n) in files.iter().zip(c) {
+            if n == 0 {
+                return Err(PipelineError::NoReads { sample: sample.name.clone(), file: PathBuf::from(f) });
+            }
+        }
+    }
+    if !sample.fastq2.is_empty() {
+        for (lane, (&r1, &r2)) in counts[0].iter().zip(&counts[1]).enumerate() {
+            if r1 != r2 {
+                return Err(PipelineError::MateCountMismatch { sample: sample.name.clone(), lane: lane + 1, r1, r2 });
+            }
+        }
+    }
+    Ok(counts[0].iter().sum())
+}
+
+/// kallisto's `n_processed` must equal the pairs counted in the inputs (final review C1).
+fn check_processed(sample: &str, input: u64, kallisto: u64) -> Result<(), PipelineError> {
+    if input == kallisto {
+        Ok(())
+    } else {
+        Err(PipelineError::PairCountMismatch { sample: sample.to_string(), input, kallisto })
+    }
 }
 
 /// A plain copy of `path` in scratch when it is compressed; the path itself when plain.
 fn plain_copy(path: &Path, scratch: &Scratch, sub: &str, name: &str) -> Result<(PathBuf, ScratchGuard), PipelineError> {
     let path = absolute(path)?;
-    if file_format(&path).map_err(PipelineError::Input)? == Format::Plain {
+    if file_format(&path).map_err(input_err)? == Format::Plain {
         return Ok((path, ScratchGuard(None)));
     }
     let dir = scratch.dir(sub)?;
@@ -603,7 +709,9 @@ pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult,
     let sample_dir = ctx.out_dir.join(name);
     fs::create_dir_all(&sample_dir).map_err(io_err(&sample_dir))?;
     let mut guard = ScratchGuard(None);
-    let staged = stage_reads(sample, true, &ctx.scratch, &mut guard)?;
+    let staged = stage_reads(sample, true, true, &ctx.scratch, &mut guard)?;
+    let input_pairs = check_read_counts(sample, &staged.counts)?;
+    let staged = staged.sample;
     let call = kallisto_quant(&staged, utf8(&ctx.index)?, utf8(&sample_dir)?, &ctx.config).map_err(cfg_err)?;
     run_call(&call, &sample_dir).map_err(|source| match source {
         // kallisto 0.52.0 exits with status 1 when no read pseudoaligns (observed in the tests).
@@ -628,6 +736,7 @@ pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult,
     };
     let n = field("n_processed")?;
     let p = field("p_pseudoaligned")? / 100.0;
+    check_processed(name, input_pairs, n as u64)?;
     write_gene_counts(&genecounts_path(&ctx.out_dir, name), name, &counts)?;
     let warnings = zero_warning(name, &counts).into_iter().collect();
     Ok(SampleResult {
@@ -744,7 +853,7 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
     fs::create_dir_all(&sample_dir).map_err(io_err(&sample_dir))?;
     let sdir = ctx.scratch.dir(name)?;
     let mut guard = ScratchGuard(Some(sdir.clone()));
-    let staged = stage_reads(sample, false, &ctx.scratch, &mut guard)?;
+    let staged = stage_reads(sample, false, false, &ctx.scratch, &mut guard)?.sample;
 
     let sam = sdir.join(format!("{name}.sam"));
     let call = hisat2_align(&staged, utf8(&ctx.index_prefix)?, utf8(&ctx.splice_sites)?, utf8(&sam)?, &ctx.config).map_err(cfg_err)?;
@@ -799,7 +908,7 @@ fn copy_first_records(inputs: &[String], out: &Path, n: u64) -> Result<u64, Pipe
     let mut line = String::new();
     'files: for p in inputs {
         let path = PathBuf::from(p);
-        let mut r = open_input(&path).map_err(PipelineError::Input)?;
+        let mut r = open_input(&path).map_err(input_err)?;
         let mut lineno = 0usize;
         while copied < n {
             for k in 0..4 {
@@ -899,7 +1008,7 @@ pub fn read_gene_list(kind: GenesFrom, path: &Path) -> Result<Vec<String>, Pipel
 /// The gene list (SAF order) built from a GFF3 file, as `prepare_align` writes it to
 /// `genes.saf`. Labels with a tab, newline or CR are `BadGeneLabel`.
 pub fn gene_list_from_gff(gff: &Path) -> Result<Vec<String>, PipelineError> {
-    let model = parse_gff3(open_input(gff).map_err(PipelineError::Input)?)
+    let model = parse_gff3(open_input(gff).map_err(input_err)?)
         .map_err(|e| PipelineError::Gff { path: gff.to_path_buf(), detail: e.to_string() })?;
     for g in &model.genes {
         check_label(&g.label)?;
@@ -1016,6 +1125,14 @@ mod tests {
         assert_eq!(json_number(t, "x"), Some(-100.0));
         assert_eq!(json_number(t, "missing"), None);
         assert_eq!(json_number("{\"a\": \"text\"}", "a"), None);
+    }
+
+    #[test]
+    fn processed_count_must_match_input_pairs() {
+        check_processed("S1", 10, 10).unwrap();
+        let e = check_processed("S1", 10, 4).unwrap_err();
+        assert!(matches!(e, PipelineError::PairCountMismatch { ref sample, input: 10, kallisto: 4 } if sample == "S1"), "{e:?}");
+        assert!(e.to_string().contains("'S1'"), "{e}");
     }
 
     #[test]

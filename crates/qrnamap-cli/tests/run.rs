@@ -255,6 +255,58 @@ fn run_end_to_end_quant_on_mini_fixture() {
     eprintln!("WALL run_end_to_end_quant_on_mini_fixture: {:.2?}", t0.elapsed());
 }
 
+/// The reviewer's two C1 inputs for one sample S1 of 10,000 simulated pairs: (a) R2 `.gz` cut
+/// at half its bytes; (b) plain R1 of 10,000 records with R2 of 2,000 records. Returns the two
+/// sheet paths.
+fn c1_sheets(d: &Path) -> (PathBuf, PathBuf) {
+    let pairs = sim::simulate(&records(), &COUNTS, Strandedness::Unstranded, 41);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&pairs, &r1, &r2);
+    let (g1, g2) = (d.join("s_1.fq.gz"), d.join("s_2.fq.gz"));
+    fs::write(&g1, gz(&fs::read(&r1).unwrap())).unwrap();
+    let full = gz(&fs::read(&r2).unwrap());
+    fs::write(&g2, &full[..full.len() / 2]).unwrap();
+    let short: String = fs::read_to_string(&r2).unwrap().lines().take(8000).map(|l| format!("{l}\n")).collect();
+    let r2s = d.join("short_2.fq");
+    fs::write(&r2s, short).unwrap();
+    let (a, b) = (d.join("trunc.tsv"), d.join("short.tsv"));
+    fs::write(&a, format!("sample\tfastq1\tfastq2\nS1\t{}\t{}\n", g1.display(), g2.display())).unwrap();
+    fs::write(&b, format!("sample\tfastq1\tfastq2\nS1\t{}\t{}\n", r1.display(), r2s.display())).unwrap();
+    (a, b)
+}
+
+#[test]
+fn quant_and_run_quant_refuse_truncated_gz_and_short_mate() {
+    // C1: both used to exit 0 with partial counts.
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (trunc, short) = c1_sheets(d);
+    let (g, gff) = mini();
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("t2g.tsv.zst"));
+    qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
+    let tmp = d.join("tmp");
+    for (sheet, want) in [(&trunc, "truncated"), (&short, "10000")] {
+        let out = d.join("q");
+        let err = fail(&qrnamap(
+            &["quant", "--samples", s(sheet), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir", s(&tmp)],
+            None,
+        ));
+        assert!(err.contains("sample 'S1'") && err.contains(want), "quant {}: {err}", sheet.display());
+        assert!(!out.join("S1.genecounts.tsv.zst").exists());
+        let out = d.join("r");
+        let err = fail(&qrnamap(
+            &["run", "--samples", s(sheet), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out), "--tmpdir", s(&tmp)],
+            None,
+        ));
+        assert!(err.contains("sample 'S1'") && err.contains(want), "run {}: {err}", sheet.display());
+        assert!(!out.join("S1.genecounts.tsv.zst").exists());
+        assert!(!out.join("counts.tsv.zst").exists());
+    }
+}
+
 #[test]
 fn run_end_to_end_align_with_task_slices() {
     if !common::require_tools(&["hisat2-build", "hisat2-align-s", "featureCounts"]) {

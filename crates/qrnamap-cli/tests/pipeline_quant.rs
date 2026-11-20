@@ -214,3 +214,109 @@ fn rerun_with_failing_sample_does_not_leave_old_counts() {
     let err = qrnamap_cli::pipeline::run_matrix(&out, &[good], None).unwrap_err();
     assert!(err.to_string().contains("S1.genecounts.tsv.zst"), "{err}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// C1 (final review): quant validates every mate file to its end before kallisto runs.
+
+fn gz_file(src: &Path, dst: &Path) {
+    let data = std::fs::read(src).unwrap();
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut e, &data).unwrap();
+    std::fs::write(dst, e.finish().unwrap()).unwrap();
+}
+
+/// A quant context on the mini fixture and 10,000 simulated pairs in plain files.
+fn quant_setup(d: &Path, seed: u64) -> (qrnamap_cli::pipeline::QuantContext, PathBuf, PathBuf) {
+    let pairs = sim::simulate(&records(), &COUNTS, Strandedness::Unstranded, seed);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&pairs, &r1, &r2);
+    let (fa, t2g) = transcripts(d);
+    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), RunConfig::default()).unwrap();
+    (ctx, r1, r2)
+}
+
+#[test]
+fn quant_truncated_r2_gz_is_named_error() {
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (ctx, r1, r2) = quant_setup(d, 31);
+    let (g1, g2) = (d.join("s_1.fq.gz"), d.join("s_2.fq.gz"));
+    gz_file(&r1, &g1);
+    gz_file(&r2, &g2);
+    let full = std::fs::read(&g2).unwrap();
+    std::fs::write(&g2, &full[..full.len() / 2]).unwrap();
+    let err = quant_sample(&sample("S1", &[&g1], &[&g2]), &ctx).unwrap_err();
+    let text = err.to_string();
+    assert!(
+        matches!(&err, PipelineError::Input { sample: Some(s), source: qrnamap_cli::io::InputError::Truncated { .. } } if s == "S1"),
+        "{err:?}"
+    );
+    assert!(text.contains("'S1'") && text.contains("truncated") && text.contains("s_2.fq.gz"), "{text}");
+    assert!(!ctx.out_dir.join("S1.genecounts.tsv.zst").exists(), "no gene counts for a truncated input");
+}
+
+#[test]
+fn quant_mate_record_count_mismatch_is_named_error() {
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (ctx, r1, r2) = quant_setup(d, 32);
+    // Keep the first 2,000 records of mate 2 (8,000 lines).
+    let text = std::fs::read_to_string(&r2).unwrap();
+    let short: String = text.lines().take(8000).map(|l| format!("{l}\n")).collect();
+    let r2s = d.join("short_2.fq");
+    std::fs::write(&r2s, short).unwrap();
+    let err = quant_sample(&sample("S1", &[&r1], &[&r2s]), &ctx).unwrap_err();
+    match &err {
+        PipelineError::MateCountMismatch { sample, lane, r1, r2 } => {
+            assert_eq!((sample.as_str(), *lane, *r1, *r2), ("S1", 1, 10_000, 2_000));
+        }
+        other => panic!("expected MateCountMismatch, got {other:?}"),
+    }
+    let t = err.to_string();
+    assert!(t.contains("'S1'") && t.contains("10000") && t.contains("2000"), "{t}");
+    assert!(!ctx.out_dir.join("S1.genecounts.tsv.zst").exists());
+}
+
+#[test]
+fn quant_zero_record_input_is_named_error() {
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (ctx, _r1, _r2) = quant_setup(d, 33);
+    let (e1, e2) = (d.join("empty_1.fq"), d.join("empty_2.fq"));
+    std::fs::write(&e1, b"").unwrap();
+    std::fs::write(&e2, b"").unwrap();
+    let err = quant_sample(&sample("E1", &[&e1], &[&e2]), &ctx).unwrap_err();
+    match &err {
+        PipelineError::NoReads { sample, file } => {
+            assert_eq!(sample, "E1");
+            assert!(file.ends_with("empty_1.fq"), "{}", file.display());
+        }
+        other => panic!("expected NoReads, got {other:?}"),
+    }
+    assert!(err.to_string().contains("'E1'"), "{err}");
+}
+
+#[test]
+fn quant_valid_gzip_pair_passes_validation() {
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (ctx, r1, r2) = quant_setup(d, 34);
+    let (g1, g2) = (d.join("s_1.fq.gz"), d.join("s_2.fq.gz"));
+    gz_file(&r1, &g1);
+    gz_file(&r2, &g2);
+    let res = quant_sample(&sample("G1", &[&g1], &[&g2]), &ctx).unwrap();
+    assert_eq!(res.summary.reads_processed, 10_000);
+    assert!(ctx.out_dir.join("G1.genecounts.tsv.zst").is_file());
+}

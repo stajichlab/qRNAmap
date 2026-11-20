@@ -630,7 +630,7 @@ pub fn run_slurm(args: &RunArgs, opts: &SlurmOptions) -> Result<PathBuf, RunErro
 }
 
 /// Turn a read error into an `InputError`, keeping a wrapped `Truncated` or `Corrupt` error.
-fn input_error(path: &Path, e: io::Error) -> InputError {
+pub(crate) fn input_error(path: &Path, e: io::Error) -> InputError {
     if e.get_ref().is_some_and(|inner| inner.is::<InputError>()) {
         return *e.into_inner().and_then(|b| b.downcast::<InputError>().ok()).expect("checked with is::<InputError>()");
     }
@@ -640,7 +640,7 @@ fn input_error(path: &Path, e: io::Error) -> InputError {
 /// Count the FASTQ records in `reader`. With `limit`, stop as soon as the count is above the
 /// limit and return `limit + 1`, so a large file is not read to its end. A truncated or bad
 /// record is an error. `path` is used in error messages.
-pub fn count_records(reader: Box<dyn BufRead>, path: &Path, limit: Option<u64>) -> Result<u64, InputError> {
+pub fn count_records<R: BufRead>(reader: R, path: &Path, limit: Option<u64>) -> Result<u64, InputError> {
     let mut n = 0u64;
     for rec in FastqReader::new(reader) {
         rec.map_err(|e| input_error(path, e))?;
