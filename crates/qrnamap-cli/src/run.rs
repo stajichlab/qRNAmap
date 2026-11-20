@@ -97,6 +97,9 @@ pub enum RunError {
     NotPrepared { dir: PathBuf, reason: String },
     /// A path with a newline cannot be recorded in the marker.
     UnsupportedPath(PathBuf),
+    /// `--step final`: the sample's gene count file is older than the `.prepared` marker, so it
+    /// was made before the current prepare step (final review I3).
+    StaleCounts { sample: String, path: PathBuf },
     /// `--slurm` with a `--step` other than `all`.
     SlurmWithStep,
     /// A path is not valid UTF-8, so it cannot go into the scripts.
@@ -123,6 +126,11 @@ impl fmt::Display for RunError {
                 dir.display()
             ),
             RunError::UnsupportedPath(p) => write!(f, "path {:?} contains a newline and cannot be recorded", p),
+            RunError::StaleCounts { sample, path } => write!(
+                f,
+                "sample '{sample}': gene count file {} is older than {PREPARED_MARKER}; it was made before the current prepare step. Run quant or align for this sample again",
+                path.display()
+            ),
             RunError::SlurmWithStep => write!(f, "--slurm writes the scripts for all steps; do not combine it with --step"),
             RunError::NonUtf8Path(p) => write!(f, "path {} is not valid UTF-8", p.display()),
             RunError::Io { path, source } => write!(f, "{}: {source}", path.display()),
@@ -340,6 +348,25 @@ pub fn check_prepared(out: &Path, mode: Mode, inputs: &[(&str, &Path)]) -> Resul
     Ok(())
 }
 
+/// Final review I3: refuse a sample count file whose mtime is older than the marker. "Older
+/// than" (not "not newer than") so a coarse mtime resolution cannot refuse a file made right
+/// after the marker. A missing count file is left to the matrix step (`MissingCountFile`).
+pub fn check_counts_not_stale(out: &Path, sheet: &SampleSheet) -> Result<(), RunError> {
+    let marker = out.join(PREPARED_MARKER);
+    let mtime = |p: &Path| fs::metadata(p).and_then(|m| m.modified());
+    let prepared = mtime(&marker).map_err(io_err(&marker))?;
+    for s in &sheet.samples {
+        let path = out.join(format!("{}.genecounts.tsv.zst", s.name));
+        match mtime(&path) {
+            Ok(t) if t < prepared => return Err(RunError::StaleCounts { sample: s.name.clone(), path }),
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(RunError::Io { path, source: e }),
+        }
+    }
+    Ok(())
+}
+
 fn require_file(out: &Path, p: &Path) -> Result<(), RunError> {
     if p.is_file() {
         Ok(())
@@ -488,6 +515,7 @@ pub fn run_local(
             let sheet = check_inputs(args)?;
             let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
             check_prepared(&out, args.mode, &marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g))))?;
+            check_counts_not_stale(&out, &sheet)?;
             finish(args, &out, &sheet, warn)
         }
         Step::Prepare => prepare(args, &out, &scratch, warn).map(|_| RunOutput::default()),

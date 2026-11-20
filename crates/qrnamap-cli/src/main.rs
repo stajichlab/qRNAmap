@@ -333,6 +333,15 @@ fn load_sheet(path: &Path) -> Result<Vec<Sample>, String> {
     })
 }
 
+/// Remove the old outputs of every sheet sample (ruling R24, final review I2). Plain `quant`
+/// and `align` call this before they build an index, as `run` does.
+fn remove_all_old_outputs(out: &Path, samples: &[Sample]) -> Result<(), pipeline::PipelineError> {
+    if !out.is_dir() {
+        return Ok(());
+    }
+    samples.iter().try_for_each(|s| pipeline::remove_old_outputs(out, &s.name))
+}
+
 fn report(r: &SampleResult, what: &str) {
     let s = &r.summary;
     println!(
@@ -391,6 +400,8 @@ fn run(cli: Cli) -> Result<(), String> {
             } else {
                 // Ruling R27: an index built here was not made by `run --step prepare`.
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
+                // Final review I2: a failing sample must not leave later samples' old counts.
+                remove_all_old_outputs(&out, &samples).map_err(e)?;
                 prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg).map_err(e)?
             };
             for s in &samples[range] {
@@ -411,6 +422,8 @@ fn run(cli: Cli) -> Result<(), String> {
             } else {
                 // Ruling R27: an index built here was not made by `run --step prepare`.
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
+                // Final review I2: a failing sample must not leave later samples' old counts.
+                remove_all_old_outputs(&out, &samples).map_err(e)?;
                 prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam).map_err(e)?
             };
             for s in &samples[range] {
@@ -509,6 +522,9 @@ fn run(cli: Cli) -> Result<(), String> {
             let cfg = RunConfig { mode: Mode::Align, max_intron, threads, ..RunConfig::default() };
             check_samples(&samples, &cfg, Mode::Align).map_err(e)?;
             let scratch = Scratch::from_flag_or_env(tmpdir);
+            // Final review I1: the index, genes.saf and splice_sites.txt built below replace the
+            // prepared ones in OUT, so the marker no longer describes them.
+            qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
             let ctx = prepare_align(&reference, &gff, &out, scratch.clone(), cfg, false).map_err(e)?;
             let mut table = String::from(
                 "sample\tsense\tantisense\tambiguous\tsense_fraction\tantisense_fraction\tambiguous_fraction\tsuggested\tlow_fraction_warning\n",

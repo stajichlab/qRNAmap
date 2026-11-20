@@ -697,3 +697,125 @@ fn plain_quant_removes_stale_marker() {
     fail(&o);
     assert!(!out.join(PREPARED_MARKER).exists(), "plain align must remove the stale marker");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Final review I1, I2, I3: stale state.
+
+#[test]
+fn strand_check_into_prepared_dir_removes_marker() {
+    // I1: strand-check rebuilds the index, genes.saf and splice_sites.txt in --out from its own
+    // GFF; the old marker must not survive to vouch for them.
+    if !common::require_tools(&["hisat2-build", "hisat2-align-s", "featureCounts"]) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let gff_b = d.join("genes_b.gff3");
+    fs::write(&gff_b, fs::read_to_string(&gff).unwrap().replace("Name=geneA", "Name=geneA_renamed")).unwrap();
+    let out = d.join("run");
+    let tmp = d.join("tmp");
+    ok(&qrnamap(
+        &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&out), "--tmpdir", s(&tmp), "--step", "prepare"],
+        None,
+    ));
+    assert!(out.join(PREPARED_MARKER).is_file());
+    ok(&qrnamap(
+        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff_b), "--out", s(&out), "--pairs", "500", "--tmpdir", s(&tmp)],
+        None,
+    ));
+    assert!(!out.join(PREPARED_MARKER).exists(), "strand-check must remove the marker");
+    let err = fail(&qrnamap(
+        &["align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--task-id", "0", "--tmpdir", s(&tmp)],
+        None,
+    ));
+    assert!(err.contains("not prepared"), "{err}");
+    let err = fail(&qrnamap(
+        &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&out), "--tmpdir", s(&tmp), "--step", "final"],
+        None,
+    ));
+    assert!(err.contains("not prepared"), "{err}");
+}
+
+/// A sheet S1, S2, S3 where S1's mate 2 is a gzip file cut in half (it fails), and S2, S3 are
+/// valid plain pairs.
+fn sheet_first_sample_fails(d: &Path) -> PathBuf {
+    let recs = records();
+    let mut t = String::from("sample\tfastq1\tfastq2\n");
+    for (i, name) in ["S1", "S2", "S3"].iter().enumerate() {
+        let pairs = sim::simulate(&recs, &COUNTS, Strandedness::Unstranded, 200 + i as u64);
+        let (r1, mut r2) = (d.join(format!("{name}_1.fq")), d.join(format!("{name}_2.fq")));
+        sim::write_fastq(&pairs, &r1, &r2);
+        if i == 0 {
+            let full = gz(&fs::read(&r2).unwrap());
+            r2 = d.join("S1_2.fq.gz");
+            fs::write(&r2, &full[..full.len() / 2]).unwrap();
+        }
+        t.push_str(&format!("{name}\t{}\t{}\n", r1.display(), r2.display()));
+    }
+    let p = d.join("sheet3.tsv");
+    fs::write(&p, t).unwrap();
+    p
+}
+
+#[test]
+fn plain_quant_and_align_remove_old_outputs_of_all_samples_first() {
+    // I2: the first sample fails; a later sample must not keep a count file of an earlier run.
+    let have_quant = common::require_tool("kallisto").is_some();
+    let have_align = common::require_tools(&["hisat2-build", "hisat2-align-s", "featureCounts"]);
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = sheet_first_sample_fails(d);
+    let (g, gff) = mini();
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("t2g.tsv.zst"));
+    qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
+    let tmp = d.join("tmp");
+    let cases: Vec<(&str, Vec<&str>)> = vec![
+        ("quant", vec!["--transcripts", s(&fa), "--tx2gene", s(&t2g)]),
+        ("align", vec!["--reference", s(&g), "--gff", s(&gff)]),
+    ];
+    for (cmd, extra) in cases {
+        if (cmd == "quant" && !have_quant) || (cmd == "align" && !have_align) {
+            continue;
+        }
+        let out = d.join(format!("out_{cmd}"));
+        fs::create_dir_all(&out).unwrap();
+        let stale = out.join("S3.genecounts.tsv.zst");
+        qrnamap_cli::pipeline::write_gene_counts(&stale, "S3", &[("geneA".to_string(), 99u64)].into_iter().collect()).unwrap();
+        let mut a = vec![cmd, "--samples", s(&sh), "--out", s(&out), "--tmpdir", s(&tmp)];
+        a.extend(extra);
+        let err = fail(&qrnamap(&a, None));
+        assert!(err.contains("sample 'S1'") && err.contains("truncated"), "{cmd}: {err}");
+        assert!(!stale.exists(), "{cmd}: the stale count file of S3 must be gone");
+    }
+}
+
+/// Write a gene count file for every sheet sample of `p`.
+fn write_counts_for_sheet(p: &Prepared) {
+    for n in NAMES {
+        let m = [("geneA".to_string(), 5u64), ("geneB".to_string(), 7u64)].into_iter().collect();
+        qrnamap_cli::pipeline::write_gene_counts(&p.out.join(format!("{n}.genecounts.tsv.zst")), n, &m).unwrap();
+    }
+}
+
+fn set_mtime(path: &Path, t: std::time::SystemTime) {
+    let f = fs::OpenOptions::new().write(true).open(path).unwrap();
+    f.set_modified(t).unwrap();
+}
+
+#[test]
+fn final_step_refuses_count_files_older_than_marker() {
+    // I3: count files from before the current prepare must not reach the matrix.
+    let p = prepared_align_dir();
+    write_counts_for_sheet(&p);
+    let now = std::time::SystemTime::now();
+    set_mtime(&p.out.join(PREPARED_MARKER), now + std::time::Duration::from_secs(3600));
+    let err = fail(&final_step(&p, &p.gff));
+    assert!(err.contains("sample 'c1'") && err.contains("older than"), "{err}");
+    assert!(!p.out.join("counts.tsv.zst").exists());
+    // Count files newer than the marker pass.
+    set_mtime(&p.out.join(PREPARED_MARKER), now - std::time::Duration::from_secs(3600));
+    ok(&final_step(&p, &p.gff));
+    assert!(p.out.join("counts.tsv.zst").is_file());
+}

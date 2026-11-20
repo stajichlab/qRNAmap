@@ -468,10 +468,10 @@ fn stage_reads(
                     }
                 };
                 let dst = dir.join(format!("lane{}_R{mate}.fq", lane + 1));
+                // Counting is free while copying; it also names the sample in a truncation error.
+                let n = copy_counting(&path, &dst, &sample.name)?;
                 if validate {
-                    counts[mate - 1].push(copy_counting(&path, &dst, &sample.name)?);
-                } else {
-                    copy_converted(&path, &dst)?;
+                    counts[mate - 1].push(n);
                 }
                 dst
             };
