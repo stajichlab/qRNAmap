@@ -154,6 +154,59 @@ fn featurecounts_non_integer_count_is_bad_row_with_line() {
     assert_eq!(parse_featurecounts(neg), Err(CountError::BadRow { line: 3 }));
 }
 
+const FC_HDR: &str = "Geneid\tChr\tStart\tEnd\tStrand\tLength\ts.bam\n";
+
+#[test]
+fn featurecounts_without_comment_line_keeps_first_gene() {
+    let tsv = format!("{FC_HDR}g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t0\ng3\tc\t1\t2\t+\t2\t9\n");
+    assert_eq!(
+        parse_featurecounts(&tsv).unwrap(),
+        map(&[("g1", 5), ("g2", 0), ("g3", 9)])
+    );
+}
+
+#[test]
+fn featurecounts_first_cell_not_geneid_is_missing_header() {
+    let tsv = "g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t7\n";
+    assert_eq!(parse_featurecounts(tsv), Err(CountError::MissingHeader));
+}
+
+#[test]
+fn featurecounts_empty_and_comment_only_are_missing_header() {
+    assert_eq!(parse_featurecounts(""), Err(CountError::MissingHeader));
+    assert_eq!(
+        parse_featurecounts("# Program:featureCounts\n"),
+        Err(CountError::MissingHeader)
+    );
+}
+
+#[test]
+fn featurecounts_short_row_is_bad_row_with_line() {
+    let tsv = format!("# Program:featureCounts\n{FC_HDR}g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\n");
+    assert_eq!(parse_featurecounts(&tsv), Err(CountError::BadRow { line: 4 }));
+}
+
+#[test]
+fn featurecounts_long_row_is_bad_row() {
+    let tsv = format!("# Program:featureCounts\n{FC_HDR}g1\tc\t1\t2\t+\t2\t5\t6\n");
+    assert_eq!(parse_featurecounts(&tsv), Err(CountError::BadRow { line: 3 }));
+}
+
+#[test]
+fn featurecounts_blank_trailing_and_crlf_still_ok() {
+    let tsv = "# Program:featureCounts\r\nGeneid\tChr\tStart\tEnd\tStrand\tLength\ts.bam\r\ng1\tc\t1\t2\t+\t2\t5\r\n\r\ng2\tc\t1\t2\t+\t2\t6\r\n\r\n";
+    assert_eq!(parse_featurecounts(tsv).unwrap(), map(&[("g1", 5), ("g2", 6)]));
+}
+
+#[test]
+fn featurecounts_duplicate_gene_is_error() {
+    let tsv = format!("{FC_HDR}g1\tc\t1\t2\t+\t2\t5\ng1\tc\t1\t2\t+\t2\t6\n");
+    assert_eq!(
+        parse_featurecounts(&tsv),
+        Err(CountError::DuplicateGene("g1".into()))
+    );
+}
+
 #[test]
 fn assemble_fills_zero() {
     let s1 = ("s1".to_string(), map(&[("g1", 5), ("g2", 7)]));

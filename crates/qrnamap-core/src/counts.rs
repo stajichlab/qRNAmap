@@ -88,8 +88,10 @@ pub fn gene_counts_from_abundance(
 
 /// Gene counts from a featureCounts table.
 ///
-/// Lines that start with `#` are skipped. The next line is the header and is skipped. Each later row
-/// gives the gene id (first column) and the count (last column, a non-negative integer). The Chr, Start,
+/// Lines that start with `#` are skipped (the `#` line is optional). The next line is the header; its
+/// first cell must be exactly `Geneid`, else `MissingHeader` (also for empty or comment-only input).
+/// Every later non-blank row must have the same number of tab-separated fields as the header, else
+/// `BadRow`. Each row gives the gene id (first column) and the count (last column, a non-negative integer). The Chr, Start,
 /// End and Strand columns hold semicolon-separated lists with `-F SAF`. They are not parsed.
 /// A bad count is `BadRow`; line numbers are 1-based over the whole input. A repeated gene id is
 /// `DuplicateGene`. Blank lines and CRLF are accepted.
@@ -99,11 +101,16 @@ pub fn parse_featurecounts(tsv: &str) -> Result<BTreeMap<String, u64>, CountErro
         .enumerate()
         .map(|(i, l)| (i + 1, l))
         .filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty());
-    lines.next().ok_or(CountError::MissingHeader)?;
+    let (_, header) = lines.next().ok_or(CountError::MissingHeader)?;
+    let header_fields: Vec<&str> = header.split('\t').collect();
+    if header_fields[0] != "Geneid" {
+        return Err(CountError::MissingHeader);
+    }
+    let width = header_fields.len();
     let mut out = BTreeMap::new();
     for (line, row) in lines {
         let f: Vec<&str> = row.split('\t').collect();
-        if f.len() < 2 || f[0].is_empty() {
+        if f.len() != width || f.len() < 2 || f[0].is_empty() {
             return Err(CountError::BadRow { line });
         }
         let last = f[f.len() - 1].trim();
