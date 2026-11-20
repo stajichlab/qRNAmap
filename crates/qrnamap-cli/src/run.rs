@@ -73,6 +73,8 @@ pub struct SlurmOptions {
     pub partition: Option<String>,
     pub account: Option<String>,
     pub qrnamap_bin: PathBuf,
+    /// `--tool-path` directories, put first on the jobs' PATH (ruling R28).
+    pub tool_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -517,6 +519,20 @@ fn strand_word(s: Strandedness) -> &'static str {
     }
 }
 
+/// The programs the jobs start by name: kallisto (quant); hisat2-build (a Python script, so also
+/// `python`, and the `hisat2-build-s` it runs), hisat2-align-s and featureCounts (align);
+/// Rscript with a contrast. The qrnamap binary is called by its absolute path.
+pub fn required_tools(mode: Mode, with_de: bool) -> Vec<&'static str> {
+    let mut v = match mode {
+        Mode::Quant => vec!["kallisto"],
+        Mode::Align => vec!["hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts"],
+    };
+    if with_de {
+        v.push("Rscript");
+    }
+    v
+}
+
 /// The SLURM plan for `args`. Paths become absolute. Sample names and FASTQ paths are not in it.
 pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Result<Plan, RunError> {
     let abs = |p: &Path| std::path::absolute(p).map_err(io_err(p));
@@ -580,6 +596,9 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
             task_args.push("--keep-sam".into());
         }
     }
+    let tools = required_tools(args.mode, args.contrast.is_some());
+    let tool_dirs = crate::slurm::resolve_tool_dirs(&tools, &opts.tool_paths, std::env::var_os("PATH").as_deref())
+        .map_err(RunError::Slurm)?;
     Ok(Plan {
         n_samples,
         per_task: opts.per_task,
@@ -594,6 +613,8 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
         mode: args.mode,
         run_args,
         task_args,
+        tool_dirs,
+        tools: tools.iter().map(|t| t.to_string()).collect(),
     })
 }
 

@@ -26,6 +26,8 @@ fn plan(n: usize, k: usize, run_dir: &Path) -> Plan {
         mode: Mode::Quant,
         run_args: vec!["--samples".into(), "/bigdata/lab/sheet.tsv".into(), "--out".into(), run_dir.to_str().unwrap().into()],
         task_args: vec!["--samples".into(), "/bigdata/lab/sheet.tsv".into(), "--out".into(), run_dir.to_str().unwrap().into()],
+        tool_dirs: vec![PathBuf::from("/opt/tools/bin")],
+        tools: vec!["kallisto".into()],
     }
 }
 
@@ -248,11 +250,23 @@ fn slurm_script_with_hostile_run_dir_round_trips() {
     assert_eq!(c[0], vec!["--parsable".to_string(), format!("--output={logs}/%x_%j.out"), format!("{rd}/slurm/prepare.sbatch")]);
     assert_eq!(
         c[1],
-        vec!["--parsable".to_string(), "--dependency=afterok:1001".into(), format!("--output={logs}/%x_%A_%a.out"), format!("{rd}/slurm/samples.sbatch")]
+        vec![
+            "--parsable".to_string(),
+            "--kill-on-invalid-dep=yes".into(),
+            "--dependency=afterok:1001".into(),
+            format!("--output={logs}/%x_%A_%a.out"),
+            format!("{rd}/slurm/samples.sbatch")
+        ]
     );
     assert_eq!(
         c[2],
-        vec!["--parsable".to_string(), "--dependency=afterok:1002".into(), format!("--output={logs}/%x_%j.out"), format!("{rd}/slurm/final.sbatch")]
+        vec![
+            "--parsable".to_string(),
+            "--kill-on-invalid-dep=yes".into(),
+            "--dependency=afterok:1002".into(),
+            format!("--output={logs}/%x_%j.out"),
+            format!("{rd}/slurm/final.sbatch")
+        ]
     );
 
     // Run the array script itself as task 1 with the stub binary: the hostile path reaches the
@@ -297,8 +311,28 @@ fn slurm_script_with_hostile_run_dir_round_trips() {
 // ---------------------------------------------------------------------------------------------
 // `qrnamap run --slurm` through the binary
 
+/// Run the binary with `PATH` set to `empty_path` (no tools). With `stubs`, `--tool-path stubs`
+/// is added so script generation finds the (stub) tools there (ruling R28).
 fn qrnamap_no_tools(args: &[&str], empty_path: &Path) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_qrnamap")).args(args).env("PATH", empty_path).output().unwrap()
+    let stubs = empty_path.parent().unwrap().join("stub_tools");
+    stub_tools(&stubs, ALL_TOOLS, &empty_path.parent().unwrap().join("stub_tools.log"));
+    Command::new(env!("CARGO_BIN_EXE_qrnamap"))
+        .args(args)
+        .args(["--tool-path", stubs.to_str().unwrap()])
+        .env("PATH", empty_path)
+        .output()
+        .unwrap()
+}
+
+/// Every tool name the generated scripts can require.
+const ALL_TOOLS: &[&str] = &["kallisto", "hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts", "Rscript"];
+
+/// Stub executables that append `<name>` to `log` when started.
+fn stub_tools(dir: &Path, names: &[&str], log: &Path) {
+    fs::create_dir_all(dir).unwrap();
+    for n in names {
+        write_exe(&dir.join(n), &format!("#!/bin/sh\necho {n} >> {}\n", sh_quote(log.to_str().unwrap()).unwrap()));
+    }
 }
 
 /// A sheet with distinctive sample names and FASTQ paths (the FASTQ files need not exist:
@@ -347,6 +381,7 @@ fn slurm_flag_runs_no_tool() {
     // Only the scripts were written: no index, no counts, no marker.
     let names: Vec<String> = fs::read_dir(&out).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
     assert_eq!(names, ["slurm"]);
+    assert!(!d.join("stub_tools.log").exists(), "no tool may be started by --slurm");
     let samples = fs::read_to_string(sdir.join("samples.sbatch")).unwrap();
     assert!(samples.contains("#SBATCH --array=0-2\n") && samples.contains("'align'"), "{samples}");
     assert!(samples.contains("#SBATCH --partition=short\n"));
@@ -397,4 +432,269 @@ fn plain_run_dir_gets_sbatch_output_directive() {
     let s = slurm_scripts(&plan(7, 3, Path::new("/bigdata/lab/run1"))).unwrap();
     assert!(s.samples.contains("#SBATCH --output=/bigdata/lab/run1/slurm/logs/%x_%A_%a.out\n"), "{}", s.samples);
     assert!(s.prepare.contains("#SBATCH --output=/bigdata/lab/run1/slurm/logs/%x_%j.out\n"), "{}", s.prepare);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ruling R28: tool paths baked into the scripts, tool check, kill-on-invalid-dep, recovery.
+
+/// A sheet of `n` paired samples with tiny real FASTQ files, condition ctl/trt alternating.
+fn small_sheet(d: &Path, n: usize) -> PathBuf {
+    let mut t = String::from("sample\tfastq1\tfastq2\tcondition\n");
+    for i in 0..n {
+        let (r1, r2) = (d.join(format!("s{i}_1.fq")), d.join(format!("s{i}_2.fq")));
+        fs::write(&r1, "@r\nACGT\n+\nIIII\n").unwrap();
+        fs::write(&r2, "@r\nACGT\n+\nIIII\n").unwrap();
+        let cond = if i % 2 == 0 { "ctl" } else { "trt" };
+        t.push_str(&format!("s{i}\t{}\t{}\t{cond}\n", r1.display(), r2.display()));
+    }
+    let p = d.join("sheet.tsv");
+    fs::write(&p, t).unwrap();
+    p
+}
+
+/// `qrnamap run --slurm` with the given PATH and extra arguments.
+fn generate(d: &Path, mode: &str, path_env: &str, extra: &[&str]) -> std::process::Output {
+    let sheet = small_sheet(d, 4);
+    let fx = common::mini_fixture();
+    let out = d.join("run");
+    Command::new(env!("CARGO_BIN_EXE_qrnamap"))
+        .args([
+            "run", "--samples", sheet.to_str().unwrap(), "--reference", fx.join("genome.fa").to_str().unwrap(), "--gff",
+            fx.join("genes.gff3").to_str().unwrap(), "--mode", mode, "--out", out.to_str().unwrap(), "--slurm",
+        ])
+        .args(extra)
+        .env("PATH", path_env)
+        .output()
+        .unwrap()
+}
+
+fn read_script(d: &Path, name: &str) -> String {
+    fs::read_to_string(d.join("run").join("slurm").join(name)).unwrap()
+}
+
+fn export_line(text: &str) -> String {
+    text.lines().find(|l| l.starts_with("export PATH=")).unwrap_or_else(|| panic!("no export PATH line:\n{text}")).to_string()
+}
+
+#[test]
+fn sbatch_files_export_baked_tool_paths_first() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let explicit = d.join("explicit_tools");
+    fs::create_dir_all(&explicit).unwrap();
+    let on_path = d.join("path_tools");
+    stub_tools(&on_path, &["kallisto"], &d.join("log"));
+    let o = generate(d, "quant", on_path.to_str().unwrap(), &["--tool-path", explicit.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let want = format!(
+        "export PATH={}:{}:\"$PATH\"",
+        sh_quote(fs::canonicalize(&explicit).unwrap().to_str().unwrap()).unwrap(),
+        sh_quote(on_path.to_str().unwrap()).unwrap()
+    );
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        let text = read_script(d, f);
+        assert_eq!(export_line(&text), want, "{f}");
+        let pos = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle} in {f}"));
+        assert!(pos("export PATH=") < pos("exec "), "{f}: PATH is set before the program starts");
+    }
+    // A directory given twice (explicitly and found on PATH) is written once.
+    let o = generate(d, "quant", on_path.to_str().unwrap(), &["--tool-path", on_path.to_str().unwrap()]);
+    assert!(o.status.success());
+    let canon = sh_quote(fs::canonicalize(&on_path).unwrap().to_str().unwrap()).unwrap();
+    assert_eq!(export_line(&read_script(d, "prepare.sbatch")), format!("export PATH={canon}:\"$PATH\""));
+}
+
+#[test]
+fn generation_fails_when_required_tool_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let empty = d.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let o = generate(d, "quant", empty.to_str().unwrap(), &[]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    assert!(err.contains("required tools not found") && err.contains("kallisto"), "{err}");
+    assert!(!d.join("run").exists(), "no scripts when a tool is missing");
+    // Align mode with a contrast lists every missing tool.
+    let o = generate(d, "align", empty.to_str().unwrap(), &["--contrast", "condition,trt,ctl"]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    for t in ["hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts", "Rscript"] {
+        assert!(err.contains(t), "{t}: {err}");
+    }
+    // A --tool-path directory with kallisto is enough.
+    let tools = d.join("tools");
+    stub_tools(&tools, &["kallisto"], &d.join("log"));
+    let o = generate(d, "quant", empty.to_str().unwrap(), &["--tool-path", tools.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    // A --tool-path directory that does not exist is a named error.
+    let o = generate(d, "quant", empty.to_str().unwrap(), &["--tool-path", d.join("nope").to_str().unwrap()]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success() && err.contains("--tool-path") && err.contains("nope"), "{err}");
+}
+
+/// Stub `qrnamap` binary: records PATH and starts `kallisto` by name.
+fn stub_qrnamap(path: &Path, log: &Path) {
+    let l = sh_quote(log.to_str().unwrap()).unwrap();
+    write_exe(path, &format!("#!/bin/sh\nprintf 'PATH=%s\\n' \"$PATH\" >> {l}\nkallisto\n"));
+}
+
+#[test]
+fn tool_path_hostile_directory_round_trips() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools $HOME it's `echo pwned`");
+    let log = d.join("calls.log");
+    stub_tools(&tools, &["kallisto"], &log);
+    let bin = d.join("qrnamap_stub");
+    stub_qrnamap(&bin, &log);
+    let empty = d.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let o = generate(d, "quant", empty.to_str().unwrap(), &["--tool-path", tools.to_str().unwrap(), "--qrnamap-bin", bin.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch", "submit.sh"] {
+        let o = Command::new("bash").arg("-n").arg(d.join("run/slurm").join(f)).output().unwrap();
+        assert!(o.status.success(), "bash -n {f}: {}", String::from_utf8_lossy(&o.stderr));
+    }
+    let scratch = d.join("scratch");
+    fs::create_dir_all(&scratch).unwrap();
+    let o = Command::new("env")
+        .args(["-i", "PATH=/usr/bin:/bin", "HOME=/home/EXPANDED"])
+        .arg(format!("SCRATCH={}", scratch.display()))
+        .arg("bash")
+        .arg(d.join("run/slurm/prepare.sbatch"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let text = fs::read_to_string(&log).unwrap();
+    let canon = fs::canonicalize(&tools).unwrap();
+    assert_eq!(text, format!("PATH={}:/usr/bin:/bin\nkallisto\n", canon.display()), "the directory arrives literally");
+}
+
+#[test]
+fn scripts_work_without_submitter_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let scratch = d.join("scratch");
+    fs::create_dir_all(&scratch).unwrap();
+    // Stub variant: the tool is found on the generating PATH only (no --tool-path).
+    let tools = d.join("path_tools");
+    let log = d.join("calls.log");
+    stub_tools(&tools, &["kallisto"], &log);
+    let bin = d.join("qrnamap_stub");
+    stub_qrnamap(&bin, &log);
+    let o = generate(d, "quant", tools.to_str().unwrap(), &["--qrnamap-bin", bin.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let run_prepare = || {
+        Command::new("env")
+            .args(["-i", "PATH=/usr/bin:/bin"])
+            .arg(format!("SCRATCH={}", scratch.display()))
+            .arg("bash")
+            .arg(d.join("run/slurm/prepare.sbatch"))
+            .output()
+            .unwrap()
+    };
+    let o = run_prepare();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(fs::read_to_string(&log).unwrap().ends_with("kallisto\n"), "the stub tool was started through the baked PATH");
+
+    // Real variant: real kallisto and the real qrnamap, prepare only, under `env -i`.
+    if common::require_tool("kallisto").is_none() {
+        return;
+    }
+    let real = d.join("real");
+    fs::create_dir_all(&real).unwrap();
+    let o = generate(&real, "quant", &std::env::var("PATH").unwrap(), &["--qrnamap-bin", env!("CARGO_BIN_EXE_qrnamap")]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = Command::new("env")
+        .args(["-i", "PATH=/usr/bin:/bin"])
+        .arg(format!("SCRATCH={}", scratch.display()))
+        .arg("bash")
+        .arg(real.join("run/slurm/prepare.sbatch"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(real.join("run/.prepared").is_file() && real.join("run/transcripts.kidx").is_file());
+}
+
+#[test]
+fn prepare_tool_check_lists_missing_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    let log = d.join("calls.log");
+    stub_tools(&tools, ALL_TOOLS, &log);
+    let bin = d.join("qrnamap_stub");
+    stub_qrnamap(&bin, &log);
+    let empty = d.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let o = generate(
+        d,
+        "align",
+        empty.to_str().unwrap(),
+        &["--tool-path", tools.to_str().unwrap(), "--qrnamap-bin", bin.to_str().unwrap(), "--contrast", "condition,trt,ctl"],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    // The tools disappear after generation (for example a removed environment).
+    for t in ["featureCounts", "Rscript"] {
+        fs::remove_file(tools.join(t)).unwrap();
+    }
+    let scratch = d.join("scratch");
+    fs::create_dir_all(&scratch).unwrap();
+    let o = Command::new("env")
+        .args(["-i", "PATH=/nonexistent"])
+        .arg(format!("SCRATCH={}", scratch.display()))
+        .arg("/bin/bash")
+        .arg(d.join("run/slurm/prepare.sbatch"))
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    assert!(err.contains("required tools not found on PATH: featureCounts Rscript"), "{err}");
+    assert!(!log.exists(), "the program must not start when a tool is missing");
+}
+
+fn run_submit(sub: &Path, d: &Path) -> Vec<Vec<String>> {
+    let stub = d.join("stub_sbatch");
+    fs::create_dir_all(&stub).unwrap();
+    let log = d.join("sbatch.log");
+    write_exe(
+        &stub.join("sbatch"),
+        "#!/bin/sh\nn=$(grep -c '^CALL$' \"$STUB_LOG\" 2>/dev/null || true)\nn=$((${n:-0}+1))\n{ echo CALL; printf '%s\\n' \"$@\"; } >> \"$STUB_LOG\"\necho \"100$n\"\n",
+    );
+    let path = format!("{}:{}", stub.display(), std::env::var("PATH").unwrap());
+    let o = Command::new("bash").arg(sub).env("PATH", path).env("STUB_LOG", &log).output().unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    calls(&log)
+}
+
+#[test]
+fn submit_sh_uses_kill_on_invalid_dep_for_dependents() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = plan(7, 3, &tmp.path().join("run"));
+    let sub = write_slurm_scripts(&p).unwrap();
+    let c = run_submit(&sub, tmp.path());
+    assert_eq!(c.len(), 3);
+    let flag = "--kill-on-invalid-dep=yes".to_string();
+    assert!(!c[0].contains(&flag), "prepare has no dependency: {:?}", c[0]);
+    assert!(c[1].contains(&flag) && c[1].contains(&"--dependency=afterok:1001".to_string()), "{:?}", c[1]);
+    assert!(c[2].contains(&flag) && c[2].contains(&"--dependency=afterok:1002".to_string()), "{:?}", c[2]);
+}
+
+#[test]
+fn submit_sh_comments_explain_recovery() {
+    let run_dir = Path::new("/bigdata/lab/run 1");
+    let s = slurm_scripts(&plan(7, 3, run_dir)).unwrap();
+    let q = |name: &str| sh_quote(&format!("/bigdata/lab/run 1/slurm/{name}")).unwrap();
+    let logs = |pat: &str| sh_quote(&format!("/bigdata/lab/run 1/slurm/logs/{pat}")).unwrap();
+    let comments: String = s.submit.lines().filter(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+    for want in [
+        "scancel FINAL_JOB_ID".to_string(),
+        format!("sbatch --array=TASK_IDS --output={} {}", logs("%x_%A_%a.out"), q("samples.sbatch")),
+        format!("sbatch --kill-on-invalid-dep=yes --dependency=afterok:NEW_ARRAY_JOB_ID --output={} {}", logs("%x_%j.out"), q("final.sbatch")),
+    ] {
+        assert!(comments.contains(&want), "missing {want:?} in\n{comments}");
+    }
+    // The recovery text is only comments: the script runs three sbatch calls.
+    assert_eq!(s.submit.lines().filter(|l| !l.starts_with('#') && l.contains("sbatch")).count(), 3, "{}", s.submit);
 }

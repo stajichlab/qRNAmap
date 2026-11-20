@@ -16,6 +16,7 @@
 //! The scripts never use `BASH_SOURCE` or `dirname`: Rust writes absolute paths in. Temporary
 //! files go to node-local `${SCRATCH:?}`, which fails the job when it is not set.
 
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,6 +53,11 @@ pub struct Plan {
     /// Arguments after `qrnamap quant|align` for the array tasks (without `--task-id`,
     /// `--samples-per-task` and `--tmpdir`).
     pub task_args: Vec<String>,
+    /// Directories written into `export PATH=...:"$PATH"` at the top of every .sbatch, in
+    /// order (ruling R28). Absolute.
+    pub tool_dirs: Vec<PathBuf>,
+    /// Tool names `prepare.sbatch` checks with `command -v` before it starts qrnamap.
+    pub tools: Vec<String>,
 }
 
 /// The generated script texts.
@@ -77,6 +83,10 @@ pub enum SlurmError {
     RelativePath(PathBuf),
     /// The run directory holds `%` or `\`, which SLURM reads as a pattern in `--output`.
     LogPathPattern(PathBuf),
+    /// Tools the jobs need that are neither on PATH nor in a `--tool-path` directory.
+    MissingTools(Vec<String>),
+    /// A `--tool-path` directory (or a tool directory) is not usable.
+    ToolPath { path: PathBuf, detail: String },
     Io { path: PathBuf, source: std::io::Error },
 }
 
@@ -90,6 +100,12 @@ impl fmt::Display for SlurmError {
             }
             SlurmError::NonUtf8Path(p) => write!(f, "path {} is not valid UTF-8", p.display()),
             SlurmError::RelativePath(p) => write!(f, "path {} must be absolute", p.display()),
+            SlurmError::MissingTools(t) => write!(
+                f,
+                "required tools not found on PATH or in a --tool-path directory: {}. Put them on PATH or pass --tool-path DIR",
+                t.join(", ")
+            ),
+            SlurmError::ToolPath { path, detail } => write!(f, "--tool-path {}: {detail}", path.display()),
             SlurmError::LogPathPattern(p) => write!(
                 f,
                 "run directory {} contains '%' or '\\', which SLURM reads as a file name pattern; choose another --out",
@@ -153,6 +169,10 @@ struct Checked<'a> {
     plan: &'a Plan,
     n_tasks: usize,
     logs: String,
+    /// `export PATH=<tool dirs>:"$PATH"` line, or empty.
+    export: String,
+    /// `command -v` check of the required tools (prepare.sbatch), or empty.
+    tool_check: String,
 }
 
 fn check(plan: &Plan) -> Result<Checked<'_>, SlurmError> {
@@ -178,8 +198,25 @@ fn check(plan: &Plan) -> Result<Checked<'_>, SlurmError> {
     }
     path_str(&plan.work_dir)?;
     path_str(&plan.qrnamap_bin)?;
+    let mut dirs = Vec::new();
+    for d in &plan.tool_dirs {
+        let s = path_str(d)?;
+        if s.contains(':') {
+            return Err(SlurmError::ToolPath { path: d.clone(), detail: "contains ':', which separates PATH entries".into() });
+        }
+        dirs.push(sh_quote(s)?);
+    }
+    let export = if dirs.is_empty() { String::new() } else { format!("export PATH={}:\"$PATH\"\n", dirs.join(":")) };
+    let tool_check = if plan.tools.is_empty() {
+        String::new()
+    } else {
+        let names = plan.tools.iter().map(|t| sh_quote(t)).collect::<Result<Vec<_>, _>>()?.join(" ");
+        format!(
+            "missing=\"\"\nfor tool in {names}; do\n  command -v \"$tool\" >/dev/null 2>&1 || missing=\"$missing $tool\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"qrnamap: required tools not found on PATH:$missing\" >&2\n  exit 1\nfi\n"
+        )
+    };
     let logs = plan.run_dir.join("slurm").join("logs");
-    Ok(Checked { plan, n_tasks, logs: path_str(&logs)?.to_string() })
+    Ok(Checked { plan, n_tasks, logs: path_str(&logs)?.to_string(), export, tool_check })
 }
 
 impl Checked<'_> {
@@ -209,7 +246,10 @@ impl Checked<'_> {
         h.push_str("# The --cpus-per-task, --mem and --time values are UNMEASURED placeholders (no per-sample\n");
         h.push_str("# timing exists yet). Set them from a measured run with --cpus, --mem-gb and --time.\n");
         h.push_str("# Sample names and FASTQ paths are not in this script: qrnamap reads the sample sheet.\n");
+        h.push_str("# The tool directories below were found when the scripts were written (ruling R28), so the\n");
+        h.push_str("# jobs do not depend on the PATH of the shell that runs submit.sh.\n");
         h.push_str("set -euo pipefail\n");
+        h.push_str(&self.export);
         h.push_str(": \"${SCRATCH:?SCRATCH is not set: this job needs node-local scratch}\"\n");
         h
     }
@@ -249,7 +289,8 @@ pub fn slurm_scripts(plan: &Plan) -> Result<SlurmScripts, SlurmError> {
         "prepare",
         false,
         "Builds the reference files and the index once in the run directory, and removes the old outputs of all samples.",
-    ) + &c.command("run", &plan.run_args, " '--step' 'prepare'")?;
+    ) + &c.tool_check
+        + &c.command("run", &plan.run_args, " '--step' 'prepare'")?;
     let samples = c.header(
         "samples",
         true,
@@ -272,17 +313,31 @@ pub fn slurm_scripts(plan: &Plan) -> Result<SlurmScripts, SlurmError> {
     submit.push_str(&format!("#   samples: array of {} task(s), {k} sample(s) per task; starts after prepare succeeds\n", c.n_tasks));
     submit.push_str("#   final:   gene matrix (and DESeq2 when a contrast was given); starts after every task succeeds\n");
     submit.push_str("# All paths are written in by qrnamap. This script does not look up its own location.\n");
+    submit.push_str("# The samples and final jobs use --kill-on-invalid-dep=yes: when a job they depend on fails,\n");
+    submit.push_str("# SLURM cancels them instead of leaving them pending.\n");
+    submit.push_str("#\n");
+    submit.push_str("# Recovery when some array tasks fail (the final job is then cancelled, or still pending):\n");
+    submit.push_str("#   1. If the final job is still pending, cancel it (its id is printed by this script):\n");
+    submit.push_str("#        scancel FINAL_JOB_ID\n");
+    submit.push_str("#   2. Fix the cause, then run only the failed task ids again (TASK_IDS such as 3,5):\n");
+    submit.push_str(&format!("#        sbatch --array=TASK_IDS --output={} {}\n", out(true)?, q("samples.sbatch")?));
+    submit.push_str("#   3. Submit the final job again, after the new array job (NEW_ARRAY_JOB_ID) succeeds:\n");
+    submit.push_str(&format!(
+        "#        sbatch --kill-on-invalid-dep=yes --dependency=afterok:NEW_ARRAY_JOB_ID --output={} {}\n",
+        out(false)?,
+        q("final.sbatch")?
+    ));
     submit.push_str("set -euo pipefail\n");
     submit.push_str(&format!("prepare_id=$(sbatch --parsable --output={} {})\n", out(false)?, q("prepare.sbatch")?));
     submit.push_str("prepare_id=${prepare_id%%;*}\n");
     submit.push_str(&format!(
-        "samples_id=$(sbatch --parsable --dependency=afterok:\"$prepare_id\" --output={} {})\n",
+        "samples_id=$(sbatch --parsable --kill-on-invalid-dep=yes --dependency=afterok:\"$prepare_id\" --output={} {})\n",
         out(true)?,
         q("samples.sbatch")?
     ));
     submit.push_str("samples_id=${samples_id%%;*}\n");
     submit.push_str(&format!(
-        "final_id=$(sbatch --parsable --dependency=afterok:\"$samples_id\" --output={} {})\n",
+        "final_id=$(sbatch --parsable --kill-on-invalid-dep=yes --dependency=afterok:\"$samples_id\" --output={} {})\n",
         out(false)?,
         q("final.sbatch")?
     ));
@@ -292,6 +347,48 @@ pub fn slurm_scripts(plan: &Plan) -> Result<SlurmScripts, SlurmError> {
     submit.push_str("echo \"final job: $final_id\"\n");
     submit.push_str(&format!("echo \"logs: \"{}\n", sh_quote(&c.logs)?));
     Ok(SlurmScripts { prepare, samples, final_, submit, n_tasks: c.n_tasks })
+}
+
+fn is_executable_file(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+}
+
+/// The tool directories to bake into the scripts (ruling R28). `explicit` (`--tool-path`) come
+/// first: each must exist and is canonicalized. Then, for each tool not found in them, the
+/// first directory of `path_env` (the current PATH) that holds it, made absolute. Duplicates
+/// are dropped; the order is stable. A tool found nowhere is listed in `MissingTools`.
+pub fn resolve_tool_dirs(tools: &[&str], explicit: &[PathBuf], path_env: Option<&OsStr>) -> Result<Vec<PathBuf>, SlurmError> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for d in explicit {
+        let canon = fs::canonicalize(d).map_err(|e| SlurmError::ToolPath { path: d.clone(), detail: e.to_string() })?;
+        if !canon.is_dir() {
+            return Err(SlurmError::ToolPath { path: d.clone(), detail: "is not a directory".into() });
+        }
+        if !dirs.contains(&canon) {
+            dirs.push(canon);
+        }
+    }
+    let path_dirs: Vec<PathBuf> = path_env.map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
+    let mut missing = Vec::new();
+    for t in tools {
+        if dirs.iter().any(|d| is_executable_file(&d.join(t))) {
+            continue;
+        }
+        match path_dirs.iter().find(|d| !d.as_os_str().is_empty() && is_executable_file(&d.join(t))) {
+            Some(d) => {
+                let abs = std::path::absolute(d).map_err(|e| SlurmError::ToolPath { path: d.clone(), detail: e.to_string() })?;
+                if !dirs.contains(&abs) {
+                    dirs.push(abs);
+                }
+            }
+            None => missing.push(t.to_string()),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(SlurmError::MissingTools(missing));
+    }
+    Ok(dirs)
 }
 
 /// The array script (`samples.sbatch`) text.
@@ -356,6 +453,8 @@ mod tests {
             mode: Mode::Align,
             run_args: vec![],
             task_args: vec![],
+            tool_dirs: vec![],
+            tools: vec![],
         };
         assert_eq!(n_tasks(&p).unwrap(), 3);
         p.n_samples = 6;

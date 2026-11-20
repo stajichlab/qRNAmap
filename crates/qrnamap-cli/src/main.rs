@@ -161,6 +161,11 @@ enum Cmd {
         /// The qrnamap binary the jobs call. Default: this program's absolute path.
         #[arg(long, requires = "slurm")]
         qrnamap_bin: Option<PathBuf>,
+        /// A directory with tools for the jobs (repeatable). These go first on the jobs' PATH,
+        /// then the directories where the needed tools are found on the current PATH. The
+        /// scripts do not depend on the PATH of the shell that runs submit.sh.
+        #[arg(long, requires = "slurm")]
+        tool_path: Vec<PathBuf>,
     },
     /// Gene-by-sample matrix DIR/counts.tsv.zst from DIR/<sample>.genecounts.tsv.zst.
     Matrix {
@@ -415,7 +420,7 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         Cmd::Run {
             samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
-            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin,
+            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path,
         } => {
             use qrnamap_cli::run::{run_local, run_slurm, RunArgs, SlurmOptions, Step};
             let mode = match mode {
@@ -447,6 +452,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     partition,
                     account,
                     qrnamap_bin,
+                    tool_paths: tool_path,
                 };
                 let submit = run_slurm(&args, &opts).map_err(|x| x.to_string())?;
                 let q = qrnamap_cli::slurm::sh_quote(&submit.to_string_lossy()).map_err(|x| x.to_string())?;
