@@ -88,7 +88,7 @@ fn hisat2_pair_reverse_is_RF() {
     let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse)).unwrap();
     assert_eq!(
         argv_native(&c),
-        s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
+        s(&["hisat2-align-s", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
             "--max-intronlen", "5000", "--rna-strandness", "RF", "-1", "a_1.fq", "-2", "a_2.fq", "-S", "o.sam"])
     );
     assert_eq!(c.inputs, p(&["a_1.fq", "a_2.fq", "ss.txt", "ix"]));
@@ -100,7 +100,7 @@ fn hisat2_pair_forward_is_FR() {
     let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Forward)).unwrap();
     assert_eq!(
         argv_native(&c),
-        s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
+        s(&["hisat2-align-s", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
             "--max-intronlen", "5000", "--rna-strandness", "FR", "-1", "a_1.fq", "-2", "a_2.fq", "-S", "o.sam"])
     );
 }
@@ -110,7 +110,7 @@ fn hisat2_single_forward_is_F() {
     let c = hisat2_align(&sample(&["a.fq"], &[]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Forward)).unwrap();
     assert_eq!(
         argv_native(&c),
-        s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
+        s(&["hisat2-align-s", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
             "--max-intronlen", "5000", "--rna-strandness", "F", "-U", "a.fq", "-S", "o.sam"])
     );
 }
@@ -120,7 +120,7 @@ fn hisat2_single_reverse_is_R() {
     let c = hisat2_align(&sample(&["a.fq"], &[]), "ix", "ss.txt", "o.sam", &cfg(Strandedness::Reverse)).unwrap();
     assert_eq!(
         argv_native(&c),
-        s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
+        s(&["hisat2-align-s", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
             "--max-intronlen", "5000", "--rna-strandness", "R", "-U", "a.fq", "-S", "o.sam"])
     );
 }
@@ -133,7 +133,7 @@ fn hisat2_has_no_temp_splicesite_and_known_sites() {
     let c = hisat2_align(&sample(&["a_1.fq"], &["a_2.fq"]), "ix", "ss.txt", "o.sam", &c0).unwrap();
     assert_eq!(
         argv_native(&c),
-        s(&["hisat2", "-p", "4", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
+        s(&["hisat2-align-s", "-p", "4", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
             "--max-intronlen", "3000", "-1", "a_1.fq", "-2", "a_2.fq", "-S", "o.sam"])
     );
 }
@@ -193,7 +193,7 @@ fn lanes_kallisto_adjacent_pairs_hisat2_comma_lists() {
     let h = hisat2_align(&smp, "ix", "ss.txt", "o.sam", &RunConfig::default()).unwrap();
     assert_eq!(
         argv_native(&h),
-        s(&["hisat2", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
+        s(&["hisat2-align-s", "-p", "1", "-x", "ix", "--known-splicesite-infile", "ss.txt", "--no-temp-splicesite",
             "--max-intronlen", "5000", "-1", "a1.fq,b1.fq", "-2", "a2.fq,b2.fq", "-S", "o.sam"])
     );
 }

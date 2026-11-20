@@ -4,7 +4,31 @@
 
 pub mod sim;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use qrnamap_core::{build_transcripts, Sample, SampleSheet, TxRecord};
+use qseq_io::{parse_gff3, read_fasta};
+
+/// Pairs per transcript, in fixture order tA1, tB1, tB2, tR1, tC1, tU1. Sum 10,000.
+pub const COUNTS: [u64; 6] = [3000, 1500, 1000, 2000, 1500, 1000];
+
+/// The six mini fixture transcripts, built by the core builder.
+pub fn records() -> Vec<TxRecord> {
+    let open = |p: PathBuf| std::io::BufReader::new(std::fs::File::open(p).unwrap());
+    let genome = read_fasta(open(mini_genome())).unwrap();
+    let model = parse_gff3(open(mini_gff())).unwrap();
+    let recs = build_transcripts(&genome, &model).unwrap();
+    let ids: Vec<&str> = recs.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, ["tA1", "tB1", "tB2", "tR1", "tC1", "tU1"]);
+    recs
+}
+
+/// A paired sample parsed through the real sample sheet parser.
+pub fn sample(name: &str, r1: &[&Path], r2: &[&Path]) -> Sample {
+    let j = |v: &[&Path]| v.iter().map(|p| p.to_str().unwrap()).collect::<Vec<_>>().join(",");
+    let sheet = format!("sample\tfastq1\tfastq2\n{name}\t{}\t{}\n", j(r1), j(r2));
+    SampleSheet::parse(&sheet).unwrap().samples.remove(0)
+}
 
 /// Find `name` on PATH. When it is missing: print a skip message and return `None`,
 /// or panic when `QRNAMAP_REQUIRE_TOOLS=1` (ruling R5).

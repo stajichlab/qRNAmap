@@ -51,8 +51,9 @@ impl From<io::Error> for InputError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Format {
+/// Compression of a file, from its magic bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
     Plain,
     Gzip,
     Zstd,
@@ -190,6 +191,19 @@ fn read_head<R: Read>(r: &mut R) -> io::Result<Vec<u8>> {
         }
     }
     Ok(head)
+}
+
+/// The compression of the file at `path`, from its first bytes (not its name).
+pub fn file_format(path: &Path) -> Result<Format, InputError> {
+    let mut f = File::open(path).map_err(|source| InputError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let head = read_head(&mut f).map_err(|source| InputError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(detect(&head))
 }
 
 /// Open a plain, gzip (multi-member) or zstd file for buffered reading.

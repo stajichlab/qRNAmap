@@ -74,7 +74,12 @@ fn program(tool: Tool) -> &'static str {
     match tool {
         Tool::KallistoIndex | Tool::KallistoQuant => "kallisto",
         Tool::Hisat2Build => "hisat2-build",
-        Tool::Hisat2Align => "hisat2",
+        // Not the `hisat2` wrapper: that Perl script joins its arguments into one string and
+        // runs it with `system`, so a shell reads paths and names (a space splits a path, `$HOME`
+        // is expanded; seen in the Task 11 tests). `hisat2-align-s` is the aligner binary the
+        // wrapper calls. The `-s` (small index) binary matches the `.ht2` files that
+        // `hisat2_build` lists; see the genome size note there.
+        Tool::Hisat2Align => "hisat2-align-s",
         Tool::FeatureCounts => "featureCounts",
     }
 }
