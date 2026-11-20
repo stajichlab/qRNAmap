@@ -61,16 +61,16 @@ Cargo workspace. Library crates are written so that qmutfind can adopt them late
 | Crate | Role | I/O |
 |---|---|---|
 | `qseq-io` | Extracted from qmutfind-core: `read_fasta`, `FastqChunker`/`FastqReader`, GFF3 gene model (`Genome`, `Transcript`), gzip/zstd detection. | none, compiles for `wasm32` |
-| `qgenome-catalog` | Genome sources as data and pure functions: the NCBI and FungiDB catalog JSON (same schema as `site/genomes/genomes.json`), URL builders for NCBI, Ensembl and FungiDB, size checks. | none |
-| `qgenome-fetch` | Native downloads: NCBI, Ensembl, FungiDB with API key (`EUPATHDB_KEY` or key file, key sent only to the key host, never printed; code taken from `qmutfind-cli/src/fetch.rs`). Writes `.gz`/`.zst`. | native only |
+| `genome-catalog` | Owns the genome catalog schema (versioned) and the derived layer: per-genome FASTA and GFF3 URLs, file sizes, annotation facts (same fields as qmutfind `site/genomes/genomes.json`, curated menu). URL builders for NCBI, FungiDB (Ensembl only after spike 0), size checks. Holds a small built-in snapshot. The full list of fungal assemblies comes from PopSeq's `catalog/kingdom/fungi_assemblies.csv.gz` (26,826 rows on 2026-11-11, built from NCBI `assembly_summary.txt`) as upstream input. | none |
+| `genome-fetch` | Native downloads: NCBI, Ensembl, FungiDB with API key (`EUPATHDB_KEY` or key file, key sent only to the key host, never printed; code taken from `qmutfind-cli/src/fetch.rs`). Writes `.gz`/`.zst`. | native only |
 | `qrnamap-core` | Transcriptome builder (genome + GFF3 to transcript FASTA and `tx2gene`), sample sheet model and validation, result parsers (kallisto `abundance.tsv`, featureCounts table), count matrix, summary stats, SVG plots, DESeq2 R script generation. | none, compiles for `wasm32` |
 | `qrnamap-cli` | Subcommands, native backends through `std::process`, threads, `$SCRATCH`. | native |
 | `qrnamap-wasm` | `wasm-bindgen` wrapper for `qrnamap-core`. | wasm |
 | `site/` | Web page. Worker orchestrates `ToolRunner` calls to the tool bundles and calls `qrnamap-wasm`. Reuses qmutfind's `gz.js`, `reads.js`, `reference-panel.js`, `persist.js`, `theme.js`. | browser |
 
-Question answered: yes, the "get the genome" parts become a pair of crates (`qgenome-catalog` pure, `qgenome-fetch` native). The browser downloads with `fetch` in JavaScript, using the URLs from `qgenome-catalog`. FungiDB stays CLI-only because of the missing CORS headers.
+Question answered: yes, the "get the genome" parts become a pair of crates (`genome-catalog` pure, `genome-fetch` native). The browser downloads with `fetch` in JavaScript, using the URLs from `genome-catalog`. FungiDB stays CLI-only because of the missing CORS headers.
 
-Where the shared crates live (my call): start inside the qRNAmap workspace. When qmutfind is ready to adopt them, move `qseq-io`, `qgenome-catalog` and `qgenome-fetch` to their own repository and pin by commit, as qmutfind pins `rammap`. Doing this first would slow the first working version.
+Where the shared crates live (my call): start inside the qRNAmap workspace, as `crates/genome-catalog` and `crates/genome-fetch`, with no dependency on other qRNAmap crates, so a later move is a copy. When qmutfind is ready to adopt them, move `qseq-io`, `genome-catalog` and `genome-fetch` to their own repository (`stajichlab/genome-catalog` is free as a repo name and `genome-catalog` and `genome-fetch` are free on crates.io, checked 2026-11-19; use a Git dependency pinned by commit, no crates.io release needed) and pin by commit, as qmutfind pins `rammap`. Doing this first would slow the first working version.
 
 A `Backend` trait in `qrnamap-core` describes a tool call as data: arguments, input files, expected output files. The CLI executes it natively. The worker executes it through `ToolRunner`. The same `Backend` description is used by both, which keeps the two paths identical in structure.
 
@@ -141,7 +141,7 @@ Hosting: static files plus the two isolation headers, or the service-worker appr
    d. Ensembl download and CORS test.
    e. Licence check of genomics-wasm and of bundling GPL tools.
    Results go in `PLAN.md`. If 0b fails for HISAT2, genome mode becomes CLI-only in version 1 and the page offers fast mode only.
-1. Workspace; extract `qseq-io` and `qgenome-catalog` from qmutfind with their tests.
+1. Workspace; extract `qseq-io` and `genome-catalog` from qmutfind with their tests.
 2. Transcriptome builder with the `gffread` comparison.
 3. Native CLI: `transcripts`, `quant`, `align`, `matrix`, `de`. pixi environment with kallisto, hisat2, subread, R and DESeq2.
 4. Sample sheet validation, shared by CLI and WASM.
@@ -166,6 +166,8 @@ Each step has tests before the next one starts. Tests use real small datasets wi
 - **CLI first.** Version 1 commits to the CLI (build steps 1 to 4 and the CLI side of step 7). The browser build follows after spike 0 and only for tools that pass it. A tool that fails in the browser stays in the CLI.
 - **Scale:** 8 to 12 samples per experiment, up to 48. Largest genome 50 Mb. 12,000 to 15,000 genes. Reads per sample were not given. Limits and tests use these numbers. The browser limit for sample count and read bytes is set from spike 0 measurements, not guessed. Up to 48 samples in the browser is not assumed to work.
 - **Repository:** `stajichlab/qRNAmap` on GitHub, GitHub Actions allowed (including Emscripten builds).
+
+- **Catalog ownership:** `genome-catalog` owns the schema and the derived layer (URLs, sizes, annotation). PopSeq's assembly table is upstream input for the full list. Python tools such as PopSeq read the published catalog file, not the Rust code. PopSeq is not changed without the user's say-so. UNCHECKED: whether PopSeq's columns fit the schema (they have no FASTA or GFF URL columns that I saw); compare before the schema is frozen.
 
 ## 11b. Calls added after the builder check (mine, open to change)
 
