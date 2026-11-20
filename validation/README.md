@@ -2,6 +2,9 @@
 
 Run on 2026-11-19 (US Pacific time) on the UCR HPCC cluster. The `qrnamap` binary was built
 from commit `81175d5` (`cargo build --release -p qrnamap-cli`, pixi env on PATH).
+All measured numbers in this file come from that `81175d5` build. A later commit, `f2bfb54`, changed
+only the SLURM script generation of `qrnamap run --slurm` (it also added the `--tool-path` flag for
+it); it fixes finding 1 below. The `f2bfb54` build was not re-run on the cluster.
 Data lives outside the repository in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/`.
 This directory holds the scripts and small summary tables only.
 
@@ -137,8 +140,28 @@ The first attempt failed (see finding 1). Its prepare jobs were 32242271 (quant)
 (align). They failed after 30 s because a tool was not on PATH. Their array and final jobs
 (32242272, 32242273, 32242275, 32242276) never started; I cancelled them. The failed prepare jobs
 did not affect the results. The second prepare job removes old outputs and writes the reference
-files and the index again. Every file in `run_quant/` and `run_align/` has a modification time of
-21:47 or later, which is after the failed jobs ended (21:41).
+files and the index again. Modification times (checked with `find ... -printf '%TT'`, which reads
+the same mtime as `stat`), 2026-11-19:
+
+- Result and reference files: all have an mtime of 21:47:08 or later. This is after the failed
+  jobs ended (21:41:27). The earliest is `run_align/splice_sites.txt` at 21:47:08.402.
+  - `run_quant/`: `transcripts.fa.zst`, `tx2gene.tsv.zst` (21:47:11), `transcripts.kidx`,
+    `.prepared` (21:47:54), `SAMPLE/abundance.tsv`, `SAMPLE/run_info.json`,
+    `SAMPLE.genecounts.tsv.zst` (21:50:51 to 21:52:48), `counts.tsv.zst` (21:53:17),
+    `deseq2.results.csv`, `deseq2.normalized.csv`, `deseq2.vst.csv`, `deseq2.versions.txt`
+    (21:53:58 to 21:53:59).
+  - `run_align/`: `splice_sites.txt`, `genes.saf` (21:47:08), `index/genome.1.ht2` to
+    `index/genome.8.ht2` (21:47:09 to 21:47:26), `.prepared` (21:47:26),
+    `SAMPLE/featurecounts.summary`, `SAMPLE.genecounts.tsv.zst` (21:55:03 to 21:58:44),
+    `counts.tsv.zst` (21:58:56), `deseq2.*` (21:59:22 to 21:59:23).
+- Exceptions (earlier than 21:47):
+  - The 4 generated scripts in each `slurm/` directory (`prepare.sbatch`, `samples.sbatch`,
+    `final.sbatch`, `submit.sh`): 21:40:31. They were written once by `qrnamap run --slurm`
+    and not rewritten for the resubmission. Both attempts used the same scripts.
+  - The first-attempt prepare logs `qrnamap-prepare_32242271.out` and
+    `qrnamap-prepare_32242274.out`: 21:41:27.
+  - The 0-byte logs of the reported prepare jobs, `qrnamap-prepare_32242362.out` and
+    `qrnamap-prepare_32242365.out`: 21:45:19.
 
 What the log directories contain (`$DATA/run_MODE/slurm/logs/`):
 
@@ -182,8 +205,8 @@ writing the outputs.
 ### Bundling samples per task (derived from the times above)
 
 The run used `--samples-per-task 1`. The values 20 and 8 below are a recommendation derived from
-the measured times. They are not a tested setting. The brief's wording implied a run with the
-derived value; I did not do that run.
+the measured times. They are not a tested setting. A run with the recommended values was not
+done; the run used 1 sample per task.
 
 Measured per-sample time, quant: mean 174.3 s, max 264 s. The quant mean includes both node types
 (1 task on c07, 5 tasks on r42). The max (264 s) is the WT_1 task on c07, so the max-based bound is
@@ -247,10 +270,18 @@ The plan has no pass or fail criterion for these numbers. I do not call them goo
    `error: cannot start 'kallisto': No such file or directory (os error 2) (is it on PATH?)`
    (align mode: `cannot start 'hisat2-build'`). The array and final jobs then stay PENDING with
    reason `DependencyNeverSatisfied` until they are cancelled by hand. Observed with jobs
-   32242271 and 32242274. I did not change the CLI. I resubmitted with the env on PATH
-   (stage `submit`), which is the same requirement as in local mode. Possible fixes (not done):
-   write the PATH of `qrnamap run --slurm` into the scripts, or check the tools when the scripts
-   are written.
+   32242271 and 32242274. I did not change the CLI during this run. I cancelled the dependent
+   jobs and resubmitted the same scripts with the env on PATH (stage `submit`), which is the
+   same requirement as in local mode.
+
+   **Status: fixed in f2bfb54 after this run.** Commit f2bfb54 ("fix(cli): SLURM scripts bake
+   tool paths, check tools, kill on invalid dependency (R28)") makes `run --slurm` write the tool
+   directories into `export PATH=` in every `.sbatch` file. `prepare.sbatch` checks the tools and
+   exits with a list of the missing ones. `submit.sh` passes `--kill-on-invalid-dep=yes` on the
+   dependent jobs. The fix was verified by the project's unit tests with a stub `sbatch` and by
+   `sbatch --test-only` (option parsing only). I did not run those checks myself in this task.
+   The fix was NOT re-run on the cluster. The claim that the fixed scripts work on real jobs
+   without the submitter's PATH is untested here.
 2. **Align tasks have a MaxRSS of 6.7 to 8.0 GB with `hisat2 -p 1`** (quant tasks: about 0.1 GB).
    The SAM goes to a file in `$SCRATCH`, not to memory. I did not find the cause. The cluster's
    memory accounting may count the page cache of the files written in the job; this is UNVERIFIED.
