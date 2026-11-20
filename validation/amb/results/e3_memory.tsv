@@ -1,0 +1,22 @@
+measure	value	source
+sample	Control_2 (SRR3396386), 10,302,142 pairs	ENA read_count; E0
+node (all three E3 jobs)	r46	sacct NodeList
+SCRATCH filesystem on r46	xfs on /dev/nvme0n1p6 mounted at /scratch	df -T, findmnt -T (job 32308382)
+staged plain FASTQ mate 1 (bytes)	2901968200	stat, job 32308382
+staged plain FASTQ mate 2 (bytes)	2901968200	stat, job 32308382
+SAM (bytes)	7508765875	stat, job 32308382
+FASTQ + SAM (bytes)	13312702275	sum of the three
+hisat2-align-s -p 1: Maximum resident set size (KB)	41208	/usr/bin/time -v, job 32308382
+hisat2-align-s -p 1: elapsed	5:39.74	/usr/bin/time -v, job 32308382
+featureCounts -T 1: Maximum resident set size (KB)	36144	/usr/bin/time -v, job 32308382
+featureCounts -T 1: elapsed	0:17.80	/usr/bin/time -v, job 32308382
+zcat mate 1 / mate 2: Maximum resident set size (KB)	3340 / 3260	/usr/bin/time -v, job 32308382
+step cgroup memory.stat total_cache at job end (bytes)	13313040384	job 32308382
+step cgroup memory.stat total_rss at job end (bytes)	954368	job 32308382
+step cgroup memory.max_usage_in_bytes (bytes)	13386948608	job 32308382
+sacct MaxRSS, manual job 32308382 (KB)	13073192	sacct (13073192 x 1024 = 13386948608)
+sacct MaxRSS, qrnamap align --tmpdir $SCRATCH, job 32308383 (KB)	13073276	sacct
+sacct MaxRSS, qrnamap align --tmpdir on /bigdata (GPFS), job 32308384 (KB)	39392	sacct
+elapsed, job 32308383 (scratch) / 32308384 (GPFS)	6:28 / 7:18	sacct
+gene counts of 32308383 and 32308384	identical (cmp of decompressed genecounts)	cmp
+sacct MaxRSS, qrnamap align --tmpdir $SCRATCH with --mem 4G, job 32309177 on x01 (KB)	4192060 (COMPLETED 0:0, 10:32; counts identical to 32308383)	sacct, cmp
