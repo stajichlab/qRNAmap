@@ -1,6 +1,7 @@
 //! qRNAmap core. No file or network I/O; builds for wasm32.
 
 pub mod config;
+pub mod counts;
 pub mod design;
 pub mod saf;
 pub mod sheet;
@@ -14,6 +15,10 @@ pub use toolcall::{
     ConfigError, Tool, ToolCall,
 };
 
+pub use counts::{
+    assemble, gene_counts_from_abundance, parse_featurecounts, unlisted_genes, CountError,
+    CountMatrix,
+};
 pub use design::{Contrast, Design, DesignError};
 pub use saf::saf;
 pub use sheet::{ColType, Sample, SampleSheet, SheetError};
