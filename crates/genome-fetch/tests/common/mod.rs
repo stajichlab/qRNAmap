@@ -37,6 +37,10 @@ impl Response {
     pub fn status(status: u16) -> Response {
         Response { status, headers: vec![], body: vec![] }
     }
+    /// Close the connection without sending a response (a transport failure for the client).
+    pub fn close() -> Response {
+        Response { status: 0, headers: vec![], body: vec![] }
+    }
     pub fn redirect(location: &str) -> Response {
         Response { status: 302, headers: vec![("Location".into(), location.into())], body: vec![] }
     }
@@ -65,6 +69,9 @@ impl Server {
                 let Some(req) = read_request(&mut stream) else { continue };
                 rec.lock().unwrap().push(req.clone());
                 let resp = handler(&req, &own);
+                if resp.status == 0 {
+                    continue; // status 0 means: close the connection without any response
+                }
                 let _ = write_response(&mut stream, &resp);
             }
         });

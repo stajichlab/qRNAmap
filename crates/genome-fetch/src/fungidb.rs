@@ -122,7 +122,11 @@ fn download(agent: &ureq::Agent, url: &str, key: Option<&str>, key_source: &str,
         Err(ureq::Error::Status(401, _)) if key.is_none() => return Err(FetchError::NeedsKey { url }),
         Err(ureq::Error::Status(401, _)) => return Err(http_err(&url, Some(401), format!("the server rejected the key from {key_source}"))),
         Err(ureq::Error::Status(code, _)) => return Err(http_err(&url, Some(code), "download failed")),
-        // A transport error text from ureq holds the URL, not the headers, so it does not hold the key.
+        // ureq's text for a transport error can hold the whole request header line (kind BadHeader gives
+        // "invalid header 'Authorization: Bearer <key>'"). So with a key, use a fixed text and only the error kind.
+        Err(e) if key.is_some() => {
+            return Err(http_err(&url, None, format!("network error ({:?}) on a request that carries the API key; details are withheld", e.kind())))
+        }
         Err(e) => return Err(http_err(&url, None, e.to_string())),
     };
     if response.status() != 200 {
@@ -171,19 +175,39 @@ fn key_from_file(path: &Path, host: &str) -> Result<(String, bool), FetchError> 
     }
 }
 
-/// Resolve the key. Returns the key (if any) and a description of its source for messages.
+/// Refuse a key with any byte outside 0x21-0x7E (space, control characters such as a newline, non-ASCII).
+/// Such a key cannot be a valid header value, and an HTTP library may print the header line in its error.
+/// The error names the source and never holds the key or any part of it. It is `FetchError::Io` (InvalidData).
+fn validate_key(key: &str, described_source: &str) -> Result<(), FetchError> {
+    if key.bytes().all(|b| (0x21..=0x7E).contains(&b)) {
+        Ok(())
+    } else {
+        Err(FetchError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("the key from {described_source} holds characters that are not allowed (only printable ASCII without spaces is accepted)"),
+        )))
+    }
+}
+
+/// Resolve the key.Returns the key (if any) and a description of its source for messages.
 fn resolve_key(source: &KeySource, base_host: &str) -> Result<(Option<String>, String), FetchError> {
     match source {
         KeySource::File(path) => {
             let (key, open) = key_from_file(path, base_host)?;
+            let described = format!("key file {}", path.display());
+            validate_key(&key, &described)?;
             if open {
                 eprintln!("genome-fetch: warning: key file {} is readable by other users. Run: chmod 600 {}", path.display(), path.display());
             }
-            Ok((Some(key), format!("key file {}", path.display())))
+            Ok((Some(key), described))
         }
         KeySource::Env => {
             let key = std::env::var(KEY_VARIABLE).ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
-            Ok((key, format!("the environment variable {KEY_VARIABLE}")))
+            let described = format!("the environment variable {KEY_VARIABLE}");
+            if let Some(k) = &key {
+                validate_key(k, &described)?;
+            }
+            Ok((key, described))
         }
         KeySource::None => Ok((None, "no key".to_string())),
     }

@@ -140,3 +140,58 @@ fn key_never_in_error_text() {
     assert!(!d.contains(sentinel) && !g.contains(sentinel));
     assert!(!format!("{key:?}").contains(sentinel));
 }
+
+fn list_server(file_response: fn() -> Response) -> Server {
+    Server::start(move |req, base| {
+        if req.path.starts_with("/fungidb/service/") {
+            Response::ok(organism_json(&format!("{base}/a/service/raw-files/x.fa.gz"), &format!("{base}/a/service/raw-files/x.gff.gz")))
+        } else {
+            file_response()
+        }
+    })
+}
+
+fn assert_no_leak(err: &FetchError, parts: &[&str]) {
+    let (d, g) = (err.to_string(), format!("{err:?}"));
+    for p in parts {
+        assert!(!d.contains(p) && !g.contains(p), "key part {p} leaked: {d} / {g}");
+    }
+}
+
+#[test]
+fn key_with_newline_is_rejected_without_leak() {
+    let s = list_server(|| Response::status(401));
+    let dir = tempfile::tempdir().unwrap();
+    let key = write_key_file(dir.path(), "SENTINEL-A\nSENTINEL-B\n");
+    let err = fetch_fungidb("Testus fungus", &key, &s.base, &dir.path().join("o")).unwrap_err();
+    assert_no_leak(&err, &["SENTINEL-A", "SENTINEL-B"]);
+    // Curly quotes are not removed by the parser, so the key holds non-ASCII bytes and must be refused before any request.
+    let key = write_key_file(dir.path(), "EUPATHDB_KEY=\u{201c}SENTINEL-A\u{201d}\n");
+    let before = s.requests().len();
+    let err = fetch_fungidb("Testus fungus", &key, &s.base, &dir.path().join("o")).unwrap_err();
+    assert_no_leak(&err, &["SENTINEL-A"]);
+    assert!(err.to_string().contains("not allowed"), "{err}");
+    assert_eq!(s.requests().len(), before, "no request may be sent");
+}
+
+#[test]
+fn key_with_non_ascii_is_rejected_without_leak() {
+    let s = list_server(|| Response::ok(b"x".as_slice()));
+    let dir = tempfile::tempdir().unwrap();
+    let key = write_key_file(dir.path(), "SENTINEL-\u{e9}-C\n");
+    let err = fetch_fungidb("Testus fungus", &key, &s.base, &dir.path().join("o")).unwrap_err();
+    assert_no_leak(&err, &["SENTINEL", "-C"]);
+    let text = err.to_string();
+    assert!(text.contains("key.txt") && text.contains("not allowed"), "{text}");
+    assert_eq!(s.requests().len(), 0, "no request may be sent");
+}
+
+#[test]
+fn transport_error_on_authenticated_request_has_no_key() {
+    let s = list_server(Response::close);
+    let dir = tempfile::tempdir().unwrap();
+    let key = write_key_file(dir.path(), "SENTINEL-TRANSPORT-KEY\n");
+    let err = fetch_fungidb("Testus fungus", &key, &s.base, &dir.path().join("o")).unwrap_err();
+    assert!(matches!(err, FetchError::Http { status: None, .. }), "{err:?}");
+    assert_no_leak(&err, &["SENTINEL-TRANSPORT-KEY"]);
+}
