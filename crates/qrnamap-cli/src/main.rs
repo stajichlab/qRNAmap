@@ -125,7 +125,8 @@ enum Cmd {
         /// FACTOR,LEVEL,REFERENCE. Runs DESeq2 after the matrix; writes OUT/deseq2.*.
         #[arg(long)]
         contrast: Option<String>,
-        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink.
+        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink. apeglm and ashr need the R
+        /// packages apeglm and ashr, which pixi.toml does not install; only normal was run.
         #[arg(long, value_enum, requires = "contrast")]
         shrink: Option<ShrinkArg>,
         /// Read pairs per sample above which a warning is printed (spec 11a: a warning in the CLI).
@@ -190,7 +191,8 @@ enum Cmd {
         /// FACTOR,LEVEL,REFERENCE.
         #[arg(long)]
         contrast: String,
-        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none.
+        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none. apeglm and ashr
+        /// need the R packages apeglm and ashr, which pixi.toml does not install; only normal was run.
         #[arg(long, value_enum)]
         shrink: Option<ShrinkArg>,
         /// Output prefix: PREFIX.results.csv, .normalized.csv, .vst.csv, .versions.txt.
