@@ -125,6 +125,35 @@ pub fn parse_featurecounts(tsv: &str) -> Result<BTreeMap<String, u64>, CountErro
     Ok(out)
 }
 
+/// Category counts from a featureCounts `.summary` file (one input file).
+///
+/// The first non-blank line must start with `Status\t`, else `MissingHeader`. Every later
+/// non-blank line is `<category>\t<count>`; anything else is `BadRow` (1-based line). CRLF is
+/// accepted. A repeated category is `DuplicateGene` (the field holds the category).
+pub fn parse_featurecounts_summary(text: &str) -> Result<BTreeMap<String, u64>, CountError> {
+    let mut lines = text
+        .lines()
+        .enumerate()
+        .map(|(i, l)| (i + 1, l.strip_suffix('\r').unwrap_or(l)))
+        .filter(|(_, l)| !l.trim().is_empty());
+    let (_, header) = lines.next().ok_or(CountError::MissingHeader)?;
+    if !header.starts_with("Status\t") {
+        return Err(CountError::MissingHeader);
+    }
+    let mut out = BTreeMap::new();
+    for (line, row) in lines {
+        let f: Vec<&str> = row.split('\t').collect();
+        if f.len() != 2 || f[0].is_empty() || !f[1].bytes().all(|b| b.is_ascii_digit()) {
+            return Err(CountError::BadRow { line });
+        }
+        let n: u64 = f[1].parse().map_err(|_| CountError::BadRow { line })?;
+        if out.insert(f[0].to_string(), n).is_some() {
+            return Err(CountError::DuplicateGene(f[0].to_string()));
+        }
+    }
+    Ok(out)
+}
+
 /// An integer gene-by-sample matrix. `counts[gene][sample]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CountMatrix {

@@ -6,6 +6,7 @@ pub mod design;
 pub mod saf;
 pub mod sheet;
 pub mod splice;
+pub mod strand;
 pub mod toolcall;
 pub mod transcripts;
 
@@ -16,9 +17,10 @@ pub use toolcall::{
 };
 
 pub use counts::{
-    assemble, gene_counts_from_abundance, parse_featurecounts, unlisted_genes, CountError,
-    CountMatrix,
+    assemble, gene_counts_from_abundance, parse_featurecounts, parse_featurecounts_summary,
+    unlisted_genes, CountError, CountMatrix,
 };
+pub use strand::{assigned_fraction, StrandReport, STRAND_THRESHOLD};
 pub use design::{Contrast, Design, DesignError};
 pub use saf::saf;
 pub use sheet::{ColType, Sample, SampleSheet, SheetError};

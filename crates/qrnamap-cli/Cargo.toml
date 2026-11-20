@@ -10,7 +10,10 @@ name = "qrnamap"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 flate2 = "1"
+qrnamap-core = { path = "../qrnamap-core" }
+qseq-io = { path = "../qseq-io" }
 zstd = "0.13"
 
 [dev-dependencies]
