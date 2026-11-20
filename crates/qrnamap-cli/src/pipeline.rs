@@ -24,7 +24,7 @@ use qrnamap_core::{
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
-use crate::exec::{run_call, ExecError};
+use crate::exec::{run_call, run_call_stderr, ExecError};
 use crate::io::{file_format, open_input, Format, InputError};
 
 /// The assigned (or pseudoaligned) fraction below which the CLI prints a warning after a run.
@@ -423,12 +423,12 @@ fn plain_copy(path: &Path, scratch: &Scratch, sub: &str, name: &str) -> Result<(
 /// Per-sample mapping summary.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SampleSummary {
-    /// kallisto `n_processed`, or the total of the featureCounts summary (fragments for
-    /// paired data, reads for single-end).
+    /// kallisto `n_processed`, or HISAT2's `<N> reads; of these:` (pairs for paired data,
+    /// reads for single-end).
     pub reads_processed: u64,
-    /// kallisto `p_pseudoaligned / 100`, or `1 - Unassigned_Unmapped / total`.
+    /// kallisto `p_pseudoaligned / 100`, or HISAT2 `overall alignment rate / 100`.
     pub fraction_mapped: f64,
-    /// kallisto `p_pseudoaligned / 100`, or featureCounts `Assigned / total`.
+    /// kallisto `p_pseudoaligned / 100`, or featureCounts `Assigned` / input pairs (reads).
     pub fraction_assigned: f64,
 }
 
@@ -710,6 +710,26 @@ fn read_summary(path: &Path) -> Result<BTreeMap<String, u64>, PipelineError> {
     parse_featurecounts_summary(&read_table(path)?).map_err(|source| PipelineError::Count { path: path.to_path_buf(), source })
 }
 
+/// Input pairs (reads, for single-end) and the overall alignment rate (0 to 1) from HISAT2's
+/// summary on stderr: the lines `<N> reads; of these:` and `<R>% overall alignment rate`.
+/// The sum of the featureCounts summary is not used for the total: it counts each alignment
+/// of a multi-mapping fragment (`Unassigned_MultiMapping`), so it can exceed the input count.
+fn hisat2_summary(stderr: &str) -> Option<(u64, f64)> {
+    let total = stderr
+        .lines()
+        .find_map(|l| l.trim().strip_suffix(" reads; of these:"))?
+        .trim()
+        .parse()
+        .ok()?;
+    let rate: f64 = stderr
+        .lines()
+        .find_map(|l| l.trim().strip_suffix("% overall alignment rate"))?
+        .trim()
+        .parse()
+        .ok()?;
+    Some((total, rate / 100.0))
+}
+
 /// HISAT2 then featureCounts for one sample. The SAM goes to scratch and is deleted after
 /// counting (a zstd copy is kept with `keep_sam`). Writes `<out>/<sample>/featurecounts.summary`
 /// and `<out>/<sample>.genecounts.tsv.zst`.
@@ -728,7 +748,11 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
 
     let sam = sdir.join(format!("{name}.sam"));
     let call = hisat2_align(&staged, utf8(&ctx.index_prefix)?, utf8(&ctx.splice_sites)?, utf8(&sam)?, &ctx.config).map_err(cfg_err)?;
-    run_call(&call, &sdir).map_err(exec_err)?;
+    let hisat2_stderr = run_call_stderr(&call, &sdir).map_err(exec_err)?;
+    let (total, mapped_rate) = hisat2_summary(&hisat2_stderr).ok_or_else(|| PipelineError::MissingField {
+        path: PathBuf::from("hisat2-align-s stderr"),
+        field: "'N reads; of these:' and 'overall alignment rate'".into(),
+    })?;
     let fc_out = sdir.join("featurecounts.tsv");
     let call = feature_counts(utf8(&sam)?, utf8(&ctx.saf)?, utf8(&fc_out)?, paired, &ctx.config).map_err(cfg_err)?;
     run_call(&call, &sdir).map_err(exec_err)?;
@@ -738,9 +762,7 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
     let sum_path = sdir.join("featurecounts.tsv.summary");
     let summary = read_summary(&sum_path)?;
     copy_converted(&sum_path, &sample_dir.join("featurecounts.summary"))?;
-    let total: u64 = summary.values().sum();
     let assigned = summary_field(&summary, &sum_path, "Assigned")?;
-    let unmapped = summary_field(&summary, &sum_path, "Unassigned_Unmapped")?;
     let frac = |n: u64| if total == 0 { 0.0 } else { n as f64 / total as f64 };
 
     let mut warnings = Vec::new();
@@ -759,7 +781,7 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
         counts,
         summary: SampleSummary {
             reads_processed: total,
-            fraction_mapped: 1.0 - frac(unmapped),
+            fraction_mapped: mapped_rate,
             fraction_assigned: frac(assigned),
         },
         warnings,

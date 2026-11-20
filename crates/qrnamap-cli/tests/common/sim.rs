@@ -37,7 +37,7 @@ impl Lcg {
     }
 }
 
-fn revcomp(s: &[u8]) -> Vec<u8> {
+pub fn revcomp(s: &[u8]) -> Vec<u8> {
     s.iter()
         .rev()
         .map(|b| match b {
@@ -58,8 +58,37 @@ pub struct Pair {
     pub tx: usize,
 }
 
-/// Simulate `counts[i]` pairs from `records[i]`.
+/// Read and fragment lengths for `simulate_with`.
+#[derive(Debug, Clone, Copy)]
+pub struct SimParams {
+    pub read_len: usize,
+    /// Fragment length is uniform in `frag_mean - frag_spread ..= frag_mean + frag_spread`,
+    /// then capped at the transcript length.
+    pub frag_mean: usize,
+    pub frag_spread: usize,
+}
+
+/// Simulate `counts[i]` pairs from `records[i]` with read length 75 and fragment length 200
+/// (the mini fixture settings).
 pub fn simulate(records: &[TxRecord], counts: &[u64], lib: Strandedness, seed: u64) -> Vec<Pair> {
+    simulate_with(
+        records,
+        counts,
+        lib,
+        seed,
+        SimParams { read_len: READ_LEN, frag_mean: FRAGMENT_LEN, frag_spread: 0 },
+    )
+}
+
+/// Simulate `counts[i]` pairs from `records[i]`. The fragment start is uniform over the
+/// positions where the fragment fits in the transcript.
+pub fn simulate_with(
+    records: &[TxRecord],
+    counts: &[u64],
+    lib: Strandedness,
+    seed: u64,
+    p: SimParams,
+) -> Vec<Pair> {
     assert_eq!(records.len(), counts.len());
     let mut rng = Lcg::new(seed);
     let mut order: Vec<usize> = Vec::new();
@@ -74,10 +103,16 @@ pub fn simulate(records: &[TxRecord], counts: &[u64], lib: Strandedness, seed: u
     let mut out = Vec::with_capacity(order.len());
     for (k, &t) in order.iter().enumerate() {
         let seq = &records[t].seq;
-        let flen = FRAGMENT_LEN.min(seq.len());
+        // No random draw when the spread is 0, so the mini fixture output is unchanged.
+        let want = if p.frag_spread == 0 {
+            p.frag_mean
+        } else {
+            p.frag_mean - p.frag_spread + rng.below(2 * p.frag_spread + 1)
+        };
+        let flen = want.min(seq.len());
         let start = rng.below(seq.len() - flen + 1);
         let frag = &seq[start..start + flen];
-        let rlen = READ_LEN.min(flen);
+        let rlen = p.read_len.min(flen);
         let fwd1 = frag[..rlen].to_vec();
         let fwd2 = revcomp(&frag[flen - rlen..]);
         let reverse = match lib {

@@ -101,6 +101,12 @@ fn input_exists(tool: Tool, p: &Path) -> bool {
 /// against `scratch`, as the program sees them; callers should pass absolute paths.
 /// stdout and stderr are captured; errors carry a bounded tail of them.
 pub fn run_call(call: &ToolCall, scratch: &Path) -> Result<(), ExecError> {
+    run_call_stderr(call, scratch).map(|_| ())
+}
+
+/// `run_call`, returning the bounded stderr tail of a successful run (HISAT2 prints its
+/// alignment summary there).
+pub fn run_call_stderr(call: &ToolCall, scratch: &Path) -> Result<String, ExecError> {
     let argv = argv_native(call);
     let program = argv[0].clone();
     for p in &call.inputs {
@@ -131,5 +137,5 @@ pub fn run_call(call: &ToolCall, scratch: &Path) -> Result<(), ExecError> {
             return Err(ExecError::MissingOutput { program, path: p, stderr_tail: tail(&out.stderr) });
         }
     }
-    Ok(())
+    Ok(tail(&out.stderr))
 }

@@ -2,6 +2,7 @@
 //! Copied from `crates/qrnamap-core/tests/common/mod.rs` (no shared dev crate).
 #![allow(dead_code)]
 
+pub mod large;
 pub mod sim;
 
 use std::path::{Path, PathBuf};
