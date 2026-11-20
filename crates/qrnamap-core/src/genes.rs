@@ -1,0 +1,113 @@
+//! Gene table: class, biotype and mitochondrial flag per gene. Pure; no I/O.
+
+use qseq_io::{Gene, GeneModel, Strand};
+use std::fmt::Write;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeneClass {
+    ProteinCoding,
+    Rrna,
+    Trna,
+    OtherNcrna,
+    Pseudogene,
+    Other,
+}
+
+impl GeneClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            GeneClass::ProteinCoding => "protein_coding",
+            GeneClass::Rrna => "rRNA",
+            GeneClass::Trna => "tRNA",
+            GeneClass::OtherNcrna => "other_ncRNA",
+            GeneClass::Pseudogene => "pseudogene",
+            GeneClass::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneRow {
+    pub gene: String,
+    pub contig: String,
+    pub strand: char,
+    pub biotype: String,
+    pub class: GeneClass,
+    pub mito: bool,
+    pub n_transcripts: usize,
+}
+
+fn biotype_of(gene: &Gene) -> String {
+    if let Some(b) = &gene.biotype {
+        return b.clone();
+    }
+    if gene.transcripts.iter().any(|t| t.kind == "mRNA") {
+        return "mRNA".to_string();
+    }
+    match gene.transcripts.first() {
+        Some(t) => t.kind.clone(),
+        None => "unknown".to_string(),
+    }
+}
+
+fn class_of(biotype: &str) -> GeneClass {
+    let b = biotype.to_lowercase();
+    if b == "protein_coding" || b == "mrna" {
+        GeneClass::ProteinCoding
+    } else if b == "rrna" {
+        GeneClass::Rrna
+    } else if b == "trna" {
+        GeneClass::Trna
+    } else if b.contains("pseudogene") || b.contains("pseudogenic") {
+        GeneClass::Pseudogene
+    } else if b.ends_with("rna") {
+        GeneClass::OtherNcrna
+    } else {
+        GeneClass::Other
+    }
+}
+
+/// One row per gene, in model order.
+pub fn gene_table(model: &GeneModel, extra_mito_contigs: &[String]) -> Vec<GeneRow> {
+    model
+        .genes
+        .iter()
+        .map(|g| {
+            let biotype = biotype_of(g);
+            let class = class_of(&biotype);
+            let mito = model.mito_contigs.contains(&g.contig)
+                || extra_mito_contigs.contains(&g.contig);
+            GeneRow {
+                gene: g.label.clone(),
+                contig: g.contig.clone(),
+                strand: match g.strand {
+                    Strand::Plus => '+',
+                    Strand::Minus => '-',
+                },
+                biotype,
+                class,
+                mito,
+                n_transcripts: g.transcripts.len(),
+            }
+        })
+        .collect()
+}
+
+/// Tab-separated table with a header line; every line ends with a newline.
+pub fn gene_table_tsv(rows: &[GeneRow]) -> String {
+    let mut s = String::from("gene\tcontig\tstrand\tbiotype\tclass\tmito\tn_transcripts\n");
+    for r in rows {
+        let _ = writeln!(
+            s,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            r.gene,
+            r.contig,
+            r.strand,
+            r.biotype,
+            r.class.as_str(),
+            if r.mito { "yes" } else { "no" },
+            r.n_transcripts
+        );
+    }
+    s
+}

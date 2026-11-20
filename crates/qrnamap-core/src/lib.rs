@@ -3,6 +3,7 @@
 pub mod config;
 pub mod counts;
 pub mod de;
+pub mod genes;
 pub mod design;
 pub mod saf;
 pub mod sheet;
@@ -22,6 +23,7 @@ pub use counts::{
     unlisted_genes, CountError, CountMatrix,
 };
 pub use strand::{assigned_fraction, StrandReport, STRAND_THRESHOLD};
+pub use genes::{gene_table, gene_table_tsv, GeneClass, GeneRow};
 pub use design::{Contrast, Design, DesignError};
 pub use saf::saf;
 pub use sheet::{ColType, Sample, SampleSheet, SheetError};
