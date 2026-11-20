@@ -667,6 +667,7 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
         run_args,
         task_args,
         tool_dirs,
+        tmpdir: args.tmpdir.as_deref().map(abs).transpose()?,
         tools: tools.iter().map(|t| t.to_string()).collect(),
     })
 }

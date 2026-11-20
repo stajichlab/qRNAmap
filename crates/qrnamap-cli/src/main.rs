@@ -165,7 +165,10 @@ enum Cmd {
         /// CPUs per SLURM task. Default: the --threads value. UNMEASURED placeholder.
         #[arg(long, requires = "slurm")]
         cpus: Option<u32>,
-        /// Memory per SLURM task in GB. UNMEASURED placeholder.
+        /// Memory per SLURM task in GB. The default is an UNMEASURED placeholder and is small on
+        /// purpose: on the AMB data HISAT2 used 41 MB and featureCounts 36 MB resident, and a
+        /// 4 GB job gave identical counts. Not measured for genomes near 50 Mb or for 20 million
+        /// read pairs per sample: raise it for those.
         #[arg(long, default_value_t = qrnamap_cli::slurm::DEFAULT_MEM_GB, requires = "slurm")]
         mem_gb: u32,
         /// SLURM time limit per task. UNMEASURED placeholder.
@@ -300,7 +303,10 @@ struct RunFlags {
     fragment_length: Option<(f64, f64)>,
     #[arg(long, default_value_t = 1)]
     threads: u32,
-    /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23).
+    /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23). With `run --slurm`
+    /// the directory is written into the scripts instead of the $SCRATCH check. The jobs do
+    /// not create it: it must exist on the compute nodes (for example a directory on
+    /// /bigdata). qrnamap makes its own `qrnamap-<pid>` subdirectory inside it.
     #[arg(long)]
     tmpdir: Option<PathBuf>,
 }

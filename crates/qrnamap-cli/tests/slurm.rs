@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use qrnamap_cli::slurm::{sh_quote, slurm_array_script, slurm_scripts, write_slurm_scripts, Plan, SlurmError};
+use qrnamap_cli::slurm::{sh_quote, DEFAULT_MEM_GB, slurm_array_script, slurm_scripts, write_slurm_scripts, Plan, SlurmError};
 use qrnamap_core::Mode;
 
 fn plan(n: usize, k: usize, run_dir: &Path) -> Plan {
@@ -16,7 +16,7 @@ fn plan(n: usize, k: usize, run_dir: &Path) -> Plan {
         n_samples: n,
         per_task: k,
         cpus: 4,
-        mem_gb: 16,
+        mem_gb: DEFAULT_MEM_GB,
         time: "02:00:00".into(),
         partition: Some("batch".into()),
         account: None,
@@ -28,6 +28,7 @@ fn plan(n: usize, k: usize, run_dir: &Path) -> Plan {
         task_args: vec!["--samples".into(), "/bigdata/lab/sheet.tsv".into(), "--out".into(), run_dir.to_str().unwrap().into()],
         tool_dirs: vec![PathBuf::from("/opt/tools/bin")],
         tools: vec!["kallisto".into()],
+        tmpdir: None,
     }
 }
 
@@ -76,7 +77,7 @@ fn slurm_resources_are_marked_unmeasured() {
     for (name, text) in all_scripts(&p) {
         if name.ends_with(".sbatch") {
             assert!(text.contains("UNMEASURED"), "{name}");
-            for want in ["#SBATCH --cpus-per-task=4", "#SBATCH --mem=16G", "#SBATCH --time=02:00:00", "#SBATCH --partition=batch", "#SBATCH --job-name="] {
+            for want in ["#SBATCH --cpus-per-task=4", "#SBATCH --mem=8G", "#SBATCH --time=02:00:00", "#SBATCH --partition=batch", "#SBATCH --job-name="] {
                 assert!(text.contains(want), "{name} lacks {want}:\n{text}");
             }
             assert!(!text.contains("--account"), "{name}");
@@ -697,4 +698,149 @@ fn submit_sh_comments_explain_recovery() {
     }
     // The recovery text is only comments: the script runs three sbatch calls.
     assert_eq!(s.submit.lines().filter(|l| !l.starts_with('#') && l.contains("sbatch")).count(), 3, "{}", s.submit);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Task 5: 8 GB default, --tmpdir for `run --slurm`, SCRATCH message
+
+const SCRATCH_MESSAGE: &str = "SCRATCH is not set: this job needs node-local scratch. Submit from a login shell where $SCRATCH is set, or regenerate the scripts with --tmpdir DIR.";
+
+#[test]
+fn default_mem_is_8_gb_in_scripts() {
+    assert_eq!(DEFAULT_MEM_GB, 8);
+    let s = slurm_scripts(&plan(7, 3, Path::new("/bigdata/lab/run1"))).unwrap();
+    for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
+        assert!(text.contains("#SBATCH --mem=8G\n"), "{name}:\n{text}");
+    }
+}
+
+#[test]
+fn mem_gb_zero_is_still_an_error() {
+    let mut p = plan(7, 3, Path::new("/bigdata/lab/run1"));
+    p.mem_gb = 0;
+    assert!(matches!(slurm_scripts(&p), Err(SlurmError::BadValue { what: "--mem-gb", .. })));
+}
+
+#[test]
+fn tmpdir_option_replaces_scratch_check() {
+    let mut p = plan(7, 3, Path::new("/bigdata/lab/run1"));
+    p.tmpdir = Some(PathBuf::from("/bigdata/lab/tmp dir"));
+    for (name, text) in all_scripts(&p) {
+        assert!(!text.contains("SCRATCH"), "{name}:\n{text}");
+        if name.ends_with(".sbatch") {
+            assert!(text.contains("--tmpdir '/bigdata/lab/tmp dir'\n"), "{name}:\n{text}");
+            assert!(text.contains("set -euo pipefail"), "{name}");
+        }
+    }
+}
+
+#[test]
+fn tmpdir_with_newline_is_refused() {
+    let mut p = plan(7, 3, Path::new("/bigdata/lab/run1"));
+    p.tmpdir = Some(PathBuf::from("/bigdata/lab/t\nmp"));
+    assert!(matches!(slurm_scripts(&p), Err(SlurmError::NewlineOrNul(_))));
+    p.tmpdir = Some(PathBuf::from("relative/tmp"));
+    assert!(matches!(slurm_scripts(&p), Err(SlurmError::RelativePath(_))));
+}
+
+/// Stub `qrnamap`: records every argument on its own line after a `CALL` marker, then starts
+/// `kallisto` so that the prepare tool check has something to find.
+fn stub_qrnamap_args(path: &Path, log: &Path) {
+    let l = sh_quote(log.to_str().unwrap()).unwrap();
+    write_exe(path, &format!("#!/bin/sh\n{{ echo CALL; printf '%s\\n' \"$@\"; }} >> {l}\n"));
+}
+
+#[test]
+fn without_tmpdir_scratch_check_remains_with_new_message() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    let log = d.join("calls.log");
+    stub_tools(&tools, &["kallisto"], &log);
+    let bin = d.join("qrnamap_stub");
+    stub_qrnamap_args(&bin, &log);
+    let o = generate(d, "quant", tools.to_str().unwrap(), &["--qrnamap-bin", bin.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        let o = Command::new("env")
+            .args(["-i", &format!("PATH={}:/usr/bin:/bin", tools.display())])
+            .arg("SLURM_ARRAY_TASK_ID=0")
+            .arg("bash")
+            .arg(d.join("run/slurm").join(f))
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(!o.status.success(), "{f}");
+        let line = err.lines().next().unwrap_or("");
+        assert!(line.ends_with(&format!("SCRATCH: {SCRATCH_MESSAGE}")), "{f}: {err:?}");
+        assert_eq!(err.lines().count(), 1, "{f}: {err:?}");
+        assert!(!log.exists(), "the program must not start without scratch");
+    }
+}
+
+#[test]
+fn hostile_tmpdir_round_trips() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let hostile = d.join("tmp dir $HOME it's `echo pwned`");
+    let tools = d.join("tools");
+    let log = d.join("calls.log");
+    stub_tools(&tools, &["kallisto"], &d.join("tool.log"));
+    let bin = d.join("qrnamap_stub");
+    stub_qrnamap_args(&bin, &log);
+    let o = generate(d, "quant", tools.to_str().unwrap(), &["--qrnamap-bin", bin.to_str().unwrap(), "--tmpdir", hostile.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch", "submit.sh"] {
+        let o = Command::new("bash").arg("-n").arg(d.join("run/slurm").join(f)).output().unwrap();
+        assert!(o.status.success(), "bash -n {f}: {}", String::from_utf8_lossy(&o.stderr));
+    }
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        assert!(!read_script(d, f).contains("SCRATCH"), "{f}");
+        // No SCRATCH in the environment: the job must still run.
+        let o = Command::new("env")
+            .args(["-i", "PATH=/usr/bin:/bin", "HOME=/home/EXPANDED", "SLURM_ARRAY_TASK_ID=0"])
+            .arg("bash")
+            .arg(d.join("run/slurm").join(f))
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{f}: {}", String::from_utf8_lossy(&o.stderr));
+    }
+    let want = hostile.to_str().unwrap();
+    let all = calls(&log);
+    assert_eq!(all.len(), 3);
+    for c in &all {
+        let i = c.iter().position(|a| a == "--tmpdir").expect("--tmpdir present");
+        assert_eq!(c[i + 1], want, "one literal argument");
+        assert_eq!(c.iter().filter(|a| *a == want).count(), 1);
+    }
+}
+
+#[test]
+fn scripts_never_contain_sample_names_or_fastq_paths_with_tmpdir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let empty = d.join("empty_path");
+    fs::create_dir_all(&empty).unwrap();
+    let (sheet, secrets) = distinct_sheet(d);
+    let fx = common::mini_fixture();
+    let out = d.join("run_tmpdir");
+    let o = qrnamap_no_tools(
+        &[
+            "run", "--samples", sheet.to_str().unwrap(), "--reference", fx.join("genome.fa").to_str().unwrap(),
+            "--gff", fx.join("genes.gff3").to_str().unwrap(), "--mode", "quant", "--out", out.to_str().unwrap(), "--slurm",
+            "--tmpdir", d.join("job tmp").to_str().unwrap(),
+        ],
+        &empty,
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for e in fs::read_dir(out.join("slurm")).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_file() {
+            let text = fs::read_to_string(&p).unwrap();
+            for sec in &secrets {
+                assert!(!text.contains(sec.as_str()), "{} contains {sec}", p.display());
+            }
+            assert!(!text.contains("ZZsample") && !text.contains("QQfastq"), "{}", p.display());
+        }
+    }
 }
