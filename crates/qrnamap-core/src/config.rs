@@ -45,6 +45,11 @@ pub struct RunConfig {
     /// UNVERIFIED for fungal genomes. Revisit with data.
     pub max_intron: u32,
     pub threads: u32,
+    /// Salmon `--softclipOverhangs`. Off by default. Ignored by other tools.
+    pub salmon_softclip_overhangs: bool,
+    /// Salmon `--minScoreFraction`, finite and in (0, 1]. Unset by default.
+    /// Ignored by other tools.
+    pub salmon_min_score_fraction: Option<f64>,
 }
 
 impl Default for RunConfig {
@@ -57,6 +62,8 @@ impl Default for RunConfig {
             fragment_len: None,
             max_intron: 5000,
             threads: 1,
+            salmon_softclip_overhangs: false,
+            salmon_min_score_fraction: None,
         }
     }
 }

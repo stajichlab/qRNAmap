@@ -889,3 +889,90 @@ fn quantifier_name() {
     assert_eq!(Quantifier::Kallisto.name(), "kallisto");
     assert_eq!(Quantifier::Salmon.name(), "salmon");
 }
+
+fn salmon_opt_cfg(softclip: bool, frac: Option<f64>) -> RunConfig {
+    RunConfig {
+        salmon_softclip_overhangs: softclip,
+        salmon_min_score_fraction: frac,
+        ..RunConfig::default()
+    }
+}
+
+fn salmon_argv(c: &RunConfig) -> Result<Vec<String>, ConfigError> {
+    salmon_quant(&sample(&["a"], &["b"]), "idx", "out", c).map(|t| argv_native(&t))
+}
+
+#[test]
+fn salmon_quant_default_argv_unchanged() {
+    // Same argv as main (fe1ce5e) for a paired unstranded sample.
+    assert_eq!(
+        salmon_argv(&cfg(Strandedness::Unstranded)).unwrap(),
+        s(&[
+            "salmon", "quant", "-i", "idx", "-l", "IU", "-1", "a", "-2", "b", "-p", "1", "-o",
+            "out"
+        ])
+    );
+}
+
+#[test]
+fn salmon_quant_softclip_overhangs_flag() {
+    assert_eq!(
+        salmon_argv(&salmon_opt_cfg(true, None)).unwrap(),
+        s(&[
+            "salmon",
+            "quant",
+            "-i",
+            "idx",
+            "-l",
+            "IU",
+            "-1",
+            "a",
+            "-2",
+            "b",
+            "--softclipOverhangs",
+            "-p",
+            "1",
+            "-o",
+            "out"
+        ])
+    );
+}
+
+#[test]
+fn salmon_quant_min_score_fraction_flag() {
+    let a = salmon_argv(&salmon_opt_cfg(false, Some(0.5))).unwrap();
+    let i = a.iter().position(|x| x == "--minScoreFraction").unwrap();
+    assert_eq!(a[i + 1], "0.5");
+    assert!(!a.contains(&"--softclipOverhangs".to_string()));
+    let a = salmon_argv(&salmon_opt_cfg(false, Some(1.0))).unwrap();
+    let i = a.iter().position(|x| x == "--minScoreFraction").unwrap();
+    assert_eq!(a[i + 1], "1");
+}
+
+#[test]
+fn salmon_quant_both_flags_order() {
+    let a = salmon_argv(&salmon_opt_cfg(true, Some(0.5))).unwrap();
+    let pos = |k: &str| a.iter().position(|x| x == k).unwrap();
+    assert!(pos("--softclipOverhangs") < pos("--minScoreFraction"));
+    assert!(pos("--minScoreFraction") < pos("-p"));
+}
+
+#[test]
+fn salmon_quant_min_score_fraction_rejects_bad_values() {
+    for v in [0.0, -0.1, 1.5, f64::NAN, f64::INFINITY] {
+        let e = salmon_argv(&salmon_opt_cfg(false, Some(v))).unwrap_err();
+        assert!(
+            matches!(e, ConfigError::InvalidMinScoreFraction { .. }),
+            "{v}: {e:?}"
+        );
+        assert!(e.to_string().contains("--salmon-min-score-fraction"));
+    }
+}
+
+#[test]
+fn kallisto_quant_ignores_salmon_options() {
+    let smp = sample(&["a"], &["b"]);
+    let base = kallisto_quant(&smp, "i.idx", "out", &RunConfig::default()).unwrap();
+    let set = kallisto_quant(&smp, "i.idx", "out", &salmon_opt_cfg(true, Some(0.5))).unwrap();
+    assert_eq!(argv_native(&base), argv_native(&set));
+}

@@ -30,7 +30,7 @@ pub struct ToolCall {
     pub outputs: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ConfigError {
     /// Single-end kallisto and salmon need a fragment length mean and SD.
     FragmentLengthRequired { sample: String },
@@ -44,6 +44,8 @@ pub enum ConfigError {
     NoReads { sample: String },
     /// A FASTQ path contains a comma. HISAT2 lanes are comma-joined, so it would split.
     CommaInPath { sample: String, path: String },
+    /// Salmon `--minScoreFraction` is not finite or not in (0, 1].
+    InvalidMinScoreFraction { value: f64 },
 }
 
 impl fmt::Display for ConfigError {
@@ -62,6 +64,10 @@ impl fmt::Display for ConfigError {
             ConfigError::CommaInPath { sample, path } => write!(
                 f,
                 "sample '{sample}': FASTQ path {path:?} contains a comma, which HISAT2 cannot take"
+            ),
+            ConfigError::InvalidMinScoreFraction { value } => write!(
+                f,
+                "--salmon-min-score-fraction must be finite and in (0, 1], got {value}"
             ),
             ConfigError::MateCountMismatch { sample } => {
                 write!(f, "sample '{sample}' has different numbers of R1 and R2 files")
@@ -223,6 +229,11 @@ pub fn salmon_quant(
 ) -> Result<ToolCall, ConfigError> {
     check_threads(cfg)?;
     check_reads(sample)?;
+    if let Some(v) = cfg.salmon_min_score_fraction {
+        if !(v.is_finite() && v > 0.0 && v <= 1.0) {
+            return Err(ConfigError::InvalidMinScoreFraction { value: v });
+        }
+    }
     let paired = !sample.fastq2.is_empty();
     let lib = match (paired, cfg.strandedness) {
         (true, Strandedness::Unstranded) => "IU",
@@ -251,6 +262,12 @@ pub fn salmon_quant(
         ]);
         sample.fastq1.iter().collect()
     };
+    if cfg.salmon_softclip_overhangs {
+        args.push("--softclipOverhangs".into());
+    }
+    if let Some(v) = cfg.salmon_min_score_fraction {
+        args.extend(["--minScoreFraction".into(), v.to_string()]);
+    }
     args.extend([
         "-p".into(),
         cfg.threads.to_string(),
