@@ -20,8 +20,8 @@ use qrnamap_core::{
     gene_table_tsv,
     hisat2_align, hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts,
     parse_featurecounts_summary, saf, splice_sites, tx2gene_tsv, unlisted_genes, write_fasta,
-    BuildError, ConfigError, CountError, CountMatrix, Mode, RunConfig, Sample, StrandReport,
-    Strandedness,
+    BuildError, ConfigError, CountError, CountMatrix, Mode, Quantifier, RunConfig, Sample,
+    StrandReport, Strandedness,
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
@@ -722,7 +722,7 @@ pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineEr
 pub const MAPPING_SUMMARY: &str = "mapping_summary.tsv.zst";
 
 /// Header of `<out>/<sample>.summary.tsv.zst`.
-pub const SUMMARY_HEADER: &str = "sample\tmode\treads_processed\tfraction_mapped\tfraction_assigned\tstrandedness\tqrnamap_version";
+pub const SUMMARY_HEADER: &str = "sample\tmode\tquantifier\treads_processed\tfraction_mapped\tfraction_assigned\tstrandedness\tqrnamap_version";
 
 fn summary_path(out_dir: &Path, sample: &str) -> PathBuf {
     out_dir.join(format!("{sample}.summary.tsv.zst"))
@@ -746,12 +746,14 @@ fn remove_if_present(p: &Path) -> Result<(), PipelineError> {
 }
 
 /// Write `<out>/<sample>.summary.tsv.zst`: the header `SUMMARY_HEADER` and one row. Floats use
-/// Rust's shortest round-trip formatting. `mode` is `quant` or `align`; `strandedness` is
+/// Rust's shortest round-trip formatting. `mode` is `quant` or `align`. `quantifier` is the
+/// tool name for quant and `None` (written as `none`) for align. `strandedness` is
 /// `unstranded`, `forward` or `reverse`.
 pub fn write_sample_summary(
     out_dir: &Path,
     sample: &str,
     mode: Mode,
+    quantifier: Option<Quantifier>,
     summary: &SampleSummary,
     strandedness: Strandedness,
 ) -> Result<(), PipelineError> {
@@ -759,13 +761,14 @@ pub fn write_sample_summary(
         Mode::Quant => "quant",
         Mode::Align => "align",
     };
+    let quantifier = quantifier.map_or("none", Quantifier::name);
     let strand = match strandedness {
         Strandedness::Unstranded => "unstranded",
         Strandedness::Forward => "forward",
         Strandedness::Reverse => "reverse",
     };
     let text = format!(
-        "{SUMMARY_HEADER}\n{sample}\t{mode}\t{}\t{}\t{}\t{strand}\t{}\n",
+        "{SUMMARY_HEADER}\n{sample}\t{mode}\t{quantifier}\t{}\t{}\t{}\t{strand}\t{}\n",
         summary.reads_processed,
         summary.fraction_mapped,
         summary.fraction_assigned,
@@ -774,7 +777,7 @@ pub fn write_sample_summary(
     write_output(&summary_path(out_dir, sample), text.as_bytes())
 }
 
-/// Read `<out>/<sample>.summary.tsv.zst` and return its data row (7 cells). A missing file is
+/// Read `<out>/<sample>.summary.tsv.zst` and return its data row (8 cells). A missing file is
 /// `MissingSummaryFile`; a row for another sample is `SummaryFileSample`.
 fn read_sample_summary(out_dir: &Path, sample: &str) -> Result<Vec<String>, PipelineError> {
     let path = summary_path(out_dir, sample);
@@ -791,8 +794,8 @@ fn read_sample_summary(out_dir: &Path, sample: &str) -> Result<Vec<String>, Pipe
         Some(l) => l.split('\t').map(String::from).collect(),
         None => return Err(bad(2, "the summary row is missing")),
     };
-    if row.len() != 7 || lines.next().is_some() {
-        return Err(bad(2, "expected one row of 7 tab-separated fields"));
+    if row.len() != 8 || lines.next().is_some() {
+        return Err(bad(2, "expected one row of 8 tab-separated fields"));
     }
     if row[0] != sample {
         return Err(PipelineError::SummaryFileSample { path: path.clone(), expected: sample.into(), found: row[0].clone() });
@@ -1011,7 +1014,7 @@ pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult,
     write_gene_counts(&genecounts_path(&ctx.out_dir, name), name, &counts)?;
     let warnings = zero_warning(name, &counts).into_iter().collect();
     let summary = SampleSummary { reads_processed: n as u64, fraction_mapped: p, fraction_assigned: p };
-    write_sample_summary(&ctx.out_dir, name, Mode::Quant, &summary, ctx.config.strandedness)?;
+    write_sample_summary(&ctx.out_dir, name, Mode::Quant, Some(Quantifier::Kallisto), &summary, ctx.config.strandedness)?;
     Ok(SampleResult { sample: name.clone(), counts, summary, warnings })
 }
 
@@ -1188,7 +1191,7 @@ pub fn align_sample(sample: &Sample, ctx: &AlignContext) -> Result<SampleResult,
         fraction_mapped: mapped_rate,
         fraction_assigned: frac(assigned),
     };
-    write_sample_summary(&ctx.out_dir, name, Mode::Align, &summary, ctx.config.strandedness)?;
+    write_sample_summary(&ctx.out_dir, name, Mode::Align, None, &summary, ctx.config.strandedness)?;
     Ok(SampleResult { sample: name.clone(), counts, summary, warnings })
 }
 

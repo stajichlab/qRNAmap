@@ -51,7 +51,7 @@ fn setup(dir: &Path, samples: &[(&str, BTreeMap<String, u64>)]) -> std::path::Pa
     for (name, counts) in samples {
         write_gene_counts(&dir.join(format!("{name}.genecounts.tsv.zst")), name, counts).unwrap();
         let summary = SampleSummary { reads_processed: 1, fraction_mapped: 1.0, fraction_assigned: 1.0 };
-        write_sample_summary(dir, name, qrnamap_core::Mode::Quant, &summary, qrnamap_core::Strandedness::Unstranded).unwrap();
+        write_sample_summary(dir, name, qrnamap_core::Mode::Quant, Some(qrnamap_core::Quantifier::Kallisto), &summary, qrnamap_core::Strandedness::Unstranded).unwrap();
         sheet.push_str(&format!("{name}\t/x/{name}.fq\n"));
     }
     let p = dir.join("sheet.tsv");

@@ -930,7 +930,7 @@ fn write_counts_for_sheet(p: &Prepared) {
         let m = [("geneA".to_string(), 5u64), ("geneB".to_string(), 7u64)].into_iter().collect();
         qrnamap_cli::pipeline::write_gene_counts(&p.out.join(format!("{n}.genecounts.tsv.zst")), n, &m).unwrap();
         let summary = qrnamap_cli::pipeline::SampleSummary { reads_processed: 1, fraction_mapped: 1.0, fraction_assigned: 1.0 };
-        qrnamap_cli::pipeline::write_sample_summary(&p.out, n, qrnamap_core::Mode::Quant, &summary, Strandedness::Unstranded).unwrap();
+        qrnamap_cli::pipeline::write_sample_summary(&p.out, n, qrnamap_core::Mode::Quant, Some(qrnamap_core::Quantifier::Kallisto), &summary, Strandedness::Unstranded).unwrap();
     }
 }
 
