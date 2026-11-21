@@ -146,7 +146,8 @@ enum Cmd {
         /// kallisto.
         #[arg(long, value_enum)]
         quantifier: Option<QuantArg>,
-        /// Salmon only: pass --softclipOverhangs to salmon quant. Needs --quantifier salmon. Not with --mode align.
+        /// Salmon only: pass --softclipOverhangs to salmon quant. Needs --quantifier salmon.
+        /// Not with --mode align.
         #[arg(long)]
         salmon_softclip_overhangs: bool,
         /// Salmon only: pass --minScoreFraction F to salmon quant. F is greater than 0 and at
