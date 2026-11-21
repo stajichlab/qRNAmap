@@ -74,7 +74,8 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
   (`abundance.tsv`) is identical in all cases. The cause is UNVERIFIED.
 - Any push to the fork branch without `[skip ci]` starts 11 upstream workflows (`on: push` with no filter).
   They were cancelled by hand after the trigger push of run 44944424373. The spike workflow is now registered
-  (ID 426260115). Dispatch of the spike workflow by ID was not tested.
+  (ID 426260115). Dispatch by workflow ID works: Task 4 run 44946369959 was started with
+  `gh workflow run 426260115 --ref qrnamap-spike0 -f suite=index` (no push, no upstream runs).
 - Full outputs: `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/parity/run-44944424373/` (SAM files zstd).
 
 ## Index size and time (Task 4, measured 2026-11-21)
@@ -89,7 +90,8 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 ### Method
 
 - Workflow job `index-size` in `workflow/qrnamap-spike0.yml` (matrix node, chromium, firefox, webkit).
-  A push runs only this job. Input `suite` (`parity`, `index`, `all`) selects jobs on dispatch.
+  Input `suite` (`parity`, `index`, `all`) selects jobs on dispatch. After this change a push runs only the index job.
+  The Task 3 parity jobs (`parity`, `deseq2-node`) run only on dispatch with `suite=parity` or `suite=all`.
 - Run 44946369959 (dispatch by workflow ID 426260115, ref `qrnamap-spike0`), fork head
   `4333f4f56d5a57cd69817aaefe87c21f2e9c15bb`. All four jobs passed. One run in total.
 - Runner: ubuntu-24.04 GitHub runner, 16,367,524 kB RAM, 3,145,724 kB swap (`free-before.txt`). Node v22.23.5.
@@ -111,12 +113,13 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 
 | probe | engines | method | limit |
 |---|---|---|---|
-| WASM linear memory | all | `Module.HEAPU8.length` after `callMain`, in the tool worker | Linear memory never shrinks, so this is the peak of the WASM heap. It excludes MEMFS files (JS arrays), input copies and engine overhead. |
+| WASM linear memory | all | `Module.HEAPU8.length` after `callMain`, in the tool worker (`wasm_heap_final_bytes`) | This is the final size. It equals the peak only if linear memory never shrinks during the run; WebAssembly memory can only grow, but this was not measured here. It excludes MEMFS files (JS arrays), input copies and engine overhead. |
 | `node_maxrss_kb` | node | `process.resourceUsage().maxRSS` of the child process | Kernel peak RSS of the whole process (main thread, worker, WASM, input and output copies). |
 | `node_rss_peak_kb` | node | `process.memoryUsage().rss` every 250 ms | Can miss a peak shorter than 250 ms. |
 | `tree_pss_*_kb` | browsers | sum of `Pss` in `/proc/PID/smaps_rollup` over all descendants of the harness process, every 250 ms | Whole browser (all processes), not only the tool. Can miss a peak shorter than 250 ms. Baseline = after page load and input fetch, before the run. Pss was readable for all processes in all runs. |
 | `cdp_js_heap_*` | chromium | CDP `Performance.getMetrics` `JSHeapUsedSize`, every 1 s | Page main thread only. It does not include the worker or WASM memory. |
 
+- All browsers ran headless: `index_size.mjs` and `parity.mjs` call `launch({ headless: true })`.
 - Firefox and WebKit have no CDP in Playwright. For them, the process probe (`/proc` Pss) and the WASM probe are the only methods.
 - `performance.measureUserAgentSpecificMemory()` was not used.
 
@@ -156,6 +159,7 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 ### Criteria
 
 - 12 Mb yeast index in 600 s or less and under 2 GiB: pass in node, chromium, firefox and webkit (all 3 runs).
+  Browser tree Pss peaks include the idle browser baseline (all browser processes), not only the tool.
   The largest yeast value on any probe is 675.6 MiB (webkit tree Pss); the longest run is 7.49 s.
 - The other cases are within 600 s and 2 GiB on every probe in every engine (information, not a criterion).
   The largest value is 1176.5 MiB (kallisto Af293, webkit tree Pss, whole browser).
