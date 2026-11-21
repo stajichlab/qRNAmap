@@ -1,4 +1,6 @@
 //! `qrnamap run` and the reads-per-sample check.
+// The test helpers return `RunError` as the library does; clippy flags its size only here.
+#![allow(clippy::result_large_err)]
 
 mod common;
 
