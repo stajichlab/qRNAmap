@@ -285,3 +285,27 @@ fn large_align_lanes_equal_concatenated() {
     assert_eq!(res[0].summary, res[1].summary);
     eprintln!("WALL large_align_lanes_equal_concatenated: {:.2?}", t0.elapsed());
 }
+
+/// Gene counts from kallisto on the large fixture (unstranded, seed 101, plain FASTQ),
+/// made by a test binary built from commit 1300552, before the Salmon change.
+const GOLDEN_KALLISTO: &str = include_str!("golden/large_kallisto_counts.tsv");
+
+#[test]
+fn kallisto_gene_counts_unchanged() {
+    // Regression check: the Salmon change must not alter kallisto gene counts.
+    if !common::require_tools(&QUANT_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = pairs(Strandedness::Unstranded, 101);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&p, &r1, &r2);
+    let u = Strandedness::Unstranded;
+    let res = run_quant(d, u, u, &[r1], &[r2]).unwrap();
+    let mut got = String::from("gene\tcount\n");
+    for (g, c) in &res.counts {
+        got.push_str(&format!("{g}\t{c}\n"));
+    }
+    assert_eq!(got, GOLDEN_KALLISTO, "kallisto gene counts differ from the golden file");
+}
