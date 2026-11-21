@@ -116,6 +116,12 @@ only. The default is `kallisto`, so a command without the option behaves as befo
 - A run directory holds the output of one quantifier. A rerun with the other quantifier removes the old
   per-sample output of both tools first. `quant --task-id` and `run --step final` refuse a run directory
   that was prepared with the other quantifier.
+- After a switch of quantifier in the same `--out`, the index of the other tool stays on disk
+  (`salmon_index/` or `transcripts.kidx`). qrnamap does not remove it. You can delete it. The yeast
+  Salmon index was 211 MB (`validation/amb/salmon.md`).
+- Transcripts shorter than the reads can get 0 reads under Salmon defaults, also for highly expressed
+  genes. On the AMB data (101-nt reads), RPL41A and RPL41B (78-nt transcripts) got 0 reads in Salmon and
+  7,690 to 19,722 reads in kallisto per sample (`validation/amb/salmon.md`).
 - The SLURM scripts check for `salmon` instead of `kallisto` when the quantifier is Salmon. The rates
   per million read pairs in this README and in the scripts were measured with kallisto only. Salmon
   rates on the AMB data are in `validation/amb/salmon.md`.
@@ -274,6 +280,12 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
   `wasm32-unknown-unknown` as a check.
 - Salmon limits: no genome decoys (transcripts-only index), no bootstrap or Gibbs sampling, no
   Salmon in align mode, no Salmon in the browser build.
+- Salmon and transcripts shorter than the reads: with Salmon defaults, such transcripts can get 0 reads,
+  also for highly expressed genes (RPL41A and RPL41B on the AMB data). OPEN USER DECISION: whether
+  qrnamap passes `--softclipOverhangs` or `--minScoreFraction` to `salmon quant`. qrnamap passes no
+  tuning flag now, and flag changes are a non-goal of the Salmon spec. On a 500,000-pair subset of one
+  sample, these flags raised the RPL41A + RPL41B count from 0 to 163 to 742; kallisto gave 2,101
+  (`validation/amb/salmon.md`).
 - A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run
   `run --step prepare` (or `run`) on such a directory again.
 - No plots.
@@ -303,7 +315,7 @@ Two validation records are in the repository. Both ran on the UCR HPCC cluster.
   - Spearman correlation of gene counts, Salmon vs kallisto, pooled over all 6 samples: 0.994919.
   - DESeq2 genes with padj < 0.05: 2,005 (Salmon), 2,042 (kallisto), 1,962 in both (Jaccard 0.941007).
   - Against the authors' counts (6,008 common genes, pooled): Spearman 0.941675 (Salmon), 0.946995 (kallisto).
-  - Zero-count gene values, pooled over the 6 samples: 2,522 (Salmon) and 801 (kallisto). The genes and the reason were not examined.
+  - Zero-count gene values, pooled over the 6 samples: 2,522 (Salmon) and 801 (kallisto) (`validation/amb/results_salmon/mode_agreement.tsv`). Per sample, 263 to 282 of the genes that are 0 in Salmon and nonzero in kallisto have no transcript longer than the 101-nt reads (`validation/amb/results_salmon/zero_genes_by_length.tsv`).
 - No ground-truth comparison was made. The authors' tables are another pipeline's output, not a truth. The
   numbers show agreement between methods, not accuracy.
 
@@ -347,4 +359,4 @@ Native HISAT2 runs `hisat2-align-s`, not the `hisat2` wrapper: the Perl wrapper 
 
 Larger synthetic fixture (`crates/qrnamap-cli/tests/common/large.rs`, test `tests/large.rs`, 2026-11-19): 2 contigs of 20 kb, 12 genes (2 multi-isoform, 1 rRNA, 1 CDS-only), 15 transcripts of 661 to 2,034 bases, 40,000 error-free pairs (read length 100, fragment 200 to 300). The reads come from the generator's own transcripts, not from our builder. Measured maximum relative error per gene (genes with at least 200 pairs): kallisto 0 (unstranded, forward and reverse libraries with the matching flag); HISAT2 + featureCounts 0.0005 unstranded and 0.0018 stranded. The lost pairs are g07 pairs that map to 2 places (`Unassigned_MultiMapping`). A reverse library run as forward: kallisto pseudoaligns no read (exit status 1); featureCounts assigned fraction 0.0.
 
-Salmon 2.8.0 on the same larger fixture (tests in `tests/large.rs`, 2026-11-20): maximum relative error per gene 0 (genes with at least 200 pairs) for unstranded, forward and reverse libraries with the matching flag, and for single-end reads (fragment length mean 200, SD 20). Two lanes (gzip and zstd) gave the same gene counts as one concatenated file (maximum difference 0). For a forward library run as reverse, and a reverse library run as forward, the test accepts the zero-mapped error or an assigned fraction below 0.2. In the Task 5 run, both cases stopped with the zero-mapped error. These reads come from the true transcripts, so the zero error does not predict accuracy on real data.
+Salmon 2.8.0 on the same larger fixture (tests in `tests/large.rs`, 2026-11-20): maximum relative error per gene 0 (genes with at least 200 pairs) for unstranded, forward and reverse libraries with the matching flag, and for single-end reads (fragment length mean 200, SD 20). Two lanes (gzip and zstd) gave the same gene counts as one concatenated file (maximum difference 0). For a forward library run as reverse, and a reverse library run as forward, the test accepts the zero-mapped error or an assigned fraction below 0.2. Observed: both cases stopped with the zero-mapped error (`QRNAMAP_REQUIRE_TOOLS=1 cargo test -p qrnamap-cli --test large salmon_forward_and_reverse_stranded -- --nocapture`, 2026-11-20, printed `MEASURED salmon Forward as Reverse: NoReadsPseudoaligned` and `MEASURED salmon Reverse as Forward: NoReadsPseudoaligned`). These reads come from the true transcripts, so the zero error does not predict accuracy on real data.
