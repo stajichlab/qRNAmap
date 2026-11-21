@@ -173,7 +173,8 @@ pub fn kallisto_quant(
     })
 }
 
-/// `salmon index -t <transcripts.fa> -i <index_dir> -p <threads>`. The index is a directory.
+/// `salmon index -t <transcripts.fa> -i <index_dir> -p <threads> --keepDuplicates`. The index is a directory.
+/// `--keepDuplicates` keeps transcripts with identical sequences, so each keeps its own row.
 pub fn salmon_index(
     transcripts_fasta: &str,
     index_dir: &str,
@@ -190,6 +191,7 @@ pub fn salmon_index(
             index_dir.into(),
             "-p".into(),
             cfg.threads.to_string(),
+            "--keepDuplicates".into(),
         ],
         inputs: vec![transcripts_fasta.into()],
         outputs: vec![index_dir.into()],

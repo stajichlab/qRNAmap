@@ -397,7 +397,7 @@ fn salmon_quant_rejects_bad_input() {
 #[test]
 fn salmon_index_args() {
     let c = salmon_index("t.fa", "idx", &threads_cfg(Strandedness::Unstranded, 4)).unwrap();
-    assert_eq!(argv_native(&c), s(&["salmon", "index", "-t", "t.fa", "-i", "idx", "-p", "4"]));
+    assert_eq!(argv_native(&c), s(&["salmon", "index", "-t", "t.fa", "-i", "idx", "-p", "4", "--keepDuplicates"]));
     assert_eq!(c.inputs, p(&["t.fa"]));
     assert_eq!(c.outputs, p(&["idx"]));
     assert_eq!(
