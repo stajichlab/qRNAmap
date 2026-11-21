@@ -1,0 +1,103 @@
+[2026-11-21T23:53:14.947Z] webkit node probe ncbi_fna: status 200 acao * 
+[2026-11-21T23:53:15.184Z] webkit node probe ncbi_fna_range: status 206 acao * 
+[2026-11-21T23:53:15.418Z] webkit node probe ncbi_gff: status 200 acao * 
+[2026-11-21T23:53:16.326Z] webkit node probe ena_filereport: status 200 acao * 
+[2026-11-21T23:53:17.428Z] webkit node probe ena_small_head: status 200 acao * 
+[2026-11-21T23:53:17.867Z] webkit node probe ena_small_get: status 200 acao * 
+[2026-11-21T23:53:18.494Z] webkit node probe ena_large_head: status 200 acao * 
+[2026-11-21T23:53:18.935Z] webkit node probe ena_large_range_start: status 206 acao * 
+[2026-11-21T23:53:19.378Z] webkit node probe ena_large_range_mid: status 206 acao * 
+[2026-11-21T23:53:20.058Z] webkit node probe ensembl_gff3_mito: status 200 acao * 
+[2026-11-21T23:53:20.510Z] webkit node probe ensembl_fa_mito: status 200 acao * 
+[2026-11-21T23:53:20.971Z] webkit node probe ensembl_fa_checksums: status 200 acao * 
+[2026-11-21T23:53:21.920Z] webkit node probe ensemblgenomes_fungi: status  acao  ERR_TLS_CERT_ALTNAME_INVALID Hostname/IP does not match certificate's altnames: Host: ftp.ensemblgenomes.org. is not in the cert's altnames: DNS:ftp.ebi.ac.uk, DNS:ftp-pride-private.ebi.ac.uk, DNS:ftp-private-2.ebi.ac.uk, DNS:ftp-private-beta.ebi.ac.uk, DNS:ftp-private.ebi.ac.uk, DNS:ftp.1000genomes-private.ebi.ac.uk, DNS:ftp.1000genomes.ebi.ac.uk, DNS:ftp.dcc-private.ebi.ac.uk, DNS:ftp.ega.ebi.ac.uk, DNS:ftp.ensembl.ebi.ac.uk, DNS:ftp.ensemblgenomes.ebi.ac.uk, DNS:ftp.era.ebi.ac.uk, DNS:ftp.hipsci.ebi.ac.uk, DNS:ftp.pride.ebi.ac.uk, DNS:ftp.sra.ebi.ac.uk, DNS:webin.ebi.ac.uk, DNS:webin2.ebi.ac.uk
+[2026-11-21T23:53:22.197Z] webkit mode none: start
+[2026-11-21T23:53:27.337Z] webkit mode none: featurecounts count_T1 starting
+[2026-11-21T23:53:28.124Z] webkit mode none: featurecounts count_T1 error after 0.79 s page.evaluate: ReferenceError: Can't find variable: SharedArrayBuffer
+[2026-11-21T23:53:28.126Z] webkit mode none: featurecounts count_T2 starting
+[2026-11-21T23:53:28.854Z] webkit mode none: featurecounts count_T2 error after 0.73 s page.evaluate: ReferenceError: Can't find variable: SharedArrayBuffer
+[2026-11-21T23:53:28.855Z] webkit mode none: featurecounts count_T4 starting
+[2026-11-21T23:53:29.584Z] webkit mode none: featurecounts count_T4 error after 0.73 s page.evaluate: ReferenceError: Can't find variable: SharedArrayBuffer
+[2026-11-21T23:53:29.585Z] webkit mode none: kallisto index starting
+[2026-11-21T23:53:52.201Z] webkit mode none: kallisto index ok after 22.62 s 
+[2026-11-21T23:53:52.202Z] webkit mode none: kallisto quant starting
+[2026-11-21T23:53:58.124Z] webkit mode none: kallisto quant ok after 5.92 s 
+[2026-11-21T23:53:58.125Z] webkit mode none: hisat2 build starting
+[2026-11-21T23:54:05.803Z] webkit mode none: hisat2 build ok after 7.68 s 
+[2026-11-21T23:54:05.804Z] webkit mode none: hisat2 align starting
+[2026-11-21T23:54:12.977Z] webkit mode none: hisat2 align ok after 7.17 s 
+[2026-11-21T23:54:12.978Z] webkit mode none: fetch ncbi_fna
+[2026-11-21T23:54:14.135Z] webkit mode none: fetch ncbi_fna_range
+[2026-11-21T23:54:14.219Z] webkit mode none: fetch ncbi_gff
+[2026-11-21T23:54:14.313Z] webkit mode none: fetch ena_filereport
+[2026-11-21T23:54:14.785Z] webkit mode none: fetch ena_small_head
+[2026-11-21T23:54:15.250Z] webkit mode none: fetch ena_small_get
+[2026-11-21T23:54:22.095Z] webkit mode none: fetch ena_large_head
+[2026-11-21T23:54:22.252Z] webkit mode none: fetch ena_large_range_start
+[2026-11-21T23:54:26.695Z] webkit mode none: fetch ena_large_range_mid
+[2026-11-21T23:55:27.897Z] webkit mode none: fetch ensembl_gff3_mito
+[2026-11-21T23:55:28.351Z] webkit mode none: fetch ensembl_fa_mito
+[2026-11-21T23:55:28.508Z] webkit mode none: fetch ensembl_fa_checksums
+[2026-11-21T23:55:28.666Z] webkit mode none: fetch ensemblgenomes_fungi
+[2026-11-21T23:55:28.968Z] webkit browser none error: Failed to load resource: Unacceptable TLS certificate
+[2026-11-21T23:55:29.046Z] webkit mode none: done
+[2026-11-21T23:55:29.046Z] webkit mode coop-coep: start
+[2026-11-21T23:55:29.356Z] webkit mode coop-coep: featurecounts count_T1 starting
+[2026-11-21T23:55:30.786Z] webkit mode coop-coep: featurecounts count_T1 ok after 1.43 s 
+[2026-11-21T23:55:30.788Z] webkit mode coop-coep: featurecounts count_T2 starting
+[2026-11-21T23:55:32.106Z] webkit mode coop-coep: featurecounts count_T2 ok after 1.32 s 
+[2026-11-21T23:55:32.108Z] webkit mode coop-coep: featurecounts count_T4 starting
+[2026-11-21T23:55:33.361Z] webkit mode coop-coep: featurecounts count_T4 ok after 1.25 s 
+[2026-11-21T23:55:33.363Z] webkit mode coop-coep: kallisto index starting
+[2026-11-21T23:55:55.131Z] webkit mode coop-coep: kallisto index ok after 21.77 s 
+[2026-11-21T23:55:55.133Z] webkit mode coop-coep: kallisto quant starting
+[2026-11-21T23:56:00.960Z] webkit mode coop-coep: kallisto quant ok after 5.83 s 
+[2026-11-21T23:56:00.961Z] webkit mode coop-coep: hisat2 build starting
+[2026-11-21T23:56:08.522Z] webkit mode coop-coep: hisat2 build ok after 7.56 s 
+[2026-11-21T23:56:08.523Z] webkit mode coop-coep: hisat2 align starting
+[2026-11-21T23:56:15.343Z] webkit mode coop-coep: hisat2 align ok after 6.82 s 
+[2026-11-21T23:56:15.344Z] webkit mode coop-coep: fetch ncbi_fna
+[2026-11-21T23:56:16.220Z] webkit mode coop-coep: fetch ncbi_fna_range
+[2026-11-21T23:56:16.303Z] webkit mode coop-coep: fetch ncbi_gff
+[2026-11-21T23:56:16.395Z] webkit mode coop-coep: fetch ena_filereport
+[2026-11-21T23:56:17.169Z] webkit mode coop-coep: fetch ena_small_head
+[2026-11-21T23:56:17.619Z] webkit mode coop-coep: fetch ena_small_get
+[2026-11-21T23:56:19.471Z] webkit mode coop-coep: fetch ena_large_head
+[2026-11-21T23:56:19.622Z] webkit mode coop-coep: fetch ena_large_range_start
+[2026-11-21T23:56:25.925Z] webkit mode coop-coep: fetch ena_large_range_mid
+[2026-11-21T23:56:30.959Z] webkit mode coop-coep: fetch ensembl_gff3_mito
+[2026-11-21T23:56:31.412Z] webkit mode coop-coep: fetch ensembl_fa_mito
+[2026-11-21T23:56:31.566Z] webkit mode coop-coep: fetch ensembl_fa_checksums
+[2026-11-21T23:56:31.721Z] webkit mode coop-coep: fetch ensemblgenomes_fungi
+[2026-11-21T23:56:32.023Z] webkit browser coop-coep error: Failed to load resource: Unacceptable TLS certificate
+[2026-11-21T23:56:32.055Z] webkit mode coop-coep: done
+[2026-11-21T23:56:32.056Z] webkit mode service-worker: start
+[2026-11-21T23:56:32.383Z] webkit mode service-worker: featurecounts count_T1 starting
+[2026-11-21T23:56:33.959Z] webkit mode service-worker: featurecounts count_T1 ok after 1.58 s 
+[2026-11-21T23:56:33.962Z] webkit mode service-worker: featurecounts count_T2 starting
+[2026-11-21T23:56:35.365Z] webkit mode service-worker: featurecounts count_T2 ok after 1.40 s 
+[2026-11-21T23:56:35.369Z] webkit mode service-worker: featurecounts count_T4 starting
+[2026-11-21T23:56:36.706Z] webkit mode service-worker: featurecounts count_T4 ok after 1.34 s 
+[2026-11-21T23:56:36.709Z] webkit mode service-worker: kallisto index starting
+[2026-11-21T23:56:59.017Z] webkit mode service-worker: kallisto index ok after 22.31 s 
+[2026-11-21T23:56:59.019Z] webkit mode service-worker: kallisto quant starting
+[2026-11-21T23:57:04.922Z] webkit mode service-worker: kallisto quant ok after 5.90 s 
+[2026-11-21T23:57:04.924Z] webkit mode service-worker: hisat2 build starting
+[2026-11-21T23:57:12.819Z] webkit mode service-worker: hisat2 build ok after 7.89 s 
+[2026-11-21T23:57:12.821Z] webkit mode service-worker: hisat2 align starting
+[2026-11-21T23:57:19.827Z] webkit mode service-worker: hisat2 align ok after 7.01 s 
+[2026-11-21T23:57:19.829Z] webkit mode service-worker: fetch ncbi_fna
+[2026-11-21T23:57:20.784Z] webkit mode service-worker: fetch ncbi_fna_range
+[2026-11-21T23:57:20.868Z] webkit mode service-worker: fetch ncbi_gff
+[2026-11-21T23:57:20.962Z] webkit mode service-worker: fetch ena_filereport
+[2026-11-21T23:57:21.667Z] webkit mode service-worker: fetch ena_small_head
+[2026-11-21T23:57:22.118Z] webkit mode service-worker: fetch ena_small_get
+[2026-11-21T23:57:25.096Z] webkit mode service-worker: fetch ena_large_head
+[2026-11-21T23:57:25.249Z] webkit mode service-worker: fetch ena_large_range_start
+[2026-11-21T23:57:26.862Z] webkit mode service-worker: fetch ena_large_range_mid
+[2026-11-21T23:57:27.279Z] webkit mode service-worker: fetch ensembl_gff3_mito
+[2026-11-21T23:57:27.741Z] webkit mode service-worker: fetch ensembl_fa_mito
+[2026-11-21T23:57:28.041Z] webkit mode service-worker: fetch ensembl_fa_checksums
+[2026-11-21T23:57:28.197Z] webkit mode service-worker: fetch ensemblgenomes_fungi
+[2026-11-21T23:57:28.502Z] webkit browser service-worker error: Failed to load resource: Unacceptable TLS certificate
+[2026-11-21T23:57:28.532Z] webkit mode service-worker: done

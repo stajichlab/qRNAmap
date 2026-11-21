@@ -1,0 +1,112 @@
+[2026-11-21T23:52:23.613Z] chromium node probe ncbi_fna: status 200 acao * 
+[2026-11-21T23:52:23.637Z] chromium node probe ncbi_fna_range: status 206 acao * 
+[2026-11-21T23:52:23.662Z] chromium node probe ncbi_gff: status 200 acao * 
+[2026-11-21T23:52:24.313Z] chromium node probe ena_filereport: status 200 acao * 
+[2026-11-21T23:52:27.795Z] chromium node probe ena_small_head: status 200 acao * 
+[2026-11-21T23:52:29.796Z] chromium node probe ena_small_get: status 200 acao * 
+[2026-11-21T23:52:30.253Z] chromium node probe ena_large_head: status 200 acao * 
+[2026-11-21T23:52:31.242Z] chromium node probe ena_large_range_start: status 206 acao * 
+[2026-11-21T23:52:31.825Z] chromium node probe ena_large_range_mid: status 206 acao * 
+[2026-11-21T23:52:32.954Z] chromium node probe ensembl_gff3_mito: status 200 acao * 
+[2026-11-21T23:52:33.304Z] chromium node probe ensembl_fa_mito: status 200 acao * 
+[2026-11-21T23:52:33.736Z] chromium node probe ensembl_fa_checksums: status 200 acao * 
+[2026-11-21T23:52:34.395Z] chromium node probe ensemblgenomes_fungi: status  acao  ERR_TLS_CERT_ALTNAME_INVALID Hostname/IP does not match certificate's altnames: Host: ftp.ensemblgenomes.org. is not in the cert's altnames: DNS:ftp.ebi.ac.uk, DNS:ftp-pride-private.ebi.ac.uk, DNS:ftp-private-2.ebi.ac.uk, DNS:ftp-private-beta.ebi.ac.uk, DNS:ftp-private.ebi.ac.uk, DNS:ftp.1000genomes-private.ebi.ac.uk, DNS:ftp.1000genomes.ebi.ac.uk, DNS:ftp.dcc-private.ebi.ac.uk, DNS:ftp.ega.ebi.ac.uk, DNS:ftp.ensembl.ebi.ac.uk, DNS:ftp.ensemblgenomes.ebi.ac.uk, DNS:ftp.era.ebi.ac.uk, DNS:ftp.hipsci.ebi.ac.uk, DNS:ftp.pride.ebi.ac.uk, DNS:ftp.sra.ebi.ac.uk, DNS:webin.ebi.ac.uk, DNS:webin2.ebi.ac.uk
+[2026-11-21T23:52:34.771Z] chromium mode none: start
+[2026-11-21T23:52:35.082Z] chromium mode none: featurecounts count_T1 starting
+[2026-11-21T23:52:35.617Z] chromium mode none: featurecounts count_T1 error after 0.54 s page.evaluate: ReferenceError: SharedArrayBuffer is not defined
+    at http://127.0.0.1:38187/dist/featurecounts/featurecounts.mjs:9:12460
+    at execute (http://127.0.0.1:38187/runtime/execute.mjs:12:24)
+    at async http://127.0.0.1:38187/runtime/worker.mjs:17:20
+[2026-11-21T23:52:35.619Z] chromium mode none: featurecounts count_T2 starting
+[2026-11-21T23:52:36.160Z] chromium mode none: featurecounts count_T2 error after 0.54 s page.evaluate: ReferenceError: SharedArrayBuffer is not defined
+    at http://127.0.0.1:38187/dist/featurecounts/featurecounts.mjs:9:12460
+    at execute (http://127.0.0.1:38187/runtime/execute.mjs:12:24)
+    at async http://127.0.0.1:38187/runtime/worker.mjs:17:20
+[2026-11-21T23:52:36.165Z] chromium mode none: featurecounts count_T4 starting
+[2026-11-21T23:52:36.693Z] chromium mode none: featurecounts count_T4 error after 0.53 s page.evaluate: ReferenceError: SharedArrayBuffer is not defined
+    at http://127.0.0.1:38187/dist/featurecounts/featurecounts.mjs:9:12460
+    at execute (http://127.0.0.1:38187/runtime/execute.mjs:12:24)
+    at async http://127.0.0.1:38187/runtime/worker.mjs:17:20
+[2026-11-21T23:52:36.695Z] chromium mode none: kallisto index starting
+[2026-11-21T23:53:05.074Z] chromium mode none: kallisto index ok after 28.38 s 
+[2026-11-21T23:53:05.076Z] chromium mode none: kallisto quant starting
+[2026-11-21T23:53:11.729Z] chromium mode none: kallisto quant ok after 6.65 s 
+[2026-11-21T23:53:11.732Z] chromium mode none: hisat2 build starting
+[2026-11-21T23:53:21.191Z] chromium mode none: hisat2 build ok after 9.46 s 
+[2026-11-21T23:53:21.193Z] chromium mode none: hisat2 align starting
+[2026-11-21T23:53:29.073Z] chromium mode none: hisat2 align ok after 7.88 s 
+[2026-11-21T23:53:29.075Z] chromium mode none: fetch ncbi_fna
+[2026-11-21T23:53:29.181Z] chromium mode none: fetch ncbi_fna_range
+[2026-11-21T23:53:29.186Z] chromium mode none: fetch ncbi_gff
+[2026-11-21T23:53:29.224Z] chromium mode none: fetch ena_filereport
+[2026-11-21T23:53:29.738Z] chromium mode none: fetch ena_small_head
+[2026-11-21T23:53:29.998Z] chromium mode none: fetch ena_small_get
+[2026-11-21T23:53:32.623Z] chromium mode none: fetch ena_large_head
+[2026-11-21T23:53:32.709Z] chromium mode none: fetch ena_large_range_start
+[2026-11-21T23:53:46.603Z] chromium mode none: fetch ena_large_range_mid
+[2026-11-21T23:53:50.626Z] chromium mode none: fetch ensembl_gff3_mito
+[2026-11-21T23:53:50.889Z] chromium mode none: fetch ensembl_fa_mito
+[2026-11-21T23:53:50.981Z] chromium mode none: fetch ensembl_fa_checksums
+[2026-11-21T23:53:51.071Z] chromium mode none: fetch ensemblgenomes_fungi
+[2026-11-21T23:53:51.253Z] chromium browser none error: Failed to load resource: net::ERR_CERT_COMMON_NAME_INVALID
+[2026-11-21T23:53:51.281Z] chromium mode none: done
+[2026-11-21T23:53:51.281Z] chromium mode coop-coep: start
+[2026-11-21T23:53:51.417Z] chromium mode coop-coep: featurecounts count_T1 starting
+[2026-11-21T23:53:53.044Z] chromium mode coop-coep: featurecounts count_T1 ok after 1.63 s 
+[2026-11-21T23:53:53.047Z] chromium mode coop-coep: featurecounts count_T2 starting
+[2026-11-21T23:53:54.501Z] chromium mode coop-coep: featurecounts count_T2 ok after 1.45 s 
+[2026-11-21T23:53:54.503Z] chromium mode coop-coep: featurecounts count_T4 starting
+[2026-11-21T23:53:55.809Z] chromium mode coop-coep: featurecounts count_T4 ok after 1.31 s 
+[2026-11-21T23:53:55.812Z] chromium mode coop-coep: kallisto index starting
+[2026-11-21T23:54:24.262Z] chromium mode coop-coep: kallisto index ok after 28.45 s 
+[2026-11-21T23:54:24.264Z] chromium mode coop-coep: kallisto quant starting
+[2026-11-21T23:54:30.996Z] chromium mode coop-coep: kallisto quant ok after 6.73 s 
+[2026-11-21T23:54:30.998Z] chromium mode coop-coep: hisat2 build starting
+[2026-11-21T23:54:40.411Z] chromium mode coop-coep: hisat2 build ok after 9.41 s 
+[2026-11-21T23:54:40.413Z] chromium mode coop-coep: hisat2 align starting
+[2026-11-21T23:54:48.201Z] chromium mode coop-coep: hisat2 align ok after 7.79 s 
+[2026-11-21T23:54:48.203Z] chromium mode coop-coep: fetch ncbi_fna
+[2026-11-21T23:54:48.300Z] chromium mode coop-coep: fetch ncbi_fna_range
+[2026-11-21T23:54:48.305Z] chromium mode coop-coep: fetch ncbi_gff
+[2026-11-21T23:54:48.336Z] chromium mode coop-coep: fetch ena_filereport
+[2026-11-21T23:54:48.772Z] chromium mode coop-coep: fetch ena_small_head
+[2026-11-21T23:54:49.026Z] chromium mode coop-coep: fetch ena_small_get
+[2026-11-21T23:54:55.469Z] chromium mode coop-coep: fetch ena_large_head
+[2026-11-21T23:54:55.555Z] chromium mode coop-coep: fetch ena_large_range_start
+[2026-11-21T23:55:05.765Z] chromium mode coop-coep: fetch ena_large_range_mid
+[2026-11-21T23:55:09.780Z] chromium mode coop-coep: fetch ensembl_gff3_mito
+[2026-11-21T23:55:10.043Z] chromium mode coop-coep: fetch ensembl_fa_mito
+[2026-11-21T23:55:10.140Z] chromium mode coop-coep: fetch ensembl_fa_checksums
+[2026-11-21T23:55:10.229Z] chromium mode coop-coep: fetch ensemblgenomes_fungi
+[2026-11-21T23:55:10.411Z] chromium browser coop-coep error: Failed to load resource: net::ERR_CERT_COMMON_NAME_INVALID
+[2026-11-21T23:55:10.492Z] chromium mode coop-coep: done
+[2026-11-21T23:55:10.492Z] chromium mode service-worker: start
+[2026-11-21T23:55:10.675Z] chromium mode service-worker: featurecounts count_T1 starting
+[2026-11-21T23:55:12.699Z] chromium mode service-worker: featurecounts count_T1 ok after 2.02 s 
+[2026-11-21T23:55:12.702Z] chromium mode service-worker: featurecounts count_T2 starting
+[2026-11-21T23:55:14.478Z] chromium mode service-worker: featurecounts count_T2 ok after 1.78 s 
+[2026-11-21T23:55:14.480Z] chromium mode service-worker: featurecounts count_T4 starting
+[2026-11-21T23:55:16.212Z] chromium mode service-worker: featurecounts count_T4 ok after 1.73 s 
+[2026-11-21T23:55:16.215Z] chromium mode service-worker: kallisto index starting
+[2026-11-21T23:55:44.713Z] chromium mode service-worker: kallisto index ok after 28.50 s 
+[2026-11-21T23:55:44.715Z] chromium mode service-worker: kallisto quant starting
+[2026-11-21T23:55:51.529Z] chromium mode service-worker: kallisto quant ok after 6.81 s 
+[2026-11-21T23:55:51.532Z] chromium mode service-worker: hisat2 build starting
+[2026-11-21T23:56:01.138Z] chromium mode service-worker: hisat2 build ok after 9.61 s 
+[2026-11-21T23:56:01.140Z] chromium mode service-worker: hisat2 align starting
+[2026-11-21T23:56:09.305Z] chromium mode service-worker: hisat2 align ok after 8.16 s 
+[2026-11-21T23:56:09.308Z] chromium mode service-worker: fetch ncbi_fna
+[2026-11-21T23:56:09.415Z] chromium mode service-worker: fetch ncbi_fna_range
+[2026-11-21T23:56:09.419Z] chromium mode service-worker: fetch ncbi_gff
+[2026-11-21T23:56:09.537Z] chromium mode service-worker: fetch ena_filereport
+[2026-11-21T23:56:10.036Z] chromium mode service-worker: fetch ena_small_head
+[2026-11-21T23:56:10.291Z] chromium mode service-worker: fetch ena_small_get
+[2026-11-21T23:56:13.082Z] chromium mode service-worker: fetch ena_large_head
+[2026-11-21T23:56:13.169Z] chromium mode service-worker: fetch ena_large_range_start
+[2026-11-21T23:56:34.977Z] chromium mode service-worker: fetch ena_large_range_mid
+[2026-11-21T23:56:35.670Z] chromium mode service-worker: fetch ensembl_gff3_mito
+[2026-11-21T23:56:35.946Z] chromium mode service-worker: fetch ensembl_fa_mito
+[2026-11-21T23:56:36.040Z] chromium mode service-worker: fetch ensembl_fa_checksums
+[2026-11-21T23:56:36.132Z] chromium mode service-worker: fetch ensemblgenomes_fungi
+[2026-11-21T23:56:36.773Z] chromium browser service-worker error: Failed to load resource: net::ERR_CERT_COMMON_NAME_INVALID
+[2026-11-21T23:56:36.886Z] chromium mode service-worker: done

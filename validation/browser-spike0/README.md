@@ -166,3 +166,105 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 - No run failed, ran out of memory, crashed or timed out. No tool is "CLI only" on the basis of this test.
 - Failures: none. Skipped: none. Not tested: genomes larger than 29 Mb, multi-threaded builds, devices with less
   memory than the 16 GB runner, browsers other than the Playwright builds.
+
+## Isolation and cross-origin downloads (Task 5, spike 0c and 0d, measured 2026-11-21)
+
+- Run: fork workflow run 44963830025 (`suite=isolation`), started 2026-11-21 23:51 UTC. One run, no reruns.
+  Fork head `7cba1e97b8d25175789a8ed83c042a3485284648` (on the pin `0b015f63e8048eb57b72ffd2706b79b803862b7c`).
+  The workflow input `suite` now has the values `parity | index | isolation | all`. `all` runs the parity, index and isolation jobs.
+- Browsers: Playwright Chromium 156.0.8078.4, Firefox 157.0, WebKit 27.2. All headless, on a GitHub `ubuntu-24.04` runner.
+  Tools: the same compiled artifacts and fixtures as Task 3 (`staged.sha256` and `tool-hashes.txt` in `results/isolation-run-44963830025/`).
+- Script: `isolation.mjs`. It runs 3 modes per browser. Each mode has its own local server and its own browser launch.
+  - `none`: no isolation header.
+  - `coop-coep`: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: same-origin`.
+  - `service-worker`: the server sends no isolation header. The page registers `isolation-sw.js` (scope `/`), waits for `ready`, then reloads.
+    The worker adds the three headers to same-origin GET responses. Its fetch logic follows `examples/rna-analysis/isolation-worker.js`
+    of upstream. It is a copy written for this test (whole-origin scope, no asset map), not the upstream file. The upstream example page was not run.
+- Tables: `results/isolation_pages.tsv` (page facts), `results/isolation_tools.tsv` (tool steps), `results/cors_results.tsv`
+  (117 rows: 13 requests x 3 modes x 3 browsers), `results/cors_node_probe.tsv` (headers seen by `node:https`, no browser).
+  `summarize_isolation.py RUN_DIR OUT_DIR` merges the three browser downloads.
+
+### 0c: isolation (page facts, and tools)
+
+| browser | mode | crossOriginIsolated | SharedArrayBuffer | featureCounts -T 1 / 2 / 4 | kallisto index + quant | HISAT2 build + align |
+|---|---|---|---|---|---|---|
+| chromium | none | false | not defined | error x3 (`SharedArrayBuffer is not defined`, 0.5 s) | ok | ok |
+| chromium | coop-coep | true | defined | ok x3 (1.63, 1.45, 1.31 s) | ok | ok |
+| chromium | service-worker | true after reload (false before) | defined after reload | ok x3 (2.02, 1.78, 1.73 s) | ok | ok |
+| firefox | none | false | not defined | error x3 (0.6 to 0.75 s) | ok | ok |
+| firefox | coop-coep | true | defined | ok x3 (1.51, 1.18, 1.17 s) | ok | ok |
+| firefox | service-worker | true after reload (false before) | defined after reload | ok x3 (2.01, 1.76, 1.59 s) | ok | ok |
+| webkit | none | false | not defined | error x3 (0.7 to 0.8 s) | ok | ok |
+| webkit | coop-coep | true | defined | ok x3 (1.43, 1.32, 1.25 s) | ok | ok |
+| webkit | service-worker | true after reload (false before) | defined after reload | ok x3 (1.58, 1.40, 1.34 s) | ok | ok |
+
+- Without isolation, featureCounts fails in all three browsers at module start, for every `-T` value (even `-T 1`), with a
+  `SharedArrayBuffer` reference error. kallisto and HISAT2 run without isolation in all three browsers.
+  This confirms the design statement for featureCounts and for kallisto and HISAT2 (measured, for these fixtures).
+- Output equality (browser, any mode, compared with the Task 3 outputs of the Chromium parity run):
+  featureCounts `fc.tsv` without line 1 (command line, differs with `-T`), kallisto `abundance.tsv`, HISAT2 SAM without `@` lines.
+  The SHA-256 is identical in every ok step of every mode and browser, for `-T 1`, `-T 2` and `-T 4`, and equal to the Task 3 files:
+  `fc.tsv` body `2ed1401e...ed2e4`, `abundance.tsv` `c7ffce5b...79c9`, SAM body `7dc29088...6b66`.
+- Threads: `-T 2` and `-T 4` finished with correct counts in the isolated modes. This test does not show that more than one thread ran
+  in parallel, and the times (1.2 to 2.0 s) do not allow a speed-up claim. The tool README says `-T 1` to `-T 4` are supported.
+- Service worker (all three browsers): `crossOriginIsolated` was false on the first load, false after registration and activation
+  without a reload, and true after one reload. `navigator.serviceWorker.controller` was set after the reload. The worker file and the
+  tools were then served through the worker. Tool results are as for `coop-coep`. Service workers worked in headless WebKit here.
+- Unexpected, unexplained: in WebKit, after registration and before the reload, a dedicated worker reported `crossOriginIsolated` true while
+  `SharedArrayBuffer` was not defined in it. The page was not isolated. Chromium and Firefox reported false for both. The cause was not investigated.
+- `new WebAssembly.Memory({shared: true})` succeeded in every mode and browser, also without isolation. It is not a test of isolation here.
+  The failure comes from the `SharedArrayBuffer` global.
+- Not tested: real hosting headers (for example GitHub Pages, which sends none); a service worker on a non-localhost https origin;
+  upstream `examples/` pages; `Cross-Origin-Embedder-Policy: credentialless`; headed browsers; mobile browsers.
+
+### 0d: cross-origin downloads (CORS)
+
+Every request: `fetch(url, {mode: 'cors', credentials: 'omit'})` from a page on `http://127.0.0.1:PORT` (secure context). A Range request
+uses a single `Range: bytes=a-b` header (CORS-safelisted, no preflight needed). The page cannot read `Access-Control-Allow-Origin` or
+`Cross-Origin-Resource-Policy` (not exposed to script), so the table shows the values that Playwright saw on the network event (`seen`).
+`bytes` and the SHA-256 come from the page. Result for 12 of 13 requests: identical in all 3 modes and all 3 browsers (108 of 117 rows).
+The 9 other rows are the Ensembl Genomes request, which failed in all 9 combinations.
+
+| id | URL | method | status (page) | ACAO seen | CORP seen | body read from page script |
+|---|---|---|---|---|---|---|
+| ncbi_fna | https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz | GET | 200 | `*` | none | yes, 3,843,460 bytes; SHA-256 equals `manifest.tsv` |
+| ncbi_fna_range | same URL | GET Range 0-1023 | 206 | `*` | none | yes, 1,024 bytes |
+| ncbi_gff | https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.gff.gz | GET | 200 | `*` | none | yes, 2,203,839 bytes; SHA-256 equals `manifest.tsv` |
+| ena_filereport | https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRR3396381&result=read_run&fields=run_accession,fastq_ftp,fastq_bytes,read_count&format=tsv | GET | 200 | `*` | none | yes, 232 bytes |
+| ena_small_head | https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR227/085/SRR22732385/SRR22732385_1.fastq.gz | HEAD | 200 | `*` | none | no body; `Content-Length` 1,280,744 readable |
+| ena_small_get | same URL | GET | 200 | `*` | none | yes, 1,280,744 bytes (gzip magic `1f8b`) |
+| ena_large_head | https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_1.fastq.gz | HEAD | 200 | `*` | none | no body; `Content-Length` 669,296,728 readable |
+| ena_large_range_start | same URL | GET Range 0-1048575 | 206 | `*` | none | yes, 1,048,576 bytes (`1f8b`) |
+| ena_large_range_mid | same URL | GET Range 300000000-300065535 | 206 | `*` | none | yes, 65,536 bytes |
+| ensembl_gff3_mito | https://ftp.ensembl.org/pub/current_gff3/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.chromosome.Mito.gff3.gz | GET | 200 | `*` | none | yes, 6,844 bytes (`1f8b`) |
+| ensembl_fa_mito | https://ftp.ensembl.org/pub/current_fasta/saccharomyces_cerevisiae/dna/Saccharomyces_cerevisiae.R64-1-1.dna.chromosome.Mito.fa.gz | GET | 200 | `*` | none | yes, 22,560 bytes (`1f8b`) |
+| ensembl_fa_checksums | https://ftp.ensembl.org/pub/current_fasta/saccharomyces_cerevisiae/dna/CHECKSUMS | GET | 200 | `*` | none | yes, 3,741 bytes |
+| ensemblgenomes_fungi | https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/ | GET | none | none | none | no: blocked, TLS certificate name mismatch (below) |
+
+- The body SHA-256 of each readable URL is the same in all 9 mode and browser combinations. The NCBI SHA-256 values equal `manifest.tsv`.
+- Under `Cross-Origin-Embedder-Policy: require-corp` (modes `coop-coep` and `service-worker` after reload), every readable URL
+  was readable. The servers send `Access-Control-Allow-Origin: *` and no `Cross-Origin-Resource-Policy`, so CORS mode is the path that works.
+  Only `mode: 'cors'` was tested. A no-cors request (for example a plain `<img>` or `<script>`) to these hosts under `require-corp` was not tested;
+  it would need a CORP header, which none of these servers sent.
+- Range requests worked on NCBI and ENA: status 206 with the exact byte count. `Content-Range` is readable from script on NCBI (`bytes 0-1023/3843460`, its `Access-Control-Expose-Headers` lists it) and not readable on ENA (empty in all ENA rows; ENA sends no expose header). `Content-Length` is readable on both. `node:https` saw `Content-Range: bytes 0-1048575/669296728` from ENA. Preflight: the `Access-Control-Allow-Headers` of NCBI lists `RANGE`; ENA lists `Range`. No preflight was needed for these requests.
+- Ensembl Genomes: `ftp.ensemblgenomes.org` presents a TLS certificate whose name does not match the host. The browser fetch failed in
+  all 3 browsers (Chromium `net::ERR_CERT_COMMON_NAME_INVALID`, Firefox `SSL_ERROR_BAD_CERT_DOMAIN`, WebKit `Unacceptable TLS certificate`).
+  `node:https` also failed (`ERR_TLS_CERT_ALTNAME_INVALID`). So no CORS result exists for this host. A `curl` HEAD from the cluster login node on the
+  same day gave the same certificate error. This is a result, not a CORS block. Other Ensembl Genomes hosts or paths were not tested.
+- `ftp.ensembl.org` over https (Ensembl, `current_gff3` and `current_fasta` paths): readable from the page, `ACAO: *`. The `current_*` paths
+  move with each release; the file names above (release 63 GFF3 file name, `R64-1-1`) were valid on 2026-11-21. Ensembl is therefore CHECKED
+  for `ftp.ensembl.org` on this date and for these 3 files; it is not tested for large Ensembl files or for other species.
+- Chromium logged `net::ERR_ABORTED` for the 2 HEAD requests to ENA in the Playwright `requestfailed` event (`seen_failure`) while the
+  page fetch succeeded with status 200. The cause was not investigated; this is not a page-level failure.
+- ENA read count rule: this test did not download the 669 MB file, so no read count was checked from the browser. The ENA filereport
+  (`ena_filereport`) is readable from the page; it has `read_count` 8,405,534 for SRR3396381 (the value in `fixtures.sh`; the body text itself
+  was not stored). A browser FASTQ pipeline can use this API for the check.
+- NOT TESTED: FungiDB (needs an API key, no CORS header per the earlier qmutfind measurement; key not used or stored anywhere).
+  Large downloads in full (669 MB), long-running connections, `Origin` values other than `http://127.0.0.1:PORT`
+  (the servers send `*`, so other origins are expected to work, but only this origin was tested), and downloads from an https page.
+
+### Limits (Task 5)
+
+- Headless Playwright browsers on one GitHub runner, one date (2026-11-21), one network, one run. Server headers can change.
+- `crossOriginIsolated` and the tool runs were tested on a local `http://127.0.0.1` server. Real hosts and https were not tested.
+- Browser versions are Playwright builds, not the current release of each browser for users.

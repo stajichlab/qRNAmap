@@ -1,0 +1,124 @@
+[2026-11-21T23:52:41.643Z] firefox node probe ncbi_fna: status 200 acao * 
+[2026-11-21T23:52:41.656Z] firefox node probe ncbi_fna_range: status 206 acao * 
+[2026-11-21T23:52:41.670Z] firefox node probe ncbi_gff: status 200 acao * 
+[2026-11-21T23:52:42.001Z] firefox node probe ena_filereport: status 200 acao * 
+[2026-11-21T23:52:42.716Z] firefox node probe ena_small_head: status 200 acao * 
+[2026-11-21T23:52:45.454Z] firefox node probe ena_small_get: status 200 acao * 
+[2026-11-21T23:52:47.965Z] firefox node probe ena_large_head: status 200 acao * 
+[2026-11-21T23:52:50.355Z] firefox node probe ena_large_range_start: status 206 acao * 
+[2026-11-21T23:52:56.115Z] firefox node probe ena_large_range_mid: status 206 acao * 
+[2026-11-21T23:52:56.612Z] firefox node probe ensembl_gff3_mito: status 200 acao * 
+[2026-11-21T23:52:56.883Z] firefox node probe ensembl_fa_mito: status 200 acao * 
+[2026-11-21T23:52:57.125Z] firefox node probe ensembl_fa_checksums: status 200 acao * 
+[2026-11-21T23:52:57.585Z] firefox node probe ensemblgenomes_fungi: status  acao  ERR_TLS_CERT_ALTNAME_INVALID Hostname/IP does not match certificate's altnames: Host: ftp.ensemblgenomes.org. is not in the cert's altnames: DNS:ftp.ebi.ac.uk, DNS:ftp-pride-private.ebi.ac.uk, DNS:ftp-private-2.ebi.ac.uk, DNS:ftp-private-beta.ebi.ac.uk, DNS:ftp-private.ebi.ac.uk, DNS:ftp.1000genomes-private.ebi.ac.uk, DNS:ftp.1000genomes.ebi.ac.uk, DNS:ftp.dcc-private.ebi.ac.uk, DNS:ftp.ega.ebi.ac.uk, DNS:ftp.ensembl.ebi.ac.uk, DNS:ftp.ensemblgenomes.ebi.ac.uk, DNS:ftp.era.ebi.ac.uk, DNS:ftp.hipsci.ebi.ac.uk, DNS:ftp.pride.ebi.ac.uk, DNS:ftp.sra.ebi.ac.uk, DNS:webin.ebi.ac.uk, DNS:webin2.ebi.ac.uk
+[2026-11-21T23:52:57.860Z] firefox mode none: start
+[2026-11-21T23:52:59.066Z] firefox mode none: featurecounts count_T1 starting
+[2026-11-21T23:52:59.812Z] firefox mode none: featurecounts count_T1 error after 0.75 s page.evaluate: SharedArrayBuffer is not defined
+createFeatureCounts</<@http://127.0.0.1:38715/dist/featurecounts/featurecounts.mjs:9:12460
+execute@http://127.0.0.1:38715/runtime/execute.mjs:12:24
+async*@http://127.0.0.1:38715/runtime/worker.mjs:17:26
+receive/<@http://127.0.0.1:38715/runtime/worker.mjs:12:75
+EventListener.handleEvent*receive@http://127.0.0.1:38715/runtime/worker.mjs:12:30
+@http://127.0.0.1:38715/runtime/worker.mjs:15:8
+
+[2026-11-21T23:52:59.814Z] firefox mode none: featurecounts count_T2 starting
+[2026-11-21T23:53:00.411Z] firefox mode none: featurecounts count_T2 error after 0.60 s page.evaluate: SharedArrayBuffer is not defined
+createFeatureCounts</<@http://127.0.0.1:38715/dist/featurecounts/featurecounts.mjs:9:12460
+execute@http://127.0.0.1:38715/runtime/execute.mjs:12:24
+async*@http://127.0.0.1:38715/runtime/worker.mjs:17:26
+receive/<@http://127.0.0.1:38715/runtime/worker.mjs:12:75
+EventListener.handleEvent*receive@http://127.0.0.1:38715/runtime/worker.mjs:12:30
+@http://127.0.0.1:38715/runtime/worker.mjs:15:8
+
+[2026-11-21T23:53:00.413Z] firefox mode none: featurecounts count_T4 starting
+[2026-11-21T23:53:01.007Z] firefox mode none: featurecounts count_T4 error after 0.59 s page.evaluate: SharedArrayBuffer is not defined
+createFeatureCounts</<@http://127.0.0.1:38715/dist/featurecounts/featurecounts.mjs:9:12460
+execute@http://127.0.0.1:38715/runtime/execute.mjs:12:24
+async*@http://127.0.0.1:38715/runtime/worker.mjs:17:26
+receive/<@http://127.0.0.1:38715/runtime/worker.mjs:12:75
+EventListener.handleEvent*receive@http://127.0.0.1:38715/runtime/worker.mjs:12:30
+@http://127.0.0.1:38715/runtime/worker.mjs:15:8
+
+[2026-11-21T23:53:01.008Z] firefox mode none: kallisto index starting
+[2026-11-21T23:53:39.448Z] firefox mode none: kallisto index ok after 38.44 s 
+[2026-11-21T23:53:39.449Z] firefox mode none: kallisto quant starting
+[2026-11-21T23:53:48.465Z] firefox mode none: kallisto quant ok after 9.02 s 
+[2026-11-21T23:53:48.467Z] firefox mode none: hisat2 build starting
+[2026-11-21T23:53:56.471Z] firefox mode none: hisat2 build ok after 8.00 s 
+[2026-11-21T23:53:56.472Z] firefox mode none: hisat2 align starting
+[2026-11-21T23:54:03.631Z] firefox mode none: hisat2 align ok after 7.16 s 
+[2026-11-21T23:54:03.632Z] firefox mode none: fetch ncbi_fna
+[2026-11-21T23:54:03.775Z] firefox mode none: fetch ncbi_fna_range
+[2026-11-21T23:54:03.785Z] firefox mode none: fetch ncbi_gff
+[2026-11-21T23:54:03.818Z] firefox mode none: fetch ena_filereport
+[2026-11-21T23:54:04.189Z] firefox mode none: fetch ena_small_head
+[2026-11-21T23:54:04.534Z] firefox mode none: fetch ena_small_get
+[2026-11-21T23:54:11.787Z] firefox mode none: fetch ena_large_head
+[2026-11-21T23:54:11.871Z] firefox mode none: fetch ena_large_range_start
+[2026-11-21T23:54:15.886Z] firefox mode none: fetch ena_large_range_mid
+[2026-11-21T23:55:15.894Z] firefox mode none: fetch ensembl_gff3_mito
+[2026-11-21T23:55:16.147Z] firefox mode none: fetch ensembl_fa_mito
+[2026-11-21T23:55:16.235Z] firefox mode none: fetch ensembl_fa_checksums
+[2026-11-21T23:55:16.323Z] firefox mode none: fetch ensemblgenomes_fungi
+[2026-11-21T23:55:16.492Z] firefox browser none error: [JavaScript Error: "Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/. (Reason: CORS request did not succeed). Status code: (null)."]
+[2026-11-21T23:55:16.576Z] firefox mode none: done
+[2026-11-21T23:55:16.576Z] firefox mode coop-coep: start
+[2026-11-21T23:55:17.604Z] firefox mode coop-coep: featurecounts count_T1 starting
+[2026-11-21T23:55:19.110Z] firefox mode coop-coep: featurecounts count_T1 ok after 1.51 s 
+[2026-11-21T23:55:19.116Z] firefox mode coop-coep: featurecounts count_T2 starting
+[2026-11-21T23:55:20.300Z] firefox mode coop-coep: featurecounts count_T2 ok after 1.18 s 
+[2026-11-21T23:55:20.303Z] firefox mode coop-coep: featurecounts count_T4 starting
+[2026-11-21T23:55:21.472Z] firefox mode coop-coep: featurecounts count_T4 ok after 1.17 s 
+[2026-11-21T23:55:21.477Z] firefox mode coop-coep: kallisto index starting
+[2026-11-21T23:55:58.863Z] firefox mode coop-coep: kallisto index ok after 37.39 s 
+[2026-11-21T23:55:58.865Z] firefox mode coop-coep: kallisto quant starting
+[2026-11-21T23:56:07.517Z] firefox mode coop-coep: kallisto quant ok after 8.65 s 
+[2026-11-21T23:56:07.518Z] firefox mode coop-coep: hisat2 build starting
+[2026-11-21T23:56:14.999Z] firefox mode coop-coep: hisat2 build ok after 7.48 s 
+[2026-11-21T23:56:15.000Z] firefox mode coop-coep: hisat2 align starting
+[2026-11-21T23:56:21.831Z] firefox mode coop-coep: hisat2 align ok after 6.83 s 
+[2026-11-21T23:56:21.832Z] firefox mode coop-coep: fetch ncbi_fna
+[2026-11-21T23:56:21.891Z] firefox mode coop-coep: fetch ncbi_fna_range
+[2026-11-21T23:56:21.901Z] firefox mode coop-coep: fetch ncbi_gff
+[2026-11-21T23:56:21.922Z] firefox mode coop-coep: fetch ena_filereport
+[2026-11-21T23:56:22.184Z] firefox mode coop-coep: fetch ena_small_head
+[2026-11-21T23:56:22.428Z] firefox mode coop-coep: fetch ena_small_get
+[2026-11-21T23:56:26.233Z] firefox mode coop-coep: fetch ena_large_head
+[2026-11-21T23:56:26.318Z] firefox mode coop-coep: fetch ena_large_range_start
+[2026-11-21T23:56:27.096Z] firefox mode coop-coep: fetch ena_large_range_mid
+[2026-11-21T23:56:30.752Z] firefox mode coop-coep: fetch ensembl_gff3_mito
+[2026-11-21T23:56:31.010Z] firefox mode coop-coep: fetch ensembl_fa_mito
+[2026-11-21T23:56:31.172Z] firefox mode coop-coep: fetch ensembl_fa_checksums
+[2026-11-21T23:56:31.259Z] firefox mode coop-coep: fetch ensemblgenomes_fungi
+[2026-11-21T23:56:31.429Z] firefox browser coop-coep error: [JavaScript Error: "Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/. (Reason: CORS request did not succeed). Status code: (null)."]
+[2026-11-21T23:56:31.681Z] firefox mode coop-coep: done
+[2026-11-21T23:56:31.681Z] firefox mode service-worker: start
+[2026-11-21T23:56:32.868Z] firefox mode service-worker: featurecounts count_T1 starting
+[2026-11-21T23:56:34.877Z] firefox mode service-worker: featurecounts count_T1 ok after 2.01 s 
+[2026-11-21T23:56:34.880Z] firefox mode service-worker: featurecounts count_T2 starting
+[2026-11-21T23:56:36.638Z] firefox mode service-worker: featurecounts count_T2 ok after 1.76 s 
+[2026-11-21T23:56:36.644Z] firefox mode service-worker: featurecounts count_T4 starting
+[2026-11-21T23:56:38.236Z] firefox mode service-worker: featurecounts count_T4 ok after 1.59 s 
+[2026-11-21T23:56:38.240Z] firefox mode service-worker: kallisto index starting
+[2026-11-21T23:57:15.597Z] firefox mode service-worker: kallisto index ok after 37.36 s 
+[2026-11-21T23:57:15.599Z] firefox mode service-worker: kallisto quant starting
+[2026-11-21T23:57:24.604Z] firefox mode service-worker: kallisto quant ok after 9.01 s 
+[2026-11-21T23:57:24.605Z] firefox mode service-worker: hisat2 build starting
+[2026-11-21T23:57:32.143Z] firefox mode service-worker: hisat2 build ok after 7.54 s 
+[2026-11-21T23:57:32.144Z] firefox mode service-worker: hisat2 align starting
+[2026-11-21T23:57:39.308Z] firefox mode service-worker: hisat2 align ok after 7.16 s 
+[2026-11-21T23:57:39.309Z] firefox mode service-worker: fetch ncbi_fna
+[2026-11-21T23:57:42.669Z] firefox mode service-worker: fetch ncbi_fna_range
+[2026-11-21T23:57:43.222Z] firefox mode service-worker: fetch ncbi_gff
+[2026-11-21T23:57:48.620Z] firefox mode service-worker: fetch ena_filereport
+[2026-11-21T23:57:48.974Z] firefox mode service-worker: fetch ena_small_head
+[2026-11-21T23:57:49.221Z] firefox mode service-worker: fetch ena_small_get
+[2026-11-21T23:57:54.896Z] firefox mode service-worker: fetch ena_large_head
+[2026-11-21T23:57:54.981Z] firefox mode service-worker: fetch ena_large_range_start
+[2026-11-21T23:58:06.577Z] firefox mode service-worker: fetch ena_large_range_mid
+[2026-11-21T23:58:11.304Z] firefox mode service-worker: fetch ensembl_gff3_mito
+[2026-11-21T23:58:11.560Z] firefox mode service-worker: fetch ensembl_fa_mito
+[2026-11-21T23:58:11.648Z] firefox mode service-worker: fetch ensembl_fa_checksums
+[2026-11-21T23:58:11.736Z] firefox mode service-worker: fetch ensemblgenomes_fungi
+[2026-11-21T23:58:12.252Z] firefox browser service-worker error: [JavaScript Error: "Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/. (Reason: CORS request did not succeed). Status code: (null)."]
+[2026-11-21T23:58:12.487Z] firefox mode service-worker: done

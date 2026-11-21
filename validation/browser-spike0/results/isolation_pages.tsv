@@ -1,0 +1,25 @@
+engine	browser_version	mode	run_date	phase	cross_origin_isolated	sab_defined	shared_memory_ok	worker_cross_origin_isolated	worker_sab_defined	worker_shared_memory_ok	sw_controller	sw_note	error
+chromium	156.0.8078.4	none	2026-11-21T23:52:34.994Z	first-load	false	false	true	false	false	true			
+chromium	156.0.8078.4	none	2026-11-21T23:52:34.994Z	tools-and-fetch	false	false	true	false	false	true			
+chromium	156.0.8078.4	coop-coep	2026-11-21T23:53:51.327Z	first-load	true	true	true	true	true	true			
+chromium	156.0.8078.4	coop-coep	2026-11-21T23:53:51.327Z	tools-and-fetch	true	true	true	true	true	true			
+chromium	156.0.8078.4	service-worker	2026-11-21T23:55:10.543Z	first-load	false	false	true	false	false	true			
+chromium	156.0.8078.4	service-worker	2026-11-21T23:55:10.543Z	after-register-before-reload	false	false	true	false	false	true	false	"{""scope"":""http://127.0.0.1:43867/"",""state"":""activating"",""controller"":false}"	
+chromium	156.0.8078.4	service-worker	2026-11-21T23:55:10.543Z	after-reload	true	true	true	true	true	true	true	"{""scope"":""http://127.0.0.1:43867/"",""state"":""activating"",""controller"":false}"	
+chromium	156.0.8078.4	service-worker	2026-11-21T23:55:10.543Z	tools-and-fetch	true	true	true	true	true	true			
+firefox	157.0	none	2026-11-21T23:52:58.282Z	first-load	false	false	true	false	false	true			
+firefox	157.0	none	2026-11-21T23:52:58.282Z	tools-and-fetch	false	false	true	false	false	true			
+firefox	157.0	coop-coep	2026-11-21T23:55:16.849Z	first-load	true	true	true	true	true	true			
+firefox	157.0	coop-coep	2026-11-21T23:55:16.849Z	tools-and-fetch	true	true	true	true	true	true			
+firefox	157.0	service-worker	2026-11-21T23:56:31.944Z	first-load	false	false	true	false	false	true			
+firefox	157.0	service-worker	2026-11-21T23:56:31.944Z	after-register-before-reload	false	false	true	false	false	true	false	"{""scope"":""http://127.0.0.1:46307/"",""state"":""activating"",""controller"":false}"	
+firefox	157.0	service-worker	2026-11-21T23:56:31.944Z	after-reload	true	true	true	true	true	true	true	"{""scope"":""http://127.0.0.1:46307/"",""state"":""activating"",""controller"":false}"	
+firefox	157.0	service-worker	2026-11-21T23:56:31.944Z	tools-and-fetch	true	true	true	true	true	true			
+webkit	27.2	none	2026-11-21T23:53:22.652Z	first-load	false	false	true	false	false	true			
+webkit	27.2	none	2026-11-21T23:53:22.652Z	tools-and-fetch	false	false	true	false	false	true			
+webkit	27.2	coop-coep	2026-11-21T23:55:29.096Z	first-load	true	true	true	true	true	true			
+webkit	27.2	coop-coep	2026-11-21T23:55:29.096Z	tools-and-fetch	true	true	true	true	true	true			
+webkit	27.2	service-worker	2026-11-21T23:56:32.107Z	first-load	false	false	true	false	false	true			
+webkit	27.2	service-worker	2026-11-21T23:56:32.107Z	after-register-before-reload	false	false	true	true	false	true	false	"{""scope"":""http://127.0.0.1:43891/"",""state"":""activating"",""controller"":false}"	
+webkit	27.2	service-worker	2026-11-21T23:56:32.107Z	after-reload	true	true	true	true	true	true	true	"{""scope"":""http://127.0.0.1:43891/"",""state"":""activating"",""controller"":false}"	
+webkit	27.2	service-worker	2026-11-21T23:56:32.107Z	tools-and-fetch	true	true	true	true	true	true			

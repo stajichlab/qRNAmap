@@ -1,5 +1,5 @@
-# qRNAmap browser spike 0: WASM parity runs (Task 3) and index time and memory runs (Task 4) in Node and in
-# Playwright browsers.
+# qRNAmap browser spike 0: WASM parity runs (Task 3), index time and memory runs (Task 4), and cross-origin
+# isolation and CORS runs (Task 5) in Node and in Playwright browsers.
 # Source of truth: qRNAmap repository, validation/browser-spike0/workflow/. Copied here by sync.sh.
 # Uses the compiled artifacts of the Task 1 runs of this fork (source commit 0b015f63e8048eb57b72ffd2706b79b803862b7c)
 # and the release deseq2-package.zip of upstream v0.1.0-rc.1. No secrets. No upstream build step is changed.
@@ -7,13 +7,14 @@ name: qRNAmap spike 0 parity
 # Trigger: a push to qrnamap-spike0 registers the workflow (the file is not on the default branch);
 # later runs use workflow_dispatch by workflow ID with ref qrnamap-spike0. Upstream push workflows that a
 # push also starts are cancelled by hand (they are not part of spike 0).
-# Job selection: input suite = parity | index | all. A push has no inputs; a push runs the index suite only
-# (Task 4). The parity jobs of Task 3 run only on dispatch with suite parity or all.
+# Job selection: input suite = parity | index | isolation | all. A push has no inputs; a push runs the index suite
+# only (Task 4). The parity jobs (Task 3) run only on dispatch with suite parity or all. The isolation job (Task 5)
+# runs only on dispatch with suite isolation or all.
 on:
   workflow_dispatch:
     inputs:
       suite:
-        description: 'parity | index | all'
+        description: 'parity | index | isolation | all'
         required: false
         default: index
   push:
@@ -172,7 +173,7 @@ jobs:
           retention-days: 30
   index-size:
     # Task 4: index build time and peak memory, 3 runs per case, in each engine. Same tool files as Task 3.
-    if: inputs.suite != 'parity'
+    if: inputs.suite != 'parity' && inputs.suite != 'isolation'
     strategy:
       fail-fast: false
       matrix:
@@ -255,5 +256,95 @@ jobs:
         with:
           name: spike0-index-${{ matrix.engine }}
           path: reports/spike0-index/${{ matrix.engine }}/
+          if-no-files-found: warn
+          retention-days: 30
+  isolation:
+    # Task 5 (spike 0c, 0d): cross-origin isolation modes and cross-origin fetches, in the three browsers.
+    if: inputs.suite == 'isolation' || inputs.suite == 'all'
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Download compiled kallisto (Task 1 run)
+        uses: actions/download-artifact@v4
+        with:
+          name: quant-compiled-kallisto
+          run-id: ${{ env.RUN_KALLISTO }}
+          github-token: ${{ github.token }}
+          path: .
+      - name: Download compiled HISAT2 (Task 1 run)
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-tools
+          run-id: ${{ env.RUN_CI }}
+          github-token: ${{ github.token }}
+          path: build/compiled-tools
+      - name: Download compiled featureCounts (Task 1 run)
+        uses: actions/download-artifact@v4
+        with:
+          name: rna-analysis-compiled-featurecounts
+          run-id: ${{ env.RUN_RNA }}
+          github-token: ${{ github.token }}
+          path: .
+      - name: Place HISAT2 and record tool hashes
+        run: |
+          mkdir -p dist
+          cp -r build/compiled-tools/dist/hisat2 dist/hisat2
+          sha256sum dist/kallisto/kallisto.{mjs,wasm} dist/hisat2/hisat2.{mjs,wasm} dist/featurecounts/featurecounts.{mjs,wasm,worker.mjs} runtime/{index,worker,execute}.mjs spike0/isolation.mjs | tee tool-hashes.txt
+      - name: Download fixtures and the NCBI genome; check SHA-256 against spike0/manifest.tsv
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null || { sudo apt-get update; sudo apt-get install -y zstd; }
+          mkdir -p fx/reads fx/transcripts fx/native/hisat2 fx/genomes/yeast
+          gh release download "$FIXTURE_TAG" --repo "$GITHUB_REPOSITORY" --dir fx/dl
+          mv fx/dl/yeast_sub_1.fastq.gz fx/dl/yeast_sub_2.fastq.gz fx/reads/
+          mv fx/dl/yeast.transcripts.fa.zst fx/dl/yeast.genes.saf fx/transcripts/
+          mv fx/dl/yeast.sam.zst fx/native/hisat2/
+          curl -fsSL --retry 3 -o fx/genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz "$YEAST_FNA_URL"
+          for f in reads/yeast_sub_1.fastq.gz reads/yeast_sub_2.fastq.gz transcripts/yeast.transcripts.fa.zst \
+                   transcripts/yeast.genes.saf native/hisat2/yeast.sam.zst genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz; do
+            want=$(awk -F'\t' -v f="$f" '$1==f{print $3}' spike0/manifest.tsv)
+            got=$(sha256sum "fx/$f" | cut -d' ' -f1)
+            echo "$f manifest=$want got=$got"
+            test -n "$want" && test "$want" = "$got"
+          done
+      - name: Stage plain inputs (same bytes as in the parity run)
+        run: |
+          set -euo pipefail
+          mkdir -p staged
+          cp fx/reads/yeast_sub_1.fastq.gz fx/reads/yeast_sub_2.fastq.gz staged/
+          zcat fx/reads/yeast_sub_1.fastq.gz > staged/reads_1.fastq
+          zcat fx/reads/yeast_sub_2.fastq.gz > staged/reads_2.fastq
+          zstd -q -dc fx/transcripts/yeast.transcripts.fa.zst > staged/yeast.transcripts.fa
+          cp fx/transcripts/yeast.genes.saf staged/
+          zcat fx/genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz > staged/yeast.fa
+          zstd -q -dc fx/native/hisat2/yeast.sam.zst > staged/native_yeast.sam
+          (cd staged && sha256sum * | tee ../staged.sha256)
+      - name: Run isolation and CORS (${{ matrix.engine }})
+        run: |
+          set -o pipefail
+          out=reports/spike0-isolation/${{ matrix.engine }}
+          mkdir -p "$out"
+          cp tool-hashes.txt staged.sha256 "$out/"
+          date -u +%Y-%m-%dT%H:%M:%SZ | tee "$out/run-date.txt"
+          node spike0/isolation.mjs --engine ${{ matrix.engine }} --data staged --out "$out" 2>&1 | tee "$out/isolation.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike0-isolation-${{ matrix.engine }}
+          path: reports/spike0-isolation/${{ matrix.engine }}/
           if-no-files-found: warn
           retention-days: 30

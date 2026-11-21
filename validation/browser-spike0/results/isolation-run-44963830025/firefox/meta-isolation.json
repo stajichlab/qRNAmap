@@ -1,0 +1,96 @@
+{
+  "engine": "firefox",
+  "node": "v22.23.5",
+  "startedAt": "2026-11-21T23:52:41.619Z",
+  "modes": [
+    "none",
+    "coop-coep",
+    "service-worker"
+  ],
+  "fetches": [
+    {
+      "id": "ncbi_fna",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ncbi_fna_range",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz",
+      "method": "GET",
+      "range": "bytes=0-1023"
+    },
+    {
+      "id": "ncbi_gff",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.gff.gz",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ena_filereport",
+      "url": "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRR3396381&result=read_run&fields=run_accession,fastq_ftp,fastq_bytes,read_count&format=tsv",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ena_small_head",
+      "url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR227/085/SRR22732385/SRR22732385_1.fastq.gz",
+      "method": "HEAD",
+      "range": ""
+    },
+    {
+      "id": "ena_small_get",
+      "url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR227/085/SRR22732385/SRR22732385_1.fastq.gz",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ena_large_head",
+      "url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_1.fastq.gz",
+      "method": "HEAD",
+      "range": ""
+    },
+    {
+      "id": "ena_large_range_start",
+      "url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_1.fastq.gz",
+      "method": "GET",
+      "range": "bytes=0-1048575"
+    },
+    {
+      "id": "ena_large_range_mid",
+      "url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_1.fastq.gz",
+      "method": "GET",
+      "range": "bytes=300000000-300065535"
+    },
+    {
+      "id": "ensembl_gff3_mito",
+      "url": "https://ftp.ensembl.org/pub/current_gff3/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.chromosome.Mito.gff3.gz",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ensembl_fa_mito",
+      "url": "https://ftp.ensembl.org/pub/current_fasta/saccharomyces_cerevisiae/dna/Saccharomyces_cerevisiae.R64-1-1.dna.chromosome.Mito.fa.gz",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ensembl_fa_checksums",
+      "url": "https://ftp.ensembl.org/pub/current_fasta/saccharomyces_cerevisiae/dna/CHECKSUMS",
+      "method": "GET",
+      "range": ""
+    },
+    {
+      "id": "ensemblgenomes_fungi",
+      "url": "https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/",
+      "method": "GET",
+      "range": ""
+    }
+  ],
+  "runtimeSha256": {
+    "index.mjs": "08629fe9067e5e7e0b85fba6e49c050c9b0850b6253c148f3fc458427f7ef3e7",
+    "worker.mjs": "19ac7d452ace47900eb93b7a65a55ff47d3cd5df33ddee35664b93cf7d9ddc4a",
+    "execute.mjs": "b911f4edb82100d0f76da0143aef0ee52b6b777944721fa15f68313d511f2da7"
+  },
+  "finishedAt": "2026-11-21T23:58:12.487Z"
+}
