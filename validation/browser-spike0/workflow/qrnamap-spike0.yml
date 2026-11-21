@@ -1,4 +1,5 @@
-# qRNAmap browser spike 0 (Task 3): WASM parity runs in Node and in Playwright browsers.
+# qRNAmap browser spike 0: WASM parity runs (Task 3) and index time and memory runs (Task 4) in Node and in
+# Playwright browsers.
 # Source of truth: qRNAmap repository, validation/browser-spike0/workflow/. Copied here by sync.sh.
 # Uses the compiled artifacts of the Task 1 runs of this fork (source commit 0b015f63e8048eb57b72ffd2706b79b803862b7c)
 # and the release deseq2-package.zip of upstream v0.1.0-rc.1. No secrets. No upstream build step is changed.
@@ -6,8 +7,15 @@ name: qRNAmap spike 0 parity
 # Trigger: a push to qrnamap-spike0 registers the workflow (the file is not on the default branch);
 # later runs use workflow_dispatch by workflow ID with ref qrnamap-spike0. Upstream push workflows that a
 # push also starts are cancelled by hand (they are not part of spike 0).
+# Job selection: input suite = parity | index | all. A push has no inputs; a push runs the index suite only
+# (Task 4). The parity jobs of Task 3 run only on dispatch with suite parity or all.
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: 'parity | index | all'
+        required: false
+        default: index
   push:
     branches: [qrnamap-spike0]
     paths: ['.github/workflows/qrnamap-spike0.yml', 'spike0/**']
@@ -22,11 +30,13 @@ env:
   RUN_KALLISTO: '44939577353'
   RUN_CI: '44939585268'
   RUN_RNA: '44939587731'
+  AFUM_FNA_URL: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/655/GCF_000002655.1_ASM265v1/GCF_000002655.1_ASM265v1_genomic.fna.gz
   YEAST_FNA_URL: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz
   DESEQ2_URL: https://github.com/comparativechrono/genomics-wasm/releases/download/v0.1.0-rc.1/deseq2-package.zip
   DESEQ2_SHA256: ed28cb91a15a18629f627708f76a18b90b4ed69089e7f298575be634ae55ad28
 jobs:
   parity:
+    if: inputs.suite == 'parity' || inputs.suite == 'all'
     strategy:
       fail-fast: false
       matrix:
@@ -118,6 +128,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
   deseq2-node:
+    if: inputs.suite == 'parity' || inputs.suite == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -157,5 +168,92 @@ jobs:
         with:
           name: spike0-parity-deseq2-node
           path: reports/spike0/node/
+          if-no-files-found: warn
+          retention-days: 30
+  index-size:
+    # Task 4: index build time and peak memory, 3 runs per case, in each engine. Same tool files as Task 3.
+    if: inputs.suite != 'parity'
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [node, chromium, firefox, webkit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Install the Playwright browser
+        if: matrix.engine != 'node'
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Download compiled kallisto (Task 1 run)
+        uses: actions/download-artifact@v4
+        with:
+          name: quant-compiled-kallisto
+          run-id: ${{ env.RUN_KALLISTO }}
+          github-token: ${{ github.token }}
+          path: .
+      - name: Download compiled HISAT2 (Task 1 run)
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-tools
+          run-id: ${{ env.RUN_CI }}
+          github-token: ${{ github.token }}
+          path: build/compiled-tools
+      - name: Place HISAT2 and record tool hashes
+        run: |
+          mkdir -p dist
+          cp -r build/compiled-tools/dist/hisat2 dist/hisat2
+          sha256sum dist/kallisto/kallisto.{mjs,wasm} dist/hisat2/hisat2.{mjs,wasm} runtime/{index,worker,execute}.mjs spike0/index_size.mjs spike0/index_size_wrap.mjs | tee tool-hashes.txt
+          grep -o 'getHeapMax=()=>[0-9]*' dist/kallisto/kallisto.mjs dist/hisat2/hisat2.mjs | tee heap-max.txt
+      - name: Download fixtures and the NCBI genomes; check SHA-256 against spike0/manifest.tsv
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null || { sudo apt-get update; sudo apt-get install -y zstd; }
+          mkdir -p fx/transcripts fx/genomes/yeast fx/genomes/afum
+          gh release download "$FIXTURE_TAG" --repo "$GITHUB_REPOSITORY" --dir fx/transcripts \
+            --pattern yeast.transcripts.fa.zst --pattern afum.transcripts.fa.zst
+          curl -fsSL --retry 3 -o fx/genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz "$YEAST_FNA_URL"
+          curl -fsSL --retry 3 -o fx/genomes/afum/GCF_000002655.1_ASM265v1_genomic.fna.gz "$AFUM_FNA_URL"
+          for f in transcripts/yeast.transcripts.fa.zst transcripts/afum.transcripts.fa.zst \
+                   genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz genomes/afum/GCF_000002655.1_ASM265v1_genomic.fna.gz; do
+            want=$(awk -F'\t' -v f="$f" '$1==f{print $3}' spike0/manifest.tsv)
+            got=$(sha256sum "fx/$f" | cut -d' ' -f1)
+            echo "$f manifest=$want got=$got"
+            test -n "$want" && test "$want" = "$got"
+          done
+      - name: Stage plain inputs (same bytes as the native reference inputs)
+        run: |
+          set -euo pipefail
+          mkdir -p staged
+          zcat fx/genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz > staged/yeast.fa
+          zcat fx/genomes/afum/GCF_000002655.1_ASM265v1_genomic.fna.gz > staged/afum.fa
+          zstd -q -dc fx/transcripts/yeast.transcripts.fa.zst > staged/yeast.transcripts.fa
+          zstd -q -dc fx/transcripts/afum.transcripts.fa.zst > staged/afum.transcripts.fa
+          (cd staged && sha256sum * | tee ../staged.sha256)
+      - name: Runner facts
+        run: |
+          nproc; free -k; grep -E 'MemTotal|SwapTotal' /proc/meminfo
+          cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || true
+      - name: Run index size (${{ matrix.engine }})
+        run: |
+          set -o pipefail
+          out=reports/spike0-index/${{ matrix.engine }}
+          mkdir -p "$out"
+          cp tool-hashes.txt heap-max.txt staged.sha256 "$out/"
+          free -k > "$out/free-before.txt"
+          node spike0/index_size.mjs --engine ${{ matrix.engine }} --reps 3 \
+            --cases hisat2_yeast,hisat2_afum,kallisto_afum,kallisto_yeast \
+            --data staged --out "$out" 2>&1 | tee "$out/index_size.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike0-index-${{ matrix.engine }}
+          path: reports/spike0-index/${{ matrix.engine }}/
           if-no-files-found: warn
           retention-days: 30
