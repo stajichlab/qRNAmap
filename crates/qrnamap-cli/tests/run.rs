@@ -1151,3 +1151,33 @@ fn plain_quant_with_salmon_then_kallisto_leaves_no_salmon_output() {
     let row = read_table(&out.join("c1.summary.tsv.zst")).unwrap();
     assert_eq!(row.lines().nth(1).unwrap().split('\t').nth(2), Some("kallisto"), "{row}");
 }
+
+#[test]
+fn run_end_to_end_with_salmon_quantifier() {
+    if common::require_tool("salmon").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = mini_sheet(d);
+    let (g, gff) = mini();
+    let out = d.join("run");
+    let tmp = d.join("tmp");
+    let args = [
+        "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant",
+        "--quantifier", "salmon", "--out", s(&out), "--tmpdir", s(&tmp),
+    ];
+    ok(&qrnamap(&args, None));
+    for f in ["counts.tsv.zst", "genes.tsv.zst", "mapping_summary.tsv.zst"] {
+        assert!(out.join(f).is_file(), "{f} missing");
+    }
+    let m = read_table(&out.join("mapping_summary.tsv.zst")).unwrap();
+    let mut lines = m.lines();
+    let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
+    let col = header.iter().position(|h| *h == "quantifier").expect("quantifier column");
+    let rows: Vec<&str> = lines.collect();
+    assert_eq!(rows.len(), NAMES.len(), "{m}");
+    for r in rows {
+        assert_eq!(r.split('\t').nth(col), Some("salmon"), "{r}");
+    }
+}

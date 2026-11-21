@@ -16,7 +16,7 @@ use qrnamap_cli::pipeline::{
     align_sample, prepare_align, prepare_quant, quant_sample, run_transcripts, PipelineError,
     SampleResult, Scratch,
 };
-use qrnamap_core::{build_transcripts, RunConfig, Strandedness};
+use qrnamap_core::{build_transcripts, Quantifier, RunConfig, Strandedness};
 use qseq_io::{parse_gff3, read_fasta};
 
 const PARAMS: SimParams = SimParams { read_len: 100, frag_mean: 250, frag_spread: 50 };
@@ -308,4 +308,122 @@ fn kallisto_gene_counts_unchanged() {
         got.push_str(&format!("{g}\t{c}\n"));
     }
     assert_eq!(got, GOLDEN_KALLISTO, "kallisto gene counts differ from the golden file");
+}
+
+const SALMON_TOOLS: [&str; 1] = ["salmon"];
+
+/// Prepare a Salmon index in `d` and quantify each sample. `fragment_len` is for single-end.
+fn run_salmon(
+    d: &Path,
+    flag: Strandedness,
+    fragment_len: Option<(f64, f64)>,
+    samples: &[qrnamap_core::Sample],
+) -> Vec<Result<SampleResult, PipelineError>> {
+    let (fa, gff) = write_reference(d);
+    let (tx, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
+    run_transcripts(&fa, &gff, &tx, &t2g, None, None).unwrap();
+    let cfg = RunConfig {
+        strandedness: flag,
+        quantifier: Quantifier::Salmon,
+        fragment_len,
+        ..RunConfig::default()
+    };
+    let out = d.join(format!("salmon_{flag:?}"));
+    let ctx = prepare_quant(&tx, &t2g, &out, Scratch::new(d.join("tmp")), cfg, None).unwrap();
+    samples.iter().map(|s| quant_sample(s, &ctx)).collect()
+}
+
+#[test]
+fn salmon_recovers_counts_on_large_fixture() {
+    if !common::require_tools(&SALMON_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = pairs(Strandedness::Unstranded, 101);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&p, &r1, &r2);
+    let s = sample_of("S1", &[r1], &[r2]);
+    let res = run_salmon(d, Strandedness::Unstranded, None, &[s]).remove(0).unwrap();
+    eprintln!("MEASURED salmon unstranded summary {:?}", res.summary);
+    let worst = max_error("salmon", &res.counts);
+    assert!(worst <= QUANT_TOL, "max relative error {worst}");
+    assert_eq!(res.summary.reads_processed, 40_000);
+}
+
+#[test]
+fn salmon_two_lanes_equal_concatenated() {
+    if !common::require_tools(&SALMON_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = pairs(Strandedness::Unstranded, 107);
+    let (l1, l2) = write_compressed_lanes(d, &p);
+    let (c1, c2) = (d.join("all_1.fq"), d.join("all_2.fq"));
+    sim::write_fastq(&p, &c1, &c2);
+    let samples = [sample_of("Lanes", &l1, &l2), sample_of("Whole", &[c1], &[c2])];
+    let mut res = run_salmon(d, Strandedness::Unstranded, None, &samples);
+    let (whole, lanes) = (res.remove(1).unwrap(), res.remove(0).unwrap());
+    let mut worst = 0u64;
+    for (g, &w) in &whole.counts {
+        let l = lanes.counts.get(g).copied().unwrap_or(0);
+        worst = worst.max(l.abs_diff(w));
+    }
+    eprintln!("MEASURED salmon lanes vs concatenated: max per-gene count difference {worst}");
+    assert_eq!(lanes.counts, whole.counts);
+    assert_eq!(lanes.summary.reads_processed, whole.summary.reads_processed);
+}
+
+#[test]
+fn salmon_forward_and_reverse_stranded() {
+    if !common::require_tools(&SALMON_TOOLS) {
+        return;
+    }
+    for (lib, wrong, seed) in [
+        (Strandedness::Forward, Strandedness::Reverse, 108),
+        (Strandedness::Reverse, Strandedness::Forward, 109),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let (r1, r2) = write_compressed_lanes(d, &pairs(lib, seed));
+        let s = sample_of("S1", &r1, &r2);
+        let right = run_salmon(d, lib, None, std::slice::from_ref(&s)).remove(0).unwrap();
+        eprintln!("MEASURED salmon {lib:?} as {lib:?} summary {:?}", right.summary);
+        let w = max_error(&format!("salmon {lib:?} as {lib:?}"), &right.counts);
+        assert!(w <= QUANT_TOL, "max relative error {w}");
+        let d2 = tempfile::tempdir().unwrap();
+        let (r1, r2) = write_compressed_lanes(d2.path(), &pairs(lib, seed));
+        let s = sample_of("S1", &r1, &r2);
+        match run_salmon(d2.path(), wrong, None, &[s]).remove(0) {
+            Err(PipelineError::NoReadsPseudoaligned { .. }) => {
+                eprintln!("MEASURED salmon {lib:?} as {wrong:?}: NoReadsPseudoaligned")
+            }
+            Ok(r) => {
+                eprintln!("MEASURED salmon {lib:?} as {wrong:?} summary {:?}", r.summary);
+                assert!(r.summary.fraction_assigned < 0.2, "{:?}", r.summary);
+            }
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+}
+
+#[test]
+fn salmon_single_end_run() {
+    if !common::require_tools(&SALMON_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = pairs(Strandedness::Unstranded, 110);
+    let (r1, r2) = (d.join("se_1.fq"), d.join("unused_2.fq"));
+    sim::write_fastq(&p, &r1, &r2);
+    let sheet = format!("sample\tfastq1\nSE\t{}\n", r1.display());
+    let sample = qrnamap_core::SampleSheet::parse(&sheet).unwrap().samples.remove(0);
+    let u = Strandedness::Unstranded;
+    let res = run_salmon(d, u, Some((200.0, 20.0)), &[sample]).remove(0).unwrap();
+    eprintln!("MEASURED salmon single-end summary {:?}", res.summary);
+    assert_eq!(res.summary.reads_processed, 40_000);
+    let w = max_error("salmon single-end", &res.counts);
+    assert!(w <= QUANT_TOL, "max relative error {w}");
 }
