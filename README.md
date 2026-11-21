@@ -34,6 +34,8 @@ A tab-separated file with a header row.
 | `fastq2` | optional. Mate 2, with the same number of lanes as `fastq1`. Empty means single-end. |
 | any other column | a covariate. A factor by default. A header `name:numeric` makes a numeric column `name`. |
 
+A sample name must not equal a file or directory that qrnamap writes in `--out` (with or without `.partial`): `index`, `salmon_index`, `slurm`, `transcripts.kidx`, `transcripts.fa.zst`, `tx2gene.tsv.zst`, `genes.saf`, `splice_sites.txt`, `genes.tsv.zst`, `mapping_summary.tsv.zst`, `counts.tsv.zst`, `strand_check.tsv`, and the five `deseq2.*` result files. qrnamap refuses such a name before it writes anything. A run directory made by an older version with such a name cannot be finished with `--step final`.
+
 - Covariate column names start with a letter and use only `[A-Za-z0-9_.]`. R reserved words are refused.
 - Factor values use only `[A-Za-z0-9_.-]`, with no space. Write `wild_type`, not `wild type`.
 - Blank lines and lines that start with `#` are ignored.
