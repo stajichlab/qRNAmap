@@ -458,9 +458,13 @@ DESeq2, `padj` or FDR < 0.05, NA excluded. Same definitions as above.
 For reference, kallisto vs the authors' published DE: Jaccard 0.783822.
 
 In the row "DESeq2 on the authors' counts (6,008 genes)", all genes significant in both have the same
-log2FC sign for default and B. For A, 1,834 of 1,835 have the same sign.
+log2FC sign for default. For A, 1,834 of 1,835 have the same sign. For B, 1,853 of 1,854 have the same
+sign (`results_salmon_overhang/{A,B}/geo/de_agreement.tsv`).
 
 ### What changed and what did not (measured)
+
+No noise estimate was made (no replicate runs and no bootstrap). Differences of about 0.001 to 0.004 in
+Spearman or Jaccard values cannot be called real from these data.
 
 Improved with A and with B. For each item, the change is larger with B than with A:
 
