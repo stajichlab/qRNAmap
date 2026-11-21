@@ -48,11 +48,14 @@ GCF_000146045.2_R64_genomic.gff.gz --mode quant --quantifier salmon --out $DATA/
 temporary files in node-local `$SCRATCH`. The kallisto run (`validation/amb/README.md`, E2) used the
 same options without `--quantifier`, and gave `--mem-gb 8` explicitly.
 
-Versions: qrnamap built from `ed9d5b6`. Salmon 2.8.0 (`salmon_version` in every
-`aux_info/meta_info.json`). R 4.5.3, DESeq2 1.50.2 (`deseq2.versions.txt`; design `~ condition`,
-contrast `condition,AmpB,Control`, Wald, no shrinkage). The kallisto side is the earlier run
-`$DATA/run_quant` (kallisto 0.52.0, binary from `ff611ae`, `validation/amb/README.md`). I did not rerun
-kallisto.
+Versions:
+
+- qrnamap: built from commit `ed9d5b6`.
+- Salmon: 2.8.0. Every `aux_info/meta_info.json` gives this `salmon_version`.
+- R 4.5.3 and DESeq2 1.50.2, from `deseq2.versions.txt`.
+- DESeq2 settings: design `~ condition`, contrast `condition,AmpB,Control`, Wald test, no shrinkage.
+- kallisto side: the earlier run `$DATA/run_quant`. It used kallisto 0.52.0 and a binary from commit
+  `ff611ae` (`validation/amb/README.md`). I did not run kallisto again.
 
 ## Jobs
 
@@ -111,9 +114,9 @@ column names are identical and in the same order. Spearman: R `cor(method = "spe
 | AmpB_3 | 0.994712 | 0.994627 (6,370) | 0.979950 | 9,078,969 | 9,580,410 | 413 | 119 |
 | pooled | 0.994919 | 0.994830 (38,134) | 0.981558 | 51,944,669 | 54,832,659 | 2,522 | 801 |
 
-Salmon has 3.0 to 3.5 times as many zero-count genes as kallisto per sample. I did not examine which genes
-they are. Per gene across the 6 samples (6,100 genes with nonzero variance in both): median Spearman 1
-(6 values per gene: little resolution).
+Salmon has more zero-count genes than kallisto. Per sample, the ratio Salmon / kallisto is 2.8 to 3.5
+(lowest Control_3, 430/152 = 2.83; highest AmpB_3, 413/119 = 3.47). Pooled, it is 2,522 against 801, that is 3.1 times. I did not examine which genes
+they are, or why.
 
 DESeq2, `padj < 0.05`, NA padj excluded (`results_salmon/de_overlap.tsv`):
 
@@ -173,10 +176,11 @@ results.
 | authors published vs DESeq2 kallisto | 5,407 | 0.988440 | 0.956567 | 1,816 | 1,955 | 1,657 | 159 | 298 | 0.783822 | 1,657 |
 | DESeq2 on authors' counts vs DESeq2 Salmon | 6,008 | 0.954430 | 0.819001 | 1,941 | 1,980 | 1,846 | 95 | 134 | 0.889639 | 1,846 |
 | DESeq2 on authors' counts vs DESeq2 kallisto | 6,008 | 0.962264 | 0.889690 | 1,941 | 2,013 | 1,874 | 67 | 139 | 0.900962 | 1,874 |
-| same two rows, on the authors' DE genes only: Salmon | 5,407 | 0.991166 | 0.968418 | 1,919 | 1,922 | 1,833 | 86 | 89 | 0.912849 | 1,833 |
-| same two rows, on the authors' DE genes only: kallisto | 5,407 | 0.993407 | 0.957969 | 1,919 | 1,955 | 1,859 | 60 | 96 | 0.922581 | 1,859 |
+| DESeq2 on authors' counts vs DESeq2 Salmon, authors' DE genes only | 5,407 | 0.991166 | 0.968418 | 1,919 | 1,922 | 1,833 | 86 | 89 | 0.912849 | 1,833 |
+| DESeq2 on authors' counts vs DESeq2 kallisto, authors' DE genes only | 5,407 | 0.993407 | 0.957969 | 1,919 | 1,955 | 1,859 | 60 | 96 | 0.922581 | 1,859 |
 
-In the "DESeq2 on authors' counts" rows, "authors" means our DESeq2 step run on the authors' count
+The last two rows use only the 5,407 genes of the authors' DE table that are in our results. In the
+"DESeq2 on authors' counts" rows, "authors" means our DESeq2 step run on the authors' count
 table (`$DATA/geo/de_authors/`, from the GEO comparison).
 
 Sign check (`results_salmon/geo/sign_convention.tsv`): Salmon DESeq2 log2FC vs the authors'
@@ -188,6 +192,8 @@ Salmon log2FC, 1,814 have the same sign.
 - Salmon mapped 87.54 to 90.45% of pairs; kallisto pseudoaligned 93.6 to 94.7% on the same samples.
 - Gene counts, Salmon vs kallisto: pooled Spearman 0.994919; Salmon totals are 0.947 of kallisto totals
   (pooled over the 6,477 genes: 51,944,669 / 54,832,659).
+- Zero-count gene values: Salmon 2,522 and kallisto 801, pooled over the 6 samples. I did not examine
+  which genes or why.
 - DE, Salmon vs kallisto: Jaccard 0.941007 (1,962 genes in both, 43 Salmon only, 80 kallisto only).
 - Against the authors' counts: Spearman 0.941675 (Salmon) and 0.946995 (kallisto); median count ratio
   ours/authors 1.016 (Salmon) and 1.058 (kallisto).
