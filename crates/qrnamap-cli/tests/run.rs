@@ -1169,7 +1169,12 @@ fn run_end_to_end_with_salmon_quantifier() {
         "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant",
         "--quantifier", "salmon", "--out", s(&out), "--tmpdir", s(&tmp),
     ];
-    ok(&qrnamap(&args, None));
+    let (stdout, _) = ok(&qrnamap(&args, None));
+    // The per-sample line names Salmon's fraction "mapped", not "pseudoaligned".
+    for l in stdout.lines().filter(|l| l.contains("reads_processed=")) {
+        assert!(l.contains("\tmapped=") && !l.contains("pseudoaligned"), "{l}");
+    }
+    assert_eq!(stdout.lines().filter(|l| l.contains("reads_processed=")).count(), NAMES.len(), "{stdout}");
     for f in ["counts.tsv.zst", "genes.tsv.zst", "mapping_summary.tsv.zst"] {
         assert!(out.join(f).is_file(), "{f} missing");
     }

@@ -159,6 +159,27 @@ fn cli_tmpdir_order_flag_then_scratch_then_tmpdir() {
 }
 
 #[test]
+fn quant_salmon_stdout_says_mapped() {
+    if !common::require_tools(&["salmon"]) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = sheet(d, Strandedness::Unstranded);
+    let fx = common::mini_fixture();
+    let (genome, gff) = (fx.join("genome.fa"), fx.join("genes.gff3"));
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
+    ok(&qrnamap(&["transcripts", "--reference", s(&genome), "--gff", s(&gff), "--out", s(&fa), "--tx2gene", s(&t2g)]));
+    let q = d.join("q");
+    let (out, _) = ok(&qrnamap(&[
+        "quant", "--quantifier", "salmon", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g),
+        "--out", s(&q), "--tmpdir", s(&d.join("tmp")), "--threads", "1",
+    ]));
+    assert!(out.starts_with("S1\treads_processed=10000\tmapped="), "{out}");
+    assert!(!out.contains("pseudoaligned"), "{out}");
+}
+
+#[test]
 fn quantifier_with_align_mode_is_error() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();

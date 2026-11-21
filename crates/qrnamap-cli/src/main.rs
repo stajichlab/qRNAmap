@@ -415,6 +415,14 @@ fn remove_all_old_outputs(out: &Path, samples: &[Sample]) -> Result<(), pipeline
     samples.iter().try_for_each(|s| pipeline::remove_old_outputs(out, &s.name))
 }
 
+/// Label of the mapped fraction in the per-sample stdout line: kallisto pseudoaligns, salmon maps.
+fn quant_label(q: Quantifier) -> &'static str {
+    match q {
+        Quantifier::Kallisto => "pseudoaligned",
+        Quantifier::Salmon => "mapped",
+    }
+}
+
 fn report(r: &SampleResult, what: &str) {
     let s = &r.summary;
     println!(
@@ -499,7 +507,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg, genes).map_err(e)?
             };
             for s in &samples[range] {
-                report(&quant_sample(s, &ctx).map_err(e)?, "pseudoaligned");
+                report(&quant_sample(s, &ctx).map_err(e)?, quant_label(ctx.config.quantifier));
             }
             scratch.cleanup();
         }
@@ -593,7 +601,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("submit with:\n  bash {q}");
                 println!("The --cpus, --mem-gb and --time values are UNMEASURED placeholders; check them before submitting.");
             } else {
-                let what = if mode == Mode::Quant { "pseudoaligned" } else { "mapped" };
+                let what = if mode == Mode::Quant { quant_label(args.config.quantifier) } else { "mapped" };
                 let r = run_local(&args, &mut |r| report(r, what), &mut |w| eprintln!("warning: {w}"))
                     .map_err(|x| x.to_string())?;
                 if let Some(p) = &r.counts {
