@@ -65,8 +65,8 @@ pub enum PipelineError {
     /// A path is not valid UTF-8, so it cannot become a tool argument.
     NonUtf8Path(PathBuf),
     /// The quantifier (`tool`: kallisto or salmon) mapped no read. kallisto 0.52.0 then exits
-    /// with an error; salmon 2.8.0 exited 0 in a manual check. The usual causes are a wrong strandedness setting or reads that do not belong to the
-    /// index.
+    /// with an error; salmon 2.8.0 exited 0 in a manual check. The usual causes are a wrong
+    /// strandedness setting or reads that do not belong to the index.
     NoReadsPseudoaligned {
         sample: String,
         tool: &'static str,
