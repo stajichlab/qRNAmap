@@ -1,6 +1,6 @@
 # Browser spike 0: design
 
-Date: 2026-11-21. Status: draft for approval. Parent design: `2026-11-19-qrnamap-design.md` (sections 9, 10, 15).
+Date: 2026-11-21. Status: approved by the user on 2026-11-21 with option F (fork). Parent design: `2026-11-19-qrnamap-design.md` (sections 9, 10, 15).
 
 ## Intent
 
@@ -49,12 +49,12 @@ Why: the page design (limits, genome mode, hosting) depends on these numbers. No
 - Pass criteria (from the parent design, section 15): counts exactly equal for kallisto and featureCounts; HISAT2 SAM records equal apart from `@PG`; the run completes in a real browser without an out-of-memory error; the 12 Mb yeast index builds in 10 minutes or less and under 2 GiB. DESeq2 compares with stated numeric tolerances, not equality (parent design, section 15).
 - Artifacts are checked by SHA-256 against the release manifest where the release has the same tool.
 
-## Where CI runs (open decision for the user)
+## Where CI runs (decided: option F, 2026-11-21)
 
 - **Option F (recommended): fork `comparativechrono/genomics-wasm` under `stajichlab` and run the spike there.** The upstream workflows run unchanged. A public fork has free Actions minutes. The spike workflow is added on a branch of the fork. This creates a public repository under the lab organization.
 - Option P: put the spike workflow in the private `qRNAmap` repository and check out upstream at the pinned commit. Keeps everything private. Uses billed minutes. UNVERIFIED how much the full DESeq2 (webR) build needs.
 
-Either option sends code to GitHub Actions and creates remote branches. I do not do that before the user says which option.
+The user chose option F. The fork is created under `stajichlab`. Option P is not used.
 
 ## Left to the builder
 
