@@ -552,3 +552,36 @@ fn reserved_sample_names_are_rejected() {
         check_samples(&[s], &cfg, Mode::Quant).unwrap();
     }
 }
+
+#[test]
+fn old_output_removal_keeps_user_files_in_salmon_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path();
+    let sd = out.join("S1");
+    // The files salmon 2.8.0 wrote in these directories for each AMB sample (paired-end).
+    let salmon = [
+        "aux_info/ambig_info.tsv",
+        "aux_info/expected_bias.gz",
+        "aux_info/fld.gz",
+        "aux_info/meta_info.json",
+        "aux_info/observed_bias.gz",
+        "aux_info/observed_bias_3p.gz",
+        "libParams/flenDist.txt",
+        "logs/salmon_quant.log",
+    ];
+    for f in salmon {
+        let p = sd.join(f);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"old").unwrap();
+    }
+    let user = sd.join("aux_info").join("my_notes.txt");
+    std::fs::write(&user, b"keep").unwrap();
+    remove_old_outputs(out, "S1").unwrap();
+    for f in salmon {
+        assert!(!sd.join(f).exists(), "{f} survived");
+    }
+    assert_eq!(std::fs::read(&user).unwrap(), b"keep", "a user file was removed");
+    // Empty salmon directories are removed; the one with the user file stays.
+    assert!(sd.join("aux_info").is_dir());
+    assert!(!sd.join("logs").exists() && !sd.join("libParams").exists());
+}

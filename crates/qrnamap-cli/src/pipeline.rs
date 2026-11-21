@@ -773,25 +773,41 @@ pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineEr
         sd.join(format!("{sample}.sam.zst")),
         sd.join(format!("{sample}.sam.zst.partial")),
     ];
-    for p in files {
+    let salmon_files = SALMON_SUBDIR_FILES.iter().map(|f| sd.join(f));
+    for p in files.into_iter().chain(salmon_files) {
         match fs::remove_file(&p) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(PipelineError::Io { path: p, source: e }),
         }
     }
-    // Salmon's per-sample subdirectories (aux_info/meta_info.json, logs,
-    // libParams/flenDist.txt and the other files in them).
+    // Salmon's per-sample subdirectories: removed only when empty, so a file that salmon did
+    // not write (a user's file) stays, and so does its directory.
     for sub in ["aux_info", "logs", "libParams"] {
         let p = sd.join(sub);
-        match fs::remove_dir_all(&p) {
+        match fs::remove_dir(&p) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {}
             Err(e) => return Err(PipelineError::Io { path: p, source: e }),
         }
     }
     Ok(())
 }
+
+/// The files salmon 2.8.0 wrote in the subdirectories of `<out>/<sample>/`, as found in all six
+/// samples of the AMB run (paired-end, `run_quant_salmon`). `remove_old_outputs` removes these
+/// files only, not the whole subdirectories.
+const SALMON_SUBDIR_FILES: &[&str] = &[
+    "aux_info/ambig_info.tsv",
+    "aux_info/expected_bias.gz",
+    "aux_info/fld.gz",
+    "aux_info/meta_info.json",
+    "aux_info/observed_bias.gz",
+    "aux_info/observed_bias_3p.gz",
+    "libParams/flenDist.txt",
+    "logs/salmon_quant.log",
+];
 
 /// File name of the run-wide mapping summary in the output directory.
 pub const MAPPING_SUMMARY: &str = "mapping_summary.tsv.zst";
