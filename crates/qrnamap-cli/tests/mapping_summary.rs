@@ -152,6 +152,8 @@ fn old_seven_column_summary_is_rejected() {
         matches!(&err, PipelineError::BadTable { detail, .. } if detail.contains("header")),
         "{err:?}"
     );
+    let t = err.to_string();
+    assert!(t.contains("written by an older qrnamap; run that sample again"), "{t}");
 }
 
 #[test]

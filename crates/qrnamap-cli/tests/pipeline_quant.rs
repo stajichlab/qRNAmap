@@ -9,10 +9,10 @@ use std::time::Instant;
 
 use common::sim;
 use qrnamap_cli::pipeline::{
-    check_samples, prepare_quant, quant_sample, read_gene_counts, run_transcripts, PipelineError,
-    Scratch,
+    check_samples, prepare_quant, quant_sample, read_gene_counts, read_table, remove_old_outputs,
+    run_transcripts, PipelineError, Scratch,
 };
-use qrnamap_core::{Mode, RunConfig, SampleSheet, Strandedness};
+use qrnamap_core::{Mode, Quantifier, RunConfig, SampleSheet, Strandedness};
 
 use common::{records, sample, COUNTS};
 
@@ -147,7 +147,7 @@ fn quant_wrong_strandedness_is_reported() {
     let (r1, r2) = (d.join("rev_1.fq"), d.join("rev_2.fq"));
     sim::write_fastq(&pairs, &r1, &r2);
     let err = quant_sample(&sample("Rev", &[&r1], &[&r2]), &ctx).unwrap_err();
-    assert!(matches!(err, PipelineError::NoReadsPseudoaligned { .. }), "{err:?}");
+    assert!(matches!(err, PipelineError::NoReadsPseudoaligned { tool: "kallisto", .. }), "{err:?}");
     let text = err.to_string();
     assert!(text.contains("'Rev'") && text.contains("strand"), "{text}");
 
@@ -319,4 +319,172 @@ fn quant_valid_gzip_pair_passes_validation() {
     let res = quant_sample(&sample("G1", &[&g1], &[&g2]), &ctx).unwrap();
     assert_eq!(res.summary.reads_processed, 10_000);
     assert!(ctx.out_dir.join("G1.genecounts.tsv.zst").is_file());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Salmon
+
+fn salmon_cfg() -> RunConfig {
+    RunConfig { quantifier: Quantifier::Salmon, ..RunConfig::default() }
+}
+
+/// The data row of `<out>/<sample>.summary.tsv.zst`, split on tabs.
+fn summary_row(out: &Path, s: &str) -> Vec<String> {
+    let t = read_table(&out.join(format!("{s}.summary.tsv.zst"))).unwrap();
+    t.lines().nth(1).unwrap().split('\t').map(String::from).collect()
+}
+
+/// Gzip with two members (first half, second half of `src`).
+fn gz_two_members(src: &Path, dst: &Path) {
+    let data = std::fs::read(src).unwrap();
+    let cut = data.len() / 2;
+    let mut out = Vec::new();
+    for part in [&data[..cut], &data[cut..]] {
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut e, part).unwrap();
+        out.extend(e.finish().unwrap());
+    }
+    std::fs::write(dst, out).unwrap();
+}
+
+#[test]
+fn salmon_quant_sample_matches_truth_on_fixture() {
+    if common::require_tool("salmon").is_none() {
+        return;
+    }
+    let t0 = Instant::now();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let recs = records();
+    let pairs = sim::simulate(&recs, &COUNTS, Strandedness::Unstranded, 11);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&pairs, &r1, &r2);
+    let (fa, t2g) = transcripts(d);
+    let out = d.join("quant");
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None)
+        .unwrap();
+    assert!(out.join("salmon_index").is_dir(), "salmon index directory");
+    assert!(!out.join("transcripts.kidx").exists(), "no kallisto index for salmon");
+    let res = quant_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
+    let truth = sim::truth_per_gene(&recs, &COUNTS);
+    let worst = max_rel_error(&res.counts, &truth);
+    eprintln!("MEASURED salmon summary {:?}", res.summary);
+    eprintln!("MEASURED salmon max relative error (genes >= 200 pairs): {worst:.5}");
+    assert!(worst <= 0.10, "max relative error {worst}");
+    assert_eq!(res.summary.reads_processed, 10_000);
+    assert!(out.join("S1").join("quant.sf").is_file());
+    assert!(out.join("S1").join("aux_info").join("meta_info.json").is_file());
+    let back = read_gene_counts(&out.join("S1.genecounts.tsv.zst"), "S1").unwrap();
+    assert_eq!(back, res.counts);
+    let row = summary_row(&out, "S1");
+    assert_eq!((row[1].as_str(), row[2].as_str(), row[3].as_str()), ("quant", "salmon", "10000"));
+    eprintln!("WALL salmon_quant_sample_matches_truth_on_fixture: {:.2?}", t0.elapsed());
+}
+
+#[test]
+fn salmon_reads_gzip_and_zstd_lanes() {
+    // Lane 1 is two-member gzip (salmon reads it directly), lane 2 is zstd (staged).
+    if common::require_tool("salmon").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let pairs = sim::simulate(&records(), &COUNTS, Strandedness::Unstranded, 23);
+    let (a1, a2, b1, b2) = (d.join("a_1.fq"), d.join("a_2.fq"), d.join("b_1.fq"), d.join("b_2.fq"));
+    sim::write_fastq(&pairs[..4000], &a1, &a2);
+    sim::write_fastq(&pairs[4000..], &b1, &b2);
+    let (g1, g2) = (d.join("a_1.fq.gz"), d.join("a_2.fq.gz"));
+    let (z1, z2) = (d.join("b_1.fq.zst"), d.join("b_2.fq.zst"));
+    gz_two_members(&a1, &g1);
+    gz_two_members(&a2, &g2);
+    for (src, dst) in [(&b1, &z1), (&b2, &z2)] {
+        let data = std::fs::read(src).unwrap();
+        std::fs::write(dst, zstd::encode_all(&data[..], 3).unwrap()).unwrap();
+    }
+    let (c1, c2) = (d.join("all_1.fq"), d.join("all_2.fq"));
+    sim::write_fastq(&pairs, &c1, &c2);
+    let (fa, t2g) = transcripts(d);
+    let out = d.join("quant");
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None)
+        .unwrap();
+    let lanes = quant_sample(&sample("Lanes", &[&g1, &z1], &[&g2, &z2]), &ctx).unwrap();
+    let whole = quant_sample(&sample("Whole", &[&c1], &[&c2]), &ctx).unwrap();
+    eprintln!("MEASURED salmon lanes {:?} counts {:?}", lanes.summary, lanes.counts);
+    eprintln!("MEASURED salmon whole {:?} counts {:?}", whole.summary, whole.counts);
+    assert_eq!(lanes.summary.reads_processed, 10_000);
+    assert_eq!(lanes.counts, whole.counts);
+}
+
+#[test]
+fn salmon_zero_mapped_reads_is_named_error() {
+    if common::require_tool("salmon").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (fa, t2g) = transcripts(d);
+    let out = d.join("q");
+    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None)
+        .unwrap();
+    // 500 pairs of random bases: none should map to the six fixture transcripts. salmon 2.8.0
+    // exited 0 here (checked by hand with the same kind of reads); the error comes from
+    // `num_mapped` 0 in meta_info.json.
+    let mut rng = sim::Lcg::new(77);
+    let mut rand_seq = || (0..75).map(|_| b"ACGT"[rng.below(4)] as char).collect::<String>();
+    let (mut t1, mut t2) = (String::new(), String::new());
+    let q = "I".repeat(75);
+    for i in 0..500 {
+        t1.push_str(&format!("@r{i}/1\n{}\n+\n{q}\n", rand_seq()));
+        t2.push_str(&format!("@r{i}/2\n{}\n+\n{q}\n", rand_seq()));
+    }
+    let (b1, b2) = (d.join("bad_1.fq"), d.join("bad_2.fq"));
+    std::fs::write(&b1, t1).unwrap();
+    std::fs::write(&b2, t2).unwrap();
+    let err = quant_sample(&sample("Z1", &[&b1], &[&b2]), &ctx).unwrap_err();
+    eprintln!("MEASURED salmon zero-mapped error: {err}");
+    match &err {
+        PipelineError::NoReadsPseudoaligned { sample, tool, .. } => {
+            assert_eq!((sample.as_str(), *tool), ("Z1", "salmon"));
+        }
+        other => panic!("expected NoReadsPseudoaligned, got {other:?}"),
+    }
+    let t = err.to_string();
+    assert!(t.contains("'Z1'") && t.contains("salmon") && !t.contains("kallisto"), "{t}");
+    assert!(!out.join("Z1.genecounts.tsv.zst").exists());
+    assert!(!out.join("Z1.summary.tsv.zst").exists());
+}
+
+#[test]
+fn switching_tool_removes_old_outputs() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path();
+    let sd = out.join("S1");
+    let files = [
+        "S1/abundance.tsv",
+        "S1/run_info.json",
+        "S1/quant.sf",
+        "S1/quant.sf.partial",
+        "S1/cmd_info.json",
+        "S1/lib_format_counts.json",
+        "S1/aux_info/meta_info.json",
+        "S1/aux_info/fld.gz",
+        "S1/logs/salmon_quant.log",
+        "S1/libParams/flenDist.txt",
+        "S1.summary.tsv.zst",
+        "S1.genecounts.tsv.zst",
+    ];
+    for f in files {
+        let p = out.join(f);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"old").unwrap();
+    }
+    remove_old_outputs(out, "S1").unwrap();
+    for f in files {
+        assert!(!out.join(f).exists(), "{f} survived");
+    }
+    for sub in ["aux_info", "logs", "libParams"] {
+        assert!(!sd.join(sub).exists(), "{sub} survived");
+    }
+    // A second call on a clean directory is fine.
+    remove_old_outputs(out, "S1").unwrap();
 }

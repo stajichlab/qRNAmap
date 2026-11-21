@@ -17,11 +17,12 @@ use std::path::{Path, PathBuf};
 
 use qrnamap_core::{
     assemble, assigned_fraction, build_transcripts, feature_counts, gene_counts_from_abundance, gene_table,
-    gene_table_tsv,
+    gene_counts_from_salmon, gene_table_tsv,
     hisat2_align, hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts,
-    parse_featurecounts_summary, saf, splice_sites, tx2gene_tsv, unlisted_genes, write_fasta,
+    parse_featurecounts_summary, saf, salmon_index, salmon_quant, splice_sites, tx2gene_tsv,
+    unlisted_genes, write_fasta,
     BuildError, ConfigError, CountError, CountMatrix, Mode, Quantifier, RunConfig, Sample,
-    StrandReport, Strandedness,
+    StrandReport, Strandedness, ToolCall,
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
@@ -63,9 +64,15 @@ pub enum PipelineError {
     BadGeneLabel(String),
     /// A path is not valid UTF-8, so it cannot become a tool argument.
     NonUtf8Path(PathBuf),
-    /// kallisto pseudoaligned no read and exited with an error. The usual causes are a wrong
-    /// strandedness setting or reads that do not belong to the index.
-    NoReadsPseudoaligned { sample: String, strandedness: Strandedness, stderr_tail: String },
+    /// The quantifier (`tool`: kallisto or salmon) mapped no read. kallisto 0.52.0 then exits
+    /// with an error; salmon 2.8.0 exited 0 in a manual check. The usual causes are a wrong strandedness setting or reads that do not belong to the
+    /// index.
+    NoReadsPseudoaligned {
+        sample: String,
+        tool: &'static str,
+        strandedness: Strandedness,
+        stderr_tail: String,
+    },
     /// A gene count file's header names another sample (for example a file copied or left
     /// from another run).
     CountFileSample { path: PathBuf, expected: String, found: String },
@@ -75,9 +82,9 @@ pub enum PipelineError {
     MateCountMismatch { sample: String, lane: usize, r1: u64, r2: u64 },
     /// A FASTQ file of the sample holds no record.
     NoReads { sample: String, file: PathBuf },
-    /// kallisto's `n_processed` differs from the pairs (reads, for single-end) counted in the
-    /// input files.
-    PairCountMismatch { sample: String, input: u64, kallisto: u64 },
+    /// The quantifier's processed count (kallisto `n_processed`, salmon `num_processed`)
+    /// differs from the pairs (reads, for single-end) counted in the input files.
+    PairCountMismatch { sample: String, input: u64, processed: u64, tool: &'static str },
     /// A sample has no `<sample>.summary.tsv.zst` (its run failed or did not happen).
     MissingSummaryFile { sample: String, path: PathBuf },
     /// A per-sample summary file names another sample, or is not a one-row summary table.
@@ -151,16 +158,22 @@ impl fmt::Display for PipelineError {
             PipelineError::NoReads { sample, file } => {
                 write!(f, "sample '{sample}': {} holds no FASTQ record", file.display())
             }
-            PipelineError::PairCountMismatch { sample, input, kallisto } => write!(
+            PipelineError::PairCountMismatch { sample, input, processed, tool } => write!(
                 f,
-                "sample '{sample}': the input files hold {input} read pairs (reads, for single-end), but kallisto processed {kallisto}"
+                "sample '{sample}': the input files hold {input} read pairs \
+                 (reads, for single-end), but {tool} processed {processed}"
             ),
-            PipelineError::NoReadsPseudoaligned { sample, strandedness, stderr_tail } => write!(
-                f,
-                "sample '{sample}': kallisto pseudoaligned 0 reads (pseudoaligned fraction 0). \
-                 Check the strandedness setting (now {strandedness:?}) with `qrnamap strand-check`, \
-                 and check that the reads match the transcripts. kallisto stderr:\n{stderr_tail}"
-            ),
+            PipelineError::NoReadsPseudoaligned { sample, tool, strandedness, stderr_tail } => {
+                // kallisto text is unchanged; salmon calls it mapping.
+                let verb = if *tool == "salmon" { "mapped" } else { "pseudoaligned" };
+                write!(
+                    f,
+                    "sample '{sample}': {tool} {verb} 0 reads ({verb} fraction 0). \
+                     Check the strandedness setting (now {strandedness:?}) with \
+                     `qrnamap strand-check`, and check that the reads match the transcripts. \
+                     {tool} stderr:\n{stderr_tail}"
+                )
+            }
             PipelineError::GenesTableMismatch { missing, n_missing } => {
                 let more = if *n_missing > missing.len() { ", ..." } else { "" };
                 write!(
@@ -496,7 +509,7 @@ pub fn run_transcripts_with_genes(
 pub fn check_samples(samples: &[Sample], cfg: &RunConfig, mode: Mode) -> Result<(), PipelineError> {
     for s in samples {
         let r = match mode {
-            Mode::Quant => kallisto_quant(s, "idx", "out", cfg).map(|_| ()),
+            Mode::Quant => quant_call(s, "idx", "out", cfg).map(|_| ()),
             Mode::Align => hisat2_align(s, "idx", "ss", "x.sam", cfg)
                 .and_then(|_| feature_counts("x.sam", "x.saf", "fc", !s.fastq2.is_empty(), cfg))
                 .map(|_| ()),
@@ -637,12 +650,18 @@ fn check_read_counts(sample: &Sample, counts: &[Vec<u64>; 2]) -> Result<u64, Pip
     Ok(counts[0].iter().sum())
 }
 
-/// kallisto's `n_processed` must equal the pairs counted in the inputs (final review C1).
-fn check_processed(sample: &str, input: u64, kallisto: u64) -> Result<(), PipelineError> {
-    if input == kallisto {
+/// The quantifier's processed count must equal the pairs counted in the inputs (final review
+/// C1). `tool` names the quantifier in the error.
+fn check_processed(
+    sample: &str,
+    input: u64,
+    processed: u64,
+    tool: &'static str,
+) -> Result<(), PipelineError> {
+    if input == processed {
         Ok(())
     } else {
-        Err(PipelineError::PairCountMismatch { sample: sample.to_string(), input, kallisto })
+        Err(PipelineError::PairCountMismatch { sample: sample.to_string(), input, processed, tool })
     }
 }
 
@@ -703,6 +722,10 @@ pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineEr
         PathBuf::from(summary_partial),
         sd.join("abundance.tsv"),
         sd.join("run_info.json"),
+        sd.join("quant.sf"),
+        sd.join("quant.sf.partial"),
+        sd.join("cmd_info.json"),
+        sd.join("lib_format_counts.json"),
         sd.join("featurecounts.summary"),
         sd.join("featurecounts.summary.partial"),
         sd.join(format!("{sample}.sam.zst")),
@@ -710,6 +733,16 @@ pub fn remove_old_outputs(out_dir: &Path, sample: &str) -> Result<(), PipelineEr
     ];
     for p in files {
         match fs::remove_file(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(PipelineError::Io { path: p, source: e }),
+        }
+    }
+    // Salmon's per-sample subdirectories (aux_info/meta_info.json, logs,
+    // libParams/flenDist.txt and the other files in them).
+    for sub in ["aux_info", "logs", "libParams"] {
+        let p = sd.join(sub);
+        match fs::remove_dir_all(&p) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(PipelineError::Io { path: p, source: e }),
@@ -723,6 +756,10 @@ pub const MAPPING_SUMMARY: &str = "mapping_summary.tsv.zst";
 
 /// Header of `<out>/<sample>.summary.tsv.zst`.
 pub const SUMMARY_HEADER: &str = "sample\tmode\tquantifier\treads_processed\tfraction_mapped\tfraction_assigned\tstrandedness\tqrnamap_version";
+
+/// The 7-column header written before the `quantifier` column was added.
+const OLD_SUMMARY_HEADER: &str = "sample\tmode\treads_processed\tfraction_mapped\t\
+                                  fraction_assigned\tstrandedness\tqrnamap_version";
 
 fn summary_path(out_dir: &Path, sample: &str) -> PathBuf {
     out_dir.join(format!("{sample}.summary.tsv.zst"))
@@ -787,8 +824,16 @@ fn read_sample_summary(out_dir: &Path, sample: &str) -> Result<Vec<String>, Pipe
     let text = read_table(&path)?;
     let bad = |line: usize, detail: &str| PipelineError::BadTable { path: path.clone(), line, detail: detail.into() };
     let mut lines = text.lines();
-    if lines.next() != Some(SUMMARY_HEADER) {
-        return Err(bad(1, "the summary header is not the expected one"));
+    match lines.next() {
+        Some(SUMMARY_HEADER) => {}
+        Some(OLD_SUMMARY_HEADER) => {
+            return Err(bad(
+                1,
+                "the summary header has no quantifier column: the file was written by an older \
+                 qrnamap; run that sample again",
+            ))
+        }
+        _ => return Err(bad(1, "the summary header is not the expected one")),
     }
     let row: Vec<String> = match lines.next() {
         Some(l) => l.split('\t').map(String::from).collect(),
@@ -907,13 +952,64 @@ fn json_number(text: &str, field: &str) -> Option<f64> {
     rest[..end].parse().ok().filter(|v: &f64| v.is_finite())
 }
 
+/// The raw value text after `"field":` in a JSON text, up to the next `,`, `}`, `]` or
+/// white space. `Ok(None)` when the key is absent. A key that occurs more than once (for
+/// example again in a nested object) is a `BadTable` error, so a nested value is never read
+/// by mistake. Not a general JSON parser.
+fn json_value_once<'a>(
+    text: &'a str,
+    field: &str,
+    path: &Path,
+) -> Result<Option<&'a str>, PipelineError> {
+    let key = format!("\"{field}\"");
+    let mut found = None;
+    for (i, _) in text.match_indices(&key) {
+        let Some(rest) = text[i + key.len()..].trim_start().strip_prefix(':') else {
+            continue; // the text occurs as a value, not as a key
+        };
+        if found.is_some() {
+            let detail = format!("field '{field}' occurs twice");
+            return Err(PipelineError::BadTable { path: path.to_path_buf(), line: 0, detail });
+        }
+        let rest = rest.trim_start();
+        let end = rest.find(|c: char| matches!(c, ',' | '}' | ']') || c.is_whitespace());
+        found = Some(&rest[..end.unwrap_or(rest.len())]);
+    }
+    Ok(found)
+}
+
+/// `(num_processed, num_mapped, percent_mapped)` from salmon's `aux_info/meta_info.json`.
+/// Each key must occur once. The counts must be non-negative integers; the percentage must
+/// be a finite number from 0 to 100.
+fn parse_salmon_meta(text: &str, path: &Path) -> Result<(u64, u64, f64), PipelineError> {
+    let raw = |f: &str| {
+        let missing = || PipelineError::MissingField { path: path.to_path_buf(), field: f.into() };
+        json_value_once(text, f, path)?.ok_or_else(missing)
+    };
+    let bad = |f: &str, what: &str| PipelineError::BadTable {
+        path: path.to_path_buf(),
+        line: 0,
+        detail: format!("field '{f}' is not {what}"),
+    };
+    let int = |f: &str| raw(f)?.parse::<u64>().map_err(|_| bad(f, "a non-negative integer"));
+    let processed = int("num_processed")?;
+    let mapped = int("num_mapped")?;
+    let pct = raw("percent_mapped")?
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && (0.0..=100.0).contains(v))
+        .ok_or_else(|| bad("percent_mapped", "a number from 0 to 100"))?;
+    Ok((processed, mapped, pct))
+}
+
 // ---------------------------------------------------------------------------------------------
-// kallisto
+// kallisto and salmon
 
 /// Everything `quant_sample` needs.
 #[derive(Debug, Clone)]
 pub struct QuantContext {
-    /// kallisto index file.
+    /// The index of `config.quantifier`: the kallisto index file (`transcripts.kidx`) or the
+    /// salmon index directory (`salmon_index`).
     pub index: PathBuf,
     pub tx2gene: HashMap<String, String>,
     pub out_dir: PathBuf,
@@ -943,9 +1039,11 @@ pub fn read_tx2gene(path: &Path) -> Result<HashMap<String, String>, PipelineErro
     Ok(m)
 }
 
-/// Build the kallisto index once in `<out_dir>/transcripts.kidx`. A compressed transcript
-/// FASTA is decompressed into scratch first and removed after the index is built. With
-/// `genes`, `<out_dir>/genes.tsv.zst` is written from that GFF3 first.
+/// Build the index of `config.quantifier` once: kallisto in `<out_dir>/transcripts.kidx`,
+/// salmon in the directory `<out_dir>/salmon_index` (an old one is removed first). Only that
+/// one index is built. A compressed transcript FASTA is decompressed into scratch first and
+/// removed after the index is built. With `genes`, `<out_dir>/genes.tsv.zst` is written from
+/// that GFF3 after the index.
 pub fn prepare_quant(
     transcripts: &Path,
     tx2gene: &Path,
@@ -963,43 +1061,105 @@ pub fn prepare_quant(
     if let Some(m) = &model {
         check_tx2gene_in_model(&tx2gene, m)?;
     }
-    let (fa, _guard) = plain_copy(transcripts, &scratch, "kallisto-index", "transcripts.fa")?;
-    let index = out_dir.join("transcripts.kidx");
-    let call = kallisto_index(utf8(&fa)?, utf8(&index)?);
-    run_call(&call, &out_dir).map_err(|source| PipelineError::Exec { sample: None, source })?;
+    let exec_err = |source| PipelineError::Exec { sample: None, source };
+    let index = match config.quantifier {
+        Quantifier::Kallisto => {
+            let (fa, _guard) =
+                plain_copy(transcripts, &scratch, "kallisto-index", "transcripts.fa")?;
+            let index = out_dir.join("transcripts.kidx");
+            let call = kallisto_index(utf8(&fa)?, utf8(&index)?);
+            run_call(&call, &out_dir).map_err(exec_err)?;
+            index
+        }
+        Quantifier::Salmon => {
+            let index = out_dir.join("salmon_index");
+            let (fa, _guard) = plain_copy(transcripts, &scratch, "salmon-index", "transcripts.fa")?;
+            let call = salmon_index(utf8(&fa)?, utf8(&index)?, &config)
+                .map_err(|source| PipelineError::Config { sample: "(index)".into(), source })?;
+            // R24: the inputs are checked above; remove a stale index, then build.
+            match fs::remove_dir_all(&index) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(PipelineError::Io { path: index, source: e }),
+            }
+            run_call(&call, &out_dir).map_err(exec_err)?;
+            index
+        }
+    };
     if let (Some(m), Some(g)) = (&model, genes) {
         write_genes_table(&out_dir.join(GENES_TABLE), m, g.mito_contigs)?;
     }
     Ok(QuantContext { index, tx2gene, out_dir, scratch, config })
 }
 
-/// kallisto quant for one sample. Writes `<out>/<sample>/abundance.tsv` and `run_info.json`
-/// (kallisto's names) and `<out>/<sample>.genecounts.tsv.zst`.
+/// The quant tool call of `cfg.quantifier` for `sample`.
+fn quant_call(
+    sample: &Sample,
+    index: &str,
+    out: &str,
+    cfg: &RunConfig,
+) -> Result<ToolCall, ConfigError> {
+    match cfg.quantifier {
+        Quantifier::Kallisto => kallisto_quant(sample, index, out, cfg),
+        Quantifier::Salmon => salmon_quant(sample, index, out, cfg),
+    }
+}
+
+/// Quantify one sample with `ctx.config.quantifier`. kallisto writes
+/// `<out>/<sample>/abundance.tsv` and `run_info.json`; salmon writes `<out>/<sample>/quant.sf`
+/// and `aux_info/meta_info.json` (the tools' names). Both write
+/// `<out>/<sample>.genecounts.tsv.zst` and `<out>/<sample>.summary.tsv.zst`.
 pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult, PipelineError> {
     let name = &sample.name;
     remove_old_outputs(&ctx.out_dir, name)?;
     let cfg_err = |source| PipelineError::Config { sample: name.clone(), source };
-    kallisto_quant(sample, "idx", "out", &ctx.config).map_err(cfg_err)?;
+    quant_call(sample, "idx", "out", &ctx.config).map_err(cfg_err)?;
     let sample_dir = ctx.out_dir.join(name);
     fs::create_dir_all(&sample_dir).map_err(io_err(&sample_dir))?;
     let mut guard = ScratchGuard(None);
+    // Both tools read gzip themselves (salmon 2.8.0: checked with a real run in the tests).
     let staged = stage_reads(sample, true, true, &ctx.scratch, &mut guard)?;
     let input_pairs = check_read_counts(sample, &staged.counts)?;
     let staged = staged.sample;
-    let call = kallisto_quant(&staged, utf8(&ctx.index)?, utf8(&sample_dir)?, &ctx.config).map_err(cfg_err)?;
-    run_call(&call, &sample_dir).map_err(|source| match source {
+    let call = quant_call(&staged, utf8(&ctx.index)?, utf8(&sample_dir)?, &ctx.config)
+        .map_err(cfg_err)?;
+    let quantifier = ctx.config.quantifier;
+    let (counts, n, p) = match quantifier {
+        Quantifier::Kallisto => kallisto_run(name, &call, &sample_dir, ctx)?,
+        Quantifier::Salmon => salmon_run(name, &call, &sample_dir, ctx)?,
+    };
+    drop(guard);
+    check_processed(name, input_pairs, n, quantifier.name())?;
+    write_gene_counts(&genecounts_path(&ctx.out_dir, name), name, &counts)?;
+    let warnings = zero_warning(name, &counts).into_iter().collect();
+    let summary = SampleSummary { reads_processed: n, fraction_mapped: p, fraction_assigned: p };
+    let strand = ctx.config.strandedness;
+    write_sample_summary(&ctx.out_dir, name, Mode::Quant, Some(quantifier), &summary, strand)?;
+    Ok(SampleResult { sample: name.clone(), counts, summary, warnings })
+}
+
+/// Gene counts, processed pairs and mapped fraction (0 to 1).
+type QuantOutput = (BTreeMap<String, u64>, u64, f64);
+
+/// Run kallisto quant and read `abundance.tsv` and `run_info.json`.
+fn kallisto_run(
+    name: &str,
+    call: &ToolCall,
+    sample_dir: &Path,
+    ctx: &QuantContext,
+) -> Result<QuantOutput, PipelineError> {
+    run_call(call, sample_dir).map_err(|source| match source {
         // kallisto 0.52.0 exits with status 1 when no read pseudoaligns (observed in the tests).
         ExecError::Failed { ref stderr_tail, .. } if stderr_tail.contains("no reads pseudoaligned") => {
             PipelineError::NoReadsPseudoaligned {
-                sample: name.clone(),
+                sample: name.to_string(),
+                tool: "kallisto",
                 strandedness: ctx.config.strandedness,
                 stderr_tail: stderr_tail.clone(),
             }
         }
-        source => PipelineError::Exec { sample: Some(name.clone()), source },
+        source => PipelineError::Exec { sample: Some(name.to_string()), source },
     })?;
-    drop(guard);
-
     let ab_path = sample_dir.join("abundance.tsv");
     let counts = gene_counts_from_abundance(&read_table(&ab_path)?, &ctx.tx2gene)
         .map_err(|source| PipelineError::Count { path: ab_path.clone(), source })?;
@@ -1010,12 +1170,54 @@ pub fn quant_sample(sample: &Sample, ctx: &QuantContext) -> Result<SampleResult,
     };
     let n = field("n_processed")?;
     let p = field("p_pseudoaligned")? / 100.0;
-    check_processed(name, input_pairs, n as u64)?;
-    write_gene_counts(&genecounts_path(&ctx.out_dir, name), name, &counts)?;
-    let warnings = zero_warning(name, &counts).into_iter().collect();
-    let summary = SampleSummary { reads_processed: n as u64, fraction_mapped: p, fraction_assigned: p };
-    write_sample_summary(&ctx.out_dir, name, Mode::Quant, Some(Quantifier::Kallisto), &summary, ctx.config.strandedness)?;
-    Ok(SampleResult { sample: name.clone(), counts, summary, warnings })
+    Ok((counts, n as u64, p))
+}
+
+/// True when `meta_info.json` at `path` exists, parses and has `num_mapped` 0.
+fn salmon_meta_zero_mapped(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|t| parse_salmon_meta(&t, path).ok())
+        .is_some_and(|(_, mapped, _)| mapped == 0)
+}
+
+/// Run salmon quant and read `quant.sf` and `aux_info/meta_info.json`. Zero mapped fragments
+/// is `NoReadsPseudoaligned`. salmon MIGRATION.md says salmon 2.x writes its output and then
+/// exits non-zero in that case, so a failed run is checked through `meta_info.json` first.
+/// salmon 2.8.0 exited 0 in a manual zero-mapped check, so a successful run is checked too.
+/// `remove_old_outputs` removed any old `meta_info.json`, so the file is from this run.
+fn salmon_run(
+    name: &str,
+    call: &ToolCall,
+    sample_dir: &Path,
+    ctx: &QuantContext,
+) -> Result<QuantOutput, PipelineError> {
+    let meta_path = sample_dir.join("aux_info").join("meta_info.json");
+    let no_reads = |stderr_tail: &str| PipelineError::NoReadsPseudoaligned {
+        sample: name.to_string(),
+        tool: "salmon",
+        strandedness: ctx.config.strandedness,
+        stderr_tail: stderr_tail.to_string(),
+    };
+    let stderr_tail = match run_call_stderr(call, sample_dir) {
+        Ok(t) => t,
+        Err(ExecError::Failed { program, status, stderr_tail, stdout_tail }) => {
+            if salmon_meta_zero_mapped(&meta_path) {
+                return Err(no_reads(&stderr_tail));
+            }
+            let source = ExecError::Failed { program, status, stderr_tail, stdout_tail };
+            return Err(PipelineError::Exec { sample: Some(name.to_string()), source });
+        }
+        Err(source) => return Err(PipelineError::Exec { sample: Some(name.to_string()), source }),
+    };
+    let (n, mapped, pct) = parse_salmon_meta(&read_table(&meta_path)?, &meta_path)?;
+    if mapped == 0 {
+        return Err(no_reads(&stderr_tail));
+    }
+    let sf_path = sample_dir.join("quant.sf");
+    let counts = gene_counts_from_salmon(&read_table(&sf_path)?, &ctx.tx2gene)
+        .map_err(|source| PipelineError::Count { path: sf_path.clone(), source })?;
+    Ok((counts, n, pct / 100.0))
 }
 
 fn zero_warning(sample: &str, counts: &BTreeMap<String, u64>) -> Option<String> {
@@ -1440,10 +1642,69 @@ mod tests {
 
     #[test]
     fn processed_count_must_match_input_pairs() {
-        check_processed("S1", 10, 10).unwrap();
-        let e = check_processed("S1", 10, 4).unwrap_err();
-        assert!(matches!(e, PipelineError::PairCountMismatch { ref sample, input: 10, kallisto: 4 } if sample == "S1"), "{e:?}");
-        assert!(e.to_string().contains("'S1'"), "{e}");
+        check_processed("S1", 10, 10, "kallisto").unwrap();
+        let e = check_processed("S1", 10, 4, "kallisto").unwrap_err();
+        assert!(
+            matches!(
+                e,
+                PipelineError::PairCountMismatch {
+                    ref sample, input: 10, processed: 4, tool: "kallisto"
+                } if sample == "S1"
+            ),
+            "{e:?}"
+        );
+        assert!(e.to_string().contains("'S1'") && e.to_string().contains("kallisto"), "{e}");
+    }
+
+    #[test]
+    fn salmon_pair_count_mismatch_names_tool() {
+        let e = check_processed("s", 10, 9, "salmon").unwrap_err();
+        let t = e.to_string();
+        assert!(t.contains("salmon processed 9") && !t.contains("kallisto"), "{t}");
+    }
+
+    #[test]
+    fn parse_salmon_meta_ok_and_errors() {
+        let p = Path::new("meta_info.json");
+        let good = "{\n  \"salmon_version\": \"2.8.0\",\n  \"num_processed\": 10000,\n  \
+                    \"num_mapped\": 9950,\n  \"percent_mapped\": 99.5,\n  \
+                    \"frag_dist\": [1, 2],\n  \"x\": {\"y\": 1}\n}";
+        assert_eq!(parse_salmon_meta(good, p).unwrap(), (10000, 9950, 99.5));
+        // Missing key.
+        let e = parse_salmon_meta(&good.replace("\"num_mapped\"", "\"other\""), p).unwrap_err();
+        let missing =
+            matches!(&e, PipelineError::MissingField { field, .. } if field == "num_mapped");
+        assert!(missing, "{e:?}");
+        // The key occurs twice: a nested object repeats it.
+        let dup = good.replace("\"x\": {", "\"x\": {\"num_processed\": 3, ");
+        let e = parse_salmon_meta(&dup, p).unwrap_err();
+        assert!(e.to_string().contains("num_processed") && e.to_string().contains("twice"), "{e}");
+        // Non-numeric value, a negative count and a fractional count.
+        for bad in ["\"many\"", "-1", "1.5"] {
+            let text =
+                good.replace("\"num_processed\": 10000", &format!("\"num_processed\": {bad}"));
+            let e = parse_salmon_meta(&text, p).unwrap_err();
+            assert!(matches!(&e, PipelineError::BadTable { .. }), "{bad}: {e:?}");
+            assert!(e.to_string().contains("num_processed"), "{e}");
+        }
+        let e = parse_salmon_meta(&good.replace("99.5", "\"high\""), p).unwrap_err();
+        assert!(e.to_string().contains("percent_mapped"), "{e}");
+    }
+
+    #[test]
+    fn salmon_zero_mapped_check_reads_meta_file() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("meta_info.json");
+        assert!(!salmon_meta_zero_mapped(&p), "missing file");
+        let meta = |m: u64| {
+            format!("{{\"num_processed\": 5, \"num_mapped\": {m}, \"percent_mapped\": 0.0}}")
+        };
+        fs::write(&p, meta(0)).unwrap();
+        assert!(salmon_meta_zero_mapped(&p));
+        fs::write(&p, meta(3)).unwrap();
+        assert!(!salmon_meta_zero_mapped(&p));
+        fs::write(&p, "{\"num_mapped\": 0}").unwrap();
+        assert!(!salmon_meta_zero_mapped(&p), "a file that does not parse");
     }
 
     #[test]
