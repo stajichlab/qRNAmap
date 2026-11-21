@@ -1647,7 +1647,9 @@ fn slurm_salmon_flag_errors_write_no_scripts() {
 /// `main` (commit fe1ce5e, before the flags existed): a detached worktree of fe1ce5e, this test
 /// file copied into its `crates/qrnamap-cli/tests/`, and
 /// `QRNAMAP_WRITE_GOLDEN=<dir> cargo test -p qrnamap-cli --test slurm slurm_without_flags_is_unchanged`.
-/// With `QRNAMAP_WRITE_GOLDEN` set, the test writes the files and does not compare.
+/// With `QRNAMAP_WRITE_GOLDEN` set, the test writes the files and does not compare. The test
+/// refuses to write into the `tests/golden` directory of its own checkout, so output of a branch
+/// cannot overwrite the files made by main. Write to another directory and copy the files.
 #[test]
 fn slurm_without_flags_is_unchanged() {
     for (quantifier, tool) in [("salmon", "salmon"), ("kallisto", "kallisto")] {
@@ -1665,6 +1667,12 @@ fn slurm_without_flags_is_unchanged() {
         let got = normalized_scripts(d);
         let name = format!("slurm_main_{quantifier}.txt");
         if let Some(dir) = std::env::var_os("QRNAMAP_WRITE_GOLDEN") {
+            let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
+            let same = fs::canonicalize(&dir).ok() == fs::canonicalize(&golden).ok();
+            assert!(
+                !same,
+                "QRNAMAP_WRITE_GOLDEN must not be the in-repo tests/golden"
+            );
             fs::write(Path::new(&dir).join(&name), &got).unwrap();
             continue;
         }

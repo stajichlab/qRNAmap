@@ -587,11 +587,15 @@ fn salmon_flags_rejected_with_align_mode() {
             let o = qrnamap(&[&base[..], flag, q].concat());
             let err = String::from_utf8_lossy(&o.stderr);
             assert!(!o.status.success(), "{err}");
-            assert!(
-                err.contains("--mode align")
-                    && (err.contains(flag[0]) || err.contains("--quantifier")),
-                "{flag:?} {q:?}: {err}"
-            );
+            assert!(err.contains("--mode align"), "{flag:?} {q:?}: {err}");
+            // With --quantifier salmon, the older --quantifier check fires first and names
+            // that option. Without it, the Salmon flag error names the flag.
+            let named = if q.is_empty() {
+                flag[0]
+            } else {
+                "--quantifier"
+            };
+            assert!(err.contains(named), "{flag:?} {q:?}: {err}");
             assert!(!out.exists(), "refused before any file is written");
         }
     }
