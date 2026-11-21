@@ -51,12 +51,12 @@ The user chose option 1 by default ("I will go with my pick unless you object").
 - `counts.rs`:
   - `gene_counts_from_salmon(quant_sf_text, tx2gene) -> ...`: sum `NumReads` per gene through tx2gene, round once, half away from zero. Same output type and rounding as `gene_counts_from_abundance` (kallisto). Share the summing and rounding code where possible.
   - `parse_salmon_meta(meta_info_json) -> SalmonMeta { num_processed, num_mapped, percent_mapped }`. The reader must fail with a clear error if a field is missing. Builder: confirm the field names against real Salmon 2.8.0 output.
-  - The JSON reader must not add a heavy dependency to the wasm build. A small hand parser or `serde_json` (already in the workspace? builder checks) are both acceptable. Builder's call.
+  - Correction after builder check: `parse_salmon_meta` lives in the CLI crate beside the existing `json_number` hand parser (pipeline.rs), not in core. Salmon in the browser is a non-goal, and core has no JSON dependency. The parser must check that each key occurs once, because `meta_info.json` has nested objects.
 
 ### CLI crate (`qrnamap-cli`)
 
 - `--quantifier` on `quant` and `run`. Parsed to `Quantifier`. Default kallisto.
-- Index directory: `<out>/salmon_index/` (kallisto keeps `<out>/transcripts.idx`). `prepare_quant` builds the one that matches the quantifier. It does not build both.
+- Index directory: `<out>/salmon_index/` (kallisto keeps `<out>/transcripts.kidx`). `prepare_quant` builds the one that matches the quantifier. It does not build both.
 - `quant_sample` for Salmon:
   - Validate the input like the kallisto path does. Read every lane to the end, check mate counts, count input pairs.
   - Run `salmon quant`. Read `<out>/<sample>/quant.sf` and `aux_info/meta_info.json`.
@@ -94,3 +94,16 @@ The user chose option 1 by default ("I will go with my pick unless you object").
 ## Validation after the code
 
 Run Salmon on the AMB data (GSE80357) and compare gene counts with the kallisto counts and with the authors' tables, as the GEO comparison did. Report the measured agreement. Do not claim agreement before the numbers exist.
+
+## Decisions after the builder check (author's calls, marked for the user to review)
+
+1. `fraction_assigned` = `fraction_mapped` = `percent_mapped / 100`, the same as kallisto today.
+2. Single-end lanes: one space-separated list after `-r`. Paired lanes: all R1 files after `-1`, all R2 files after `-2`. The tool-gated test must show lanes equal concatenated reads.
+3. Zero mapped reads: `num_mapped == 0` fails the sample with the existing `NoReadsPseudoaligned` error, as kallisto does. Salmon's `compatible_fragment_ratio` library-type warning is not used.
+4. Summary format: the `quantifier` column goes after `mode`. Align rows write `none`. `read_sample_summary` accepts 8 columns only. Old 7-column files are rejected with a clear message.
+5. Stale output removal (R24) lists the files of both tools: `abundance.tsv`, `run_info.json`, `quant.sf`, `aux_info/meta_info.json`, and the Salmon per-sample directory. A switch from one tool to the other must leave no old output.
+6. `.prepared` marker: add a `quantifier` line, bump the marker header version from 1 to 2, and refuse a marker without the line. The marker stores a value here, not a file stamp. An old prepared directory must be prepared again. The error message says so.
+7. `--quantifier salmon` together with align mode is an error. It is not ignored.
+8. The Salmon index is a directory. `QuantContext.index` and `require_file` (run.rs) must accept a directory for Salmon.
+9. Also in scope, found by the builder: the `check_samples` dry validation branches on the quantifier; kallisto-named error variants and messages (`PairCountMismatch { kallisto }`, `NoReadsPseudoaligned`) take the tool name; `RunFlags::config` sets the quantifier; `slurm_plan` forwards `--quantifier`; `required_tools` takes the quantifier (callers and tests change); help text and README name both tools; tests that hard-code the 7-column header are updated.
+10. Minor builder calls: create the sample directory as today; `--quantifier` is a clap `value_enum`; index flags are `-t -i -p` only; add `--validateMappings` only if 2.8.0 needs it; float formatting as kallisto; one shared private sum-and-round helper in `counts.rs`; negative or NaN `NumReads` is a `BadRow` error.
