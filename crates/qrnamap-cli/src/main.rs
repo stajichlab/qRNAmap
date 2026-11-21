@@ -381,6 +381,8 @@ fn parse_fragment_length(s: &str) -> Result<(f64, f64), String> {
 }
 
 impl RunFlags {
+    /// The quantifier is not set here: `RunFlags` is also flattened into `align`, which has no
+    /// `--quantifier`. The `quant` and `run` call sites set `quantifier` after this call.
     fn config(&self, mode: Mode) -> RunConfig {
         RunConfig {
             mode,

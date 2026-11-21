@@ -371,6 +371,7 @@ fn salmon_two_lanes_equal_concatenated() {
         worst = worst.max(l.abs_diff(w));
     }
     eprintln!("MEASURED salmon lanes vs concatenated: max per-gene count difference {worst}");
+    assert!(whole.counts.values().sum::<u64>() > 0, "no counts: equality would be empty");
     assert_eq!(lanes.counts, whole.counts);
     assert_eq!(lanes.summary.reads_processed, whole.summary.reads_processed);
 }

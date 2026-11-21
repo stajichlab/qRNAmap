@@ -201,6 +201,7 @@ fn quantifier_with_align_mode_is_error() {
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(!o.status.success());
     assert!(!err.contains("--quantifier"), "{err}");
+    assert!(err.contains("error: sample 'A': input error: /x/a_1.fq"), "{err}");
     // `qrnamap align` has no --quantifier flag.
     let o2 = d.join("o2");
     let o = qrnamap(&[
