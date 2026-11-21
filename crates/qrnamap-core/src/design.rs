@@ -129,7 +129,9 @@ pub struct Contrast {
 }
 
 fn is_level(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
 }
 
 impl Contrast {
@@ -155,7 +157,9 @@ impl Contrast {
             Some((_, ColType::Factor)) => {}
         }
         if !is_level(level) {
-            return Err(bad("contrast level is empty or has a character outside [A-Za-z0-9_.-]"));
+            return Err(bad(
+                "contrast level is empty or has a character outside [A-Za-z0-9_.-]",
+            ));
         }
         if !is_level(reference) {
             return Err(bad(
@@ -165,6 +169,10 @@ impl Contrast {
         if level == reference {
             return Err(bad("contrast level and reference are the same"));
         }
-        Ok(Contrast { factor: factor.into(), level: level.into(), reference: reference.into() })
+        Ok(Contrast {
+            factor: factor.into(),
+            level: level.into(),
+            reference: reference.into(),
+        })
     }
 }

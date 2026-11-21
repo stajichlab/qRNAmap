@@ -16,13 +16,25 @@ pub const TAIL_BYTES: usize = 4096;
 #[derive(Debug)]
 pub enum ExecError {
     /// The program could not be started (for example, it is not on PATH).
-    Spawn { program: String, source: std::io::Error },
+    Spawn {
+        program: String,
+        source: std::io::Error,
+    },
     /// A declared input does not exist. Checked before the program runs.
     MissingInput { program: String, path: PathBuf },
     /// The program exited with a non-zero status or was killed by a signal.
-    Failed { program: String, status: String, stderr_tail: String, stdout_tail: String },
+    Failed {
+        program: String,
+        status: String,
+        stderr_tail: String,
+        stdout_tail: String,
+    },
     /// The program exited with status 0 but a declared output is missing.
-    MissingOutput { program: String, path: PathBuf, stderr_tail: String },
+    MissingOutput {
+        program: String,
+        path: PathBuf,
+        stderr_tail: String,
+    },
 }
 
 impl fmt::Display for ExecError {
@@ -85,7 +97,11 @@ fn strip_csi(bytes: &[u8]) -> Vec<u8> {
                 j += 1;
             }
             // Skip the final byte when it is there.
-            i = if j < bytes.len() && (0x40..=0x7e).contains(&bytes[j]) { j + 1 } else { j };
+            i = if j < bytes.len() && (0x40..=0x7e).contains(&bytes[j]) {
+                j + 1
+            } else {
+                j
+            };
             continue;
         }
         out.push(bytes[i]);
@@ -150,7 +166,10 @@ pub fn run_call_stderr(call: &ToolCall, scratch: &Path) -> Result<String, ExecEr
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|source| ExecError::Spawn { program: program.clone(), source })?;
+        .map_err(|source| ExecError::Spawn {
+            program: program.clone(),
+            source,
+        })?;
     if !out.status.success() {
         return Err(ExecError::Failed {
             program,
@@ -163,7 +182,11 @@ pub fn run_call_stderr(call: &ToolCall, scratch: &Path) -> Result<String, ExecEr
         let p = resolve(scratch, p);
         if !p.exists() {
             let stderr_tail = error_tail(&out.stderr);
-            return Err(ExecError::MissingOutput { program, path: p, stderr_tail });
+            return Err(ExecError::MissingOutput {
+                program,
+                path: p,
+                stderr_tail,
+            });
         }
     }
     Ok(tail(&out.stderr))

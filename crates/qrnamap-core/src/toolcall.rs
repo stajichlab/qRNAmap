@@ -97,21 +97,29 @@ fn check_threads(cfg: &RunConfig) -> Result<(), ConfigError> {
 /// R1 must be non-empty. When R2 is non-empty, lane counts must match.
 fn check_reads(sample: &Sample) -> Result<(), ConfigError> {
     if sample.fastq1.is_empty() {
-        return Err(ConfigError::NoReads { sample: sample.name.clone() });
+        return Err(ConfigError::NoReads {
+            sample: sample.name.clone(),
+        });
     }
     if !sample.fastq2.is_empty() && sample.fastq1.len() != sample.fastq2.len() {
-        return Err(ConfigError::MateCountMismatch { sample: sample.name.clone() });
+        return Err(ConfigError::MateCountMismatch {
+            sample: sample.name.clone(),
+        });
     }
     Ok(())
 }
 
 /// Fragment length mean and SD for a single-end sample. Both must be finite and > 0.
 fn fragment_len(sample: &Sample, cfg: &RunConfig) -> Result<(f64, f64), ConfigError> {
-    let (mean, sd) = cfg.fragment_len.ok_or_else(|| ConfigError::FragmentLengthRequired {
-        sample: sample.name.clone(),
-    })?;
+    let (mean, sd) = cfg
+        .fragment_len
+        .ok_or_else(|| ConfigError::FragmentLengthRequired {
+            sample: sample.name.clone(),
+        })?;
     if !(mean.is_finite() && sd.is_finite() && mean > 0.0 && sd > 0.0) {
-        return Err(ConfigError::InvalidFragmentLength { sample: sample.name.clone() });
+        return Err(ConfigError::InvalidFragmentLength {
+            sample: sample.name.clone(),
+        });
     }
     Ok((mean, sd))
 }
@@ -156,7 +164,13 @@ pub fn kallisto_quant(
     } else {
         let (mean, sd) = fragment_len(sample, cfg)?;
         // f64 Display gives the shortest round-trip form: 200.0 -> "200".
-        args.extend(["--single".into(), "-l".into(), mean.to_string(), "-s".into(), sd.to_string()]);
+        args.extend([
+            "--single".into(),
+            "-l".into(),
+            mean.to_string(),
+            "-s".into(),
+            sd.to_string(),
+        ]);
         files.extend(sample.fastq1.iter());
     }
     args.extend(files.iter().map(|f| f.to_string()));
@@ -229,10 +243,20 @@ pub fn salmon_quant(
         let (mean, sd) = fragment_len(sample, cfg)?;
         args.push("-r".into());
         args.extend(sample.fastq1.iter().cloned());
-        args.extend(["--fldMean".into(), mean.to_string(), "--fldSD".into(), sd.to_string()]);
+        args.extend([
+            "--fldMean".into(),
+            mean.to_string(),
+            "--fldSD".into(),
+            sd.to_string(),
+        ]);
         sample.fastq1.iter().collect()
     };
-    args.extend(["-p".into(), cfg.threads.to_string(), "-o".into(), out_dir.into()]);
+    args.extend([
+        "-p".into(),
+        cfg.threads.to_string(),
+        "-o".into(),
+        out_dir.into(),
+    ]);
     let mut inputs: Vec<PathBuf> = files.iter().map(|f| PathBuf::from(f.as_str())).collect();
     inputs.push(index_dir.into());
     Ok(ToolCall {
@@ -241,7 +265,9 @@ pub fn salmon_quant(
         inputs,
         outputs: vec![
             PathBuf::from(out_dir).join("quant.sf"),
-            PathBuf::from(out_dir).join("aux_info").join("meta_info.json"),
+            PathBuf::from(out_dir)
+                .join("aux_info")
+                .join("meta_info.json"),
         ],
     })
 }
@@ -266,7 +292,9 @@ pub fn hisat2_build(
             index_prefix.into(),
         ],
         inputs: vec![reference_fasta.into()],
-        outputs: (1..=8).map(|i| PathBuf::from(format!("{index_prefix}.{i}.ht2"))).collect(),
+        outputs: (1..=8)
+            .map(|i| PathBuf::from(format!("{index_prefix}.{i}.ht2")))
+            .collect(),
     })
 }
 
@@ -312,20 +340,40 @@ pub fn hisat2_align(
         args.push(s.into());
     }
     if paired {
-        args.extend(["-1".into(), sample.fastq1.join(","), "-2".into(), sample.fastq2.join(",")]);
+        args.extend([
+            "-1".into(),
+            sample.fastq1.join(","),
+            "-2".into(),
+            sample.fastq2.join(","),
+        ]);
     } else {
         args.extend(["-U".into(), sample.fastq1.join(",")]);
     }
     args.extend(["-S".into(), sam.into()]);
-    let mut inputs: Vec<PathBuf> =
-        sample.fastq1.iter().chain(&sample.fastq2).map(PathBuf::from).collect();
+    let mut inputs: Vec<PathBuf> = sample
+        .fastq1
+        .iter()
+        .chain(&sample.fastq2)
+        .map(PathBuf::from)
+        .collect();
     inputs.push(splice_sites.into());
     inputs.push(index_prefix.into());
-    Ok(ToolCall { tool: Tool::Hisat2Align, args, inputs, outputs: vec![sam.into()] })
+    Ok(ToolCall {
+        tool: Tool::Hisat2Align,
+        args,
+        inputs,
+        outputs: vec![sam.into()],
+    })
 }
 
 /// `featureCounts` on a SAF built from our gene model.
-pub fn feature_counts(sam: &str, saf: &str, out: &str, paired: bool, cfg: &RunConfig) -> Result<ToolCall, ConfigError> {
+pub fn feature_counts(
+    sam: &str,
+    saf: &str,
+    out: &str,
+    paired: bool,
+    cfg: &RunConfig,
+) -> Result<ToolCall, ConfigError> {
     check_threads(cfg)?;
     let mut args = vec!["-T".to_string(), cfg.threads.to_string()];
     args.extend(st(&["-F", "SAF", "-a", saf]));

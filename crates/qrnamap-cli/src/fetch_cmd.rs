@@ -46,13 +46,21 @@ pub enum FetchCmdError {
     /// The accession is not in the genome catalog.
     UnknownAccession(String),
     /// The API key from this source is empty (`what` names the source, never the key).
-    EmptyKey { what: String },
+    EmptyKey {
+        what: String,
+    },
     /// `--base-url` was given for a source that does not use it.
     BaseUrlNotUsed,
     /// The `--catalog` file cannot be read or parsed.
-    Catalog { path: PathBuf, detail: String },
+    Catalog {
+        path: PathBuf,
+        detail: String,
+    },
     /// The key file cannot be read.
-    KeyFile { path: PathBuf, source: std::io::Error },
+    KeyFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     Fetch(FetchError),
 }
 
@@ -78,13 +86,20 @@ impl std::error::Error for FetchCmdError {}
 /// `EUPATHDB_KEY=` assignment with an empty value. The genome-fetch parser would otherwise read
 /// the assignment line itself as the key.
 fn key_file_is_empty(text: &str) -> bool {
-    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
     if lines.is_empty() {
         return true;
     }
     lines.iter().any(|l| {
         let rest = l.strip_prefix("export ").map(str::trim_start).unwrap_or(l);
-        match rest.strip_prefix(KEY_VARIABLE).and_then(|r| r.strip_prefix('=')) {
+        match rest
+            .strip_prefix(KEY_VARIABLE)
+            .and_then(|r| r.strip_prefix('='))
+        {
             Some(v) => {
                 let v = v.trim();
                 v.is_empty() || v == "\"\"" || v == "''"
@@ -97,16 +112,26 @@ fn key_file_is_empty(text: &str) -> bool {
 /// Pick exactly one key source. The key file wins over the environment variable. An empty key
 /// (empty key file, empty assignment in it, or an empty or blank `$EUPATHDB_KEY`) is an error.
 /// `env_value` is the value of `$EUPATHDB_KEY`, `None` when it is not set.
-pub fn choose_key(key_file: Option<&Path>, env_value: Option<&str>) -> Result<KeySource, FetchCmdError> {
+pub fn choose_key(
+    key_file: Option<&Path>,
+    env_value: Option<&str>,
+) -> Result<KeySource, FetchCmdError> {
     if let Some(p) = key_file {
-        let text = std::fs::read_to_string(p).map_err(|source| FetchCmdError::KeyFile { path: p.to_path_buf(), source })?;
+        let text = std::fs::read_to_string(p).map_err(|source| FetchCmdError::KeyFile {
+            path: p.to_path_buf(),
+            source,
+        })?;
         if key_file_is_empty(&text) {
-            return Err(FetchCmdError::EmptyKey { what: format!("key file {}", p.display()) });
+            return Err(FetchCmdError::EmptyKey {
+                what: format!("key file {}", p.display()),
+            });
         }
         return Ok(KeySource::File(p.to_path_buf()));
     }
     match env_value {
-        Some(v) if v.trim().is_empty() => Err(FetchCmdError::EmptyKey { what: format!("the environment variable {KEY_VARIABLE}") }),
+        Some(v) if v.trim().is_empty() => Err(FetchCmdError::EmptyKey {
+            what: format!("the environment variable {KEY_VARIABLE}"),
+        }),
         Some(_) => Ok(KeySource::Env),
         None => Ok(KeySource::None),
     }
@@ -116,9 +141,14 @@ fn load_catalog(path: Option<&Path>) -> Result<Catalog, FetchCmdError> {
     match path {
         None => Ok(genome_catalog::builtin()),
         Some(p) => {
-            let text = std::fs::read_to_string(p)
-                .map_err(|e| FetchCmdError::Catalog { path: p.to_path_buf(), detail: e.to_string() })?;
-            genome_catalog::parse(&text).map_err(|e: CatalogError| FetchCmdError::Catalog { path: p.to_path_buf(), detail: e.to_string() })
+            let text = std::fs::read_to_string(p).map_err(|e| FetchCmdError::Catalog {
+                path: p.to_path_buf(),
+                detail: e.to_string(),
+            })?;
+            genome_catalog::parse(&text).map_err(|e: CatalogError| FetchCmdError::Catalog {
+                path: p.to_path_buf(),
+                detail: e.to_string(),
+            })
         }
     }
 }
@@ -131,7 +161,9 @@ pub fn run_fetch(args: &FetchArgs) -> Result<FetchReport, FetchCmdError> {
                 return Err(FetchCmdError::BaseUrlNotUsed);
             }
             let catalog = load_catalog(args.catalog.as_deref())?;
-            let g = catalog.find(&args.id).ok_or_else(|| FetchCmdError::UnknownAccession(args.id.clone()))?;
+            let g = catalog
+                .find(&args.id)
+                .ok_or_else(|| FetchCmdError::UnknownAccession(args.id.clone()))?;
             let mut warnings = Vec::new();
             if g.gff.is_none() {
                 warnings.push(format!(
@@ -149,8 +181,12 @@ pub fn run_fetch(args: &FetchArgs) -> Result<FetchReport, FetchCmdError> {
             let env = std::env::var(KEY_VARIABLE).ok();
             let key = choose_key(args.key_file.as_deref(), env.as_deref())?;
             let base = args.base_url.as_deref().unwrap_or(FUNGIDB_BASE_URL);
-            let fetched = fetch_fungidb(&args.id, &key, base, &args.out).map_err(FetchCmdError::Fetch)?;
-            Ok(FetchReport { fetched, warnings: Vec::new() })
+            let fetched =
+                fetch_fungidb(&args.id, &key, base, &args.out).map_err(FetchCmdError::Fetch)?;
+            Ok(FetchReport {
+                fetched,
+                warnings: Vec::new(),
+            })
         }
     }
 }
@@ -164,16 +200,31 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let kf = d.path().join("k");
         std::fs::write(&kf, "KEY\n").unwrap();
-        assert_eq!(choose_key(Some(&kf), Some("ENV")).unwrap(), KeySource::File(kf.clone()));
+        assert_eq!(
+            choose_key(Some(&kf), Some("ENV")).unwrap(),
+            KeySource::File(kf.clone())
+        );
         assert_eq!(choose_key(None, Some("ENV")).unwrap(), KeySource::Env);
         assert_eq!(choose_key(None, None).unwrap(), KeySource::None);
     }
 
     #[test]
     fn empty_keys_are_errors() {
-        assert!(matches!(choose_key(None, Some("")), Err(FetchCmdError::EmptyKey { .. })));
-        assert!(matches!(choose_key(None, Some(" \t")), Err(FetchCmdError::EmptyKey { .. })));
-        for body in ["", "\n# c\n", "EUPATHDB_KEY=\n", "export EUPATHDB_KEY=''\n", "EUPATHDB_KEY=\"\"\n"] {
+        assert!(matches!(
+            choose_key(None, Some("")),
+            Err(FetchCmdError::EmptyKey { .. })
+        ));
+        assert!(matches!(
+            choose_key(None, Some(" \t")),
+            Err(FetchCmdError::EmptyKey { .. })
+        ));
+        for body in [
+            "",
+            "\n# c\n",
+            "EUPATHDB_KEY=\n",
+            "export EUPATHDB_KEY=''\n",
+            "EUPATHDB_KEY=\"\"\n",
+        ] {
             assert!(key_file_is_empty(body), "{body:?}");
         }
         for body in ["K\n", "fungidb.org K\n", "EUPATHDB_KEY=abc\n"] {

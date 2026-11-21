@@ -5,7 +5,9 @@ use qseq_io::{read_fasta, FastqChunker, FastqReader};
 const FASTQ: &str = "@r1 extra\nACGT\n+\nIIII\n@r2\nGGGGCC\n+\nIIIIII\n@r3\nTTA\n+\nIII\n";
 
 fn expected() -> Vec<(String, Vec<u8>)> {
-    FastqReader::new(FASTQ.as_bytes()).map(|r| r.unwrap()).collect()
+    FastqReader::new(FASTQ.as_bytes())
+        .map(|r| r.unwrap())
+        .collect()
 }
 
 fn parse_in_chunks(text: &str, size: usize) -> std::io::Result<Vec<(String, Vec<u8>)>> {
@@ -21,7 +23,11 @@ fn parse_in_chunks(text: &str, size: usize) -> std::io::Result<Vec<(String, Vec<
 #[test]
 fn the_records_are_the_same_for_every_chunk_size_including_one_byte_at_a_time() {
     for size in [1, 2, 3, 5, 7, 11, 13, 20, 1000] {
-        assert_eq!(parse_in_chunks(FASTQ, size).unwrap(), expected(), "chunk size {size}");
+        assert_eq!(
+            parse_in_chunks(FASTQ, size).unwrap(),
+            expected(),
+            "chunk size {size}"
+        );
     }
 }
 
@@ -44,7 +50,10 @@ fn nothing_is_returned_until_a_whole_record_has_arrived() {
     let mut chunker = FastqChunker::new();
 
     assert!(chunker.push(b"@r1\nACGT\n+\nII").unwrap().is_empty());
-    assert_eq!(chunker.push(b"II\n").unwrap(), vec![("r1".to_string(), b"ACGT".to_vec())]);
+    assert_eq!(
+        chunker.push(b"II\n").unwrap(),
+        vec![("r1".to_string(), b"ACGT".to_vec())]
+    );
 }
 
 #[test]
@@ -61,8 +70,14 @@ fn a_record_that_never_ends_is_an_error_once_the_buffer_passes_the_limit() {
         }
     }
     let (i, error) = failed.expect("a record of 3 MB must exceed a limit of 1 MiB");
-    assert!(i <= 4, "the error comes soon after the limit, not at the end of the input (chunk {i})");
-    assert!(error.to_string().contains("larger than") && error.to_string().contains("FASTQ"), "{error}");
+    assert!(
+        i <= 4,
+        "the error comes soon after the limit, not at the end of the input (chunk {i})"
+    );
+    assert!(
+        error.to_string().contains("larger than") && error.to_string().contains("FASTQ"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -72,7 +87,10 @@ fn many_small_records_never_reach_the_limit_and_a_long_read_below_it_is_fine() {
     let record = format!("@long\n{long}\n+\n{}\n", "I".repeat(500_000));
     let mut n = chunker.push(record.as_bytes()).unwrap().len();
     for i in 0..20_000 {
-        n += chunker.push(format!("@r{i}\nACGT\n+\nIIII\n").as_bytes()).unwrap().len();
+        n += chunker
+            .push(format!("@r{i}\nACGT\n+\nIIII\n").as_bytes())
+            .unwrap()
+            .len();
     }
     n += chunker.finish().unwrap().len();
     assert_eq!(n, 20_001);
@@ -81,7 +99,11 @@ fn many_small_records_never_reach_the_limit_and_a_long_read_below_it_is_fine() {
 #[test]
 fn the_default_limit_admits_a_record_of_a_few_megabases() {
     let mut chunker = FastqChunker::new();
-    let big = format!("@big\n{}\n+\n{}\n", "A".repeat(3_000_000), "I".repeat(3_000_000));
+    let big = format!(
+        "@big\n{}\n+\n{}\n",
+        "A".repeat(3_000_000),
+        "I".repeat(3_000_000)
+    );
     assert_eq!(chunker.push(big.as_bytes()).unwrap().len(), 1);
 }
 
@@ -107,7 +129,9 @@ fn fasta_names_are_the_first_header_word_and_bases_keep_case_and_are_joined() {
 fn fastq_reader_gives_each_read_name_and_sequence_in_order() {
     let text = "@r1 extra\nACGT\n+\nIIII\n@r2\nGGGGCC\n+\nIIIIII\n";
 
-    let reads: Vec<_> = FastqReader::new(text.as_bytes()).map(|r| r.unwrap()).collect();
+    let reads: Vec<_> = FastqReader::new(text.as_bytes())
+        .map(|r| r.unwrap())
+        .collect();
 
     assert_eq!(
         reads,
@@ -142,12 +166,16 @@ fn trailing_blank_lines_after_the_last_record_are_ignored() {
     // R29-12: blank lines at the end of the file are not a record.
     for tail in ["\n", "\n\n", "\r\n", "  \n\n"] {
         let text = format!("{FASTQ}{tail}");
-        let got: Vec<_> = FastqReader::new(text.as_bytes()).collect::<std::io::Result<_>>().unwrap();
+        let got: Vec<_> = FastqReader::new(text.as_bytes())
+            .collect::<std::io::Result<_>>()
+            .unwrap();
         assert_eq!(got, expected(), "tail {tail:?}");
     }
     // Without a newline after the last quality line, then blank lines.
     let text = format!("{}\n\n", FASTQ.trim_end_matches('\n'));
-    let got: Vec<_> = FastqReader::new(text.as_bytes()).collect::<std::io::Result<_>>().unwrap();
+    let got: Vec<_> = FastqReader::new(text.as_bytes())
+        .collect::<std::io::Result<_>>()
+        .unwrap();
     assert_eq!(got, expected());
 }
 

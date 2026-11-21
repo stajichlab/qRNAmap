@@ -25,7 +25,10 @@ fn parses_minimal_sheet() {
     assert_eq!(s.name, "s1");
     assert_eq!(s.fastq1, vec!["a_1.fq.gz"]);
     assert_eq!(s.fastq2, vec!["a_2.fq.gz"]);
-    assert_eq!(s.covariates.get("condition").map(String::as_str), Some("ctrl"));
+    assert_eq!(
+        s.covariates.get("condition").map(String::as_str),
+        Some("ctrl")
+    );
     assert_eq!(s.covariates.get("batch").map(String::as_str), Some("b1"));
     assert_eq!(sh.samples[1].name, "s2");
 }
@@ -85,7 +88,9 @@ fn sample_name_must_start_with_letter() {
 fn factor_value_with_unsafe_character_rejected() {
     // space, double quote, single quote, dollar, backtick, backslash, control characters
     // (a raw newline cannot sit inside a cell: it ends the row, so it is not testable here)
-    for bad in ["a b", "a\"b", "a'b", "a$b", "a`b", "a\\b", "a\u{b}b", "a\rb", ""] {
+    for bad in [
+        "a b", "a\"b", "a'b", "a$b", "a`b", "a\\b", "a\u{b}b", "a\rb", "",
+    ] {
         let t = format!("sample\tfastq1\tcondition\ns1\ta.fq\t{bad}\n");
         let e = errs(&t);
         assert_eq!(e.len(), 1, "value {bad:?}");
@@ -112,7 +117,9 @@ fn mate_lists_must_match_length() {
     let t = "sample\tfastq1\tfastq2\ns1\ta1.fq,a2.fq\ta1_2.fq\n";
     assert_eq!(
         errs(t),
-        vec![SheetError::MateCountMismatch { sample: "s1".into() }]
+        vec![SheetError::MateCountMismatch {
+            sample: "s1".into()
+        }]
     );
 }
 
@@ -127,8 +134,14 @@ fn numeric_header_parses_numbers() {
             ("condition".to_string(), ColType::Factor)
         ]
     );
-    assert_eq!(sh.samples[0].covariates.get("dose").map(String::as_str), Some("0.5"));
-    assert_eq!(sh.samples[1].covariates.get("dose").map(String::as_str), Some("1e2"));
+    assert_eq!(
+        sh.samples[0].covariates.get("dose").map(String::as_str),
+        Some("0.5")
+    );
+    assert_eq!(
+        sh.samples[1].covariates.get("dose").map(String::as_str),
+        Some("1e2")
+    );
 }
 
 #[test]
@@ -137,7 +150,10 @@ fn bad_numeric_value_is_error() {
         let t = format!("sample\tfastq1\tdose:numeric\ns1\ta.fq\t{bad}\n");
         assert_eq!(
             errs(&t),
-            vec![SheetError::BadNumeric { column: "dose".into(), value: bad.into() }],
+            vec![SheetError::BadNumeric {
+                column: "dose".into(),
+                value: bad.into()
+            }],
             "{bad:?}"
         );
     }
@@ -164,10 +180,15 @@ s 3\td.fq\t\tx\n";
     assert_eq!(
         errs(t),
         vec![
-            SheetError::MateCountMismatch { sample: "s1".into() },
+            SheetError::MateCountMismatch {
+                sample: "s1".into()
+            },
             SheetError::DuplicateSample("s1".into()),
             SheetError::BadName("s 3".into()),
-            SheetError::BadNumeric { column: "dose".into(), value: "x".into() },
+            SheetError::BadNumeric {
+                column: "dose".into(),
+                value: "x".into()
+            },
         ]
     );
 }
@@ -177,7 +198,10 @@ fn crlf_sheet_parses() {
     let t = MINIMAL.replace('\n', "\r\n");
     let sh = SampleSheet::parse(&t).unwrap();
     assert_eq!(sh, SampleSheet::parse(MINIMAL).unwrap());
-    assert_eq!(sh.samples[1].covariates.get("batch").map(String::as_str), Some("b2"));
+    assert_eq!(
+        sh.samples[1].covariates.get("batch").map(String::as_str),
+        Some("b2")
+    );
 }
 
 #[test]
@@ -198,7 +222,10 @@ fn empty_sheet_is_error() {
 #[test]
 fn duplicate_header_is_error() {
     let t = "sample\tfastq1\tcondition\tcondition\ns1\ta.fq\tx\ty\n";
-    assert_eq!(errs(t), vec![SheetError::DuplicateColumn("condition".into())]);
+    assert_eq!(
+        errs(t),
+        vec![SheetError::DuplicateColumn("condition".into())]
+    );
     // The numeric marker does not hide a duplicate.
     let t = "sample\tfastq1\tdose\tdose:numeric\ns1\ta.fq\tx\t1\n";
     assert_eq!(errs(t), vec![SheetError::DuplicateColumn("dose".into())]);
@@ -221,22 +248,54 @@ fn bom_before_header_is_stripped() {
 #[test]
 fn bom_before_comment_line_is_stripped() {
     let t = format!("\u{feff}# comment\n{MINIMAL}");
-    assert_eq!(SampleSheet::parse(&t).unwrap(), SampleSheet::parse(MINIMAL).unwrap());
+    assert_eq!(
+        SampleSheet::parse(&t).unwrap(),
+        SampleSheet::parse(MINIMAL).unwrap()
+    );
 }
 
 #[test]
 fn reserved_word_column_name_rejected() {
     for bad in [
-        "if", "else", "repeat", "while", "function", "for", "in", "next", "break", "TRUE",
-        "FALSE", "NULL", "Inf", "NaN", "NA", "NA_integer_", "NA_real_", "NA_character_",
-        "NA_complex_", "..1", "..x", ".5x",
+        "if",
+        "else",
+        "repeat",
+        "while",
+        "function",
+        "for",
+        "in",
+        "next",
+        "break",
+        "TRUE",
+        "FALSE",
+        "NULL",
+        "Inf",
+        "NaN",
+        "NA",
+        "NA_integer_",
+        "NA_real_",
+        "NA_character_",
+        "NA_complex_",
+        "..1",
+        "..x",
+        ".5x",
     ] {
         let t = format!("sample\tfastq1\t{bad}\ns1\ta.fq\tx\n");
-        assert_eq!(errs(&t), vec![SheetError::ReservedName(bad.into())], "{bad:?}");
+        assert_eq!(
+            errs(&t),
+            vec![SheetError::ReservedName(bad.into())],
+            "{bad:?}"
+        );
         let t = format!("sample\tfastq1\t{bad}:numeric\ns1\ta.fq\t1\n");
-        assert_eq!(errs(&t), vec![SheetError::ReservedName(bad.into())], "{bad:?}:numeric");
+        assert_eq!(
+            errs(&t),
+            vec![SheetError::ReservedName(bad.into())],
+            "{bad:?}:numeric"
+        );
     }
-    assert!(SheetError::ReservedName("if".into()).to_string().contains("reserved R name"));
+    assert!(SheetError::ReservedName("if".into())
+        .to_string()
+        .contains("reserved R name"));
 }
 
 #[test]
@@ -274,7 +333,13 @@ fn cell_whitespace_is_trimmed() {
     let sh = SampleSheet::parse(t).unwrap();
     assert_eq!(sh.samples[0].name, "s1");
     assert_eq!(sh.samples[0].fastq1, vec!["a.fq"]);
-    assert_eq!(sh.samples[0].covariates.get("condition").map(String::as_str), Some("ctrl"));
+    assert_eq!(
+        sh.samples[0]
+            .covariates
+            .get("condition")
+            .map(String::as_str),
+        Some("ctrl")
+    );
 }
 
 #[test]

@@ -78,11 +78,17 @@ impl fmt::Display for SheetError {
         match self {
             SheetError::DuplicateSample(s) => write!(f, "duplicate sample name {s:?}"),
             SheetError::BadName(s) => {
-                write!(f, "name or value {s:?} contains forbidden characters or has a bad form")
+                write!(
+                    f,
+                    "name or value {s:?} contains forbidden characters or has a bad form"
+                )
             }
             SheetError::MissingColumn(c) => write!(f, "required column {c:?} is missing"),
             SheetError::MateCountMismatch { sample } => {
-                write!(f, "sample {sample:?}: fastq1 and fastq2 list different numbers of files")
+                write!(
+                    f,
+                    "sample {sample:?}: fastq1 and fastq2 list different numbers of files"
+                )
             }
             SheetError::BadNumeric { column, value } => {
                 write!(f, "column {column:?}: {value:?} is not a finite number")
@@ -93,10 +99,16 @@ impl fmt::Display for SheetError {
                 write!(f, "sample {sample:?}: column {column:?} is empty")
             }
             SheetError::ReservedName(c) => {
-                write!(f, "column {c:?} is a reserved R name and cannot be a covariate")
+                write!(
+                    f,
+                    "column {c:?} is a reserved R name and cannot be a covariate"
+                )
             }
             SheetError::BadRow(s) => {
-                write!(f, "row for {s:?} has a different number of cells than the header")
+                write!(
+                    f,
+                    "row for {s:?} has a different number of cells than the header"
+                )
             }
         }
     }
@@ -146,15 +158,12 @@ fn is_r_reserved(s: &str) -> bool {
 /// Factor values must be non-empty and use only `[A-Za-z0-9_.-]`. This is the same set the
 /// contrast levels use, so a value that is accepted here can be named in a contrast.
 fn is_factor_value(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
 }
 
-fn split_list(
-    cell: &str,
-    sample: &str,
-    column: &str,
-    errors: &mut Vec<SheetError>,
-) -> Vec<String> {
+fn split_list(cell: &str, sample: &str, column: &str, errors: &mut Vec<SheetError>) -> Vec<String> {
     let mut out = Vec::new();
     if cell.is_empty() {
         return out;
@@ -162,7 +171,10 @@ fn split_list(
     for part in cell.split(',') {
         let p = part.trim();
         if p.is_empty() {
-            errors.push(SheetError::EmptyValue { sample: sample.into(), column: column.into() });
+            errors.push(SheetError::EmptyValue {
+                sample: sample.into(),
+                column: column.into(),
+            });
         } else if p.chars().any(|c| c.is_control()) {
             errors.push(SheetError::BadName(p.into()));
         } else {
@@ -235,7 +247,16 @@ impl SampleSheet {
         let columns: Vec<(String, ColType)> = cols
             .iter()
             .filter(|(n, _)| !matches!(n.as_str(), "sample" | "fastq1" | "fastq2"))
-            .map(|(n, num)| (n.clone(), if *num { ColType::Numeric } else { ColType::Factor }))
+            .map(|(n, num)| {
+                (
+                    n.clone(),
+                    if *num {
+                        ColType::Numeric
+                    } else {
+                        ColType::Factor
+                    },
+                )
+            })
             .collect();
 
         let mut samples = Vec::new();
@@ -265,7 +286,9 @@ impl SampleSheet {
                 None => Vec::new(),
             };
             if !fastq2.is_empty() && !fastq1.is_empty() && fastq1.len() != fastq2.len() {
-                errors.push(SheetError::MateCountMismatch { sample: name.into() });
+                errors.push(SheetError::MateCountMismatch {
+                    sample: name.into(),
+                });
             }
             let mut covariates = BTreeMap::new();
             for (i, (cname, numeric)) in cols.iter().enumerate() {
@@ -291,7 +314,12 @@ impl SampleSheet {
                 }
                 covariates.insert(cname.clone(), v.to_string());
             }
-            samples.push(Sample { name: name.to_string(), fastq1, fastq2, covariates });
+            samples.push(Sample {
+                name: name.to_string(),
+                fastq1,
+                fastq2,
+                covariates,
+            });
         }
         if samples.is_empty() && errors.is_empty() {
             errors.push(SheetError::Empty);

@@ -100,19 +100,32 @@ pub fn check_design(
         return Err(DeError::SameLevelAndReference(contrast.level.clone()));
     }
     // Matrix shape and sample set.
-    if matrix.counts.len() != matrix.genes.len() || matrix.counts.iter().any(|r| r.len() != matrix.samples.len()) {
-        return Err(DeError::SampleMismatch("the count matrix rows do not match its header".into()));
+    if matrix.counts.len() != matrix.genes.len()
+        || matrix
+            .counts
+            .iter()
+            .any(|r| r.len() != matrix.samples.len())
+    {
+        return Err(DeError::SampleMismatch(
+            "the count matrix rows do not match its header".into(),
+        ));
     }
     let in_matrix: BTreeSet<&str> = matrix.samples.iter().map(String::as_str).collect();
     if in_matrix.len() != matrix.samples.len() {
-        return Err(DeError::SampleMismatch("a sample name occurs twice in the count matrix".into()));
+        return Err(DeError::SampleMismatch(
+            "a sample name occurs twice in the count matrix".into(),
+        ));
     }
     let in_sheet: BTreeSet<&str> = sheet.samples.iter().map(|s| s.name.as_str()).collect();
     if let Some(s) = in_sheet.difference(&in_matrix).next() {
-        return Err(DeError::SampleMismatch(format!("sample '{s}' is in the sheet but not in the matrix")));
+        return Err(DeError::SampleMismatch(format!(
+            "sample '{s}' is in the sheet but not in the matrix"
+        )));
     }
     if let Some(s) = in_matrix.difference(&in_sheet).next() {
-        return Err(DeError::SampleMismatch(format!("sample '{s}' is in the matrix but not in the sheet")));
+        return Err(DeError::SampleMismatch(format!(
+            "sample '{s}' is in the matrix but not in the sheet"
+        )));
     }
     // Replicates per tested group.
     let n_in = |level: &str| {
@@ -125,19 +138,28 @@ pub fn check_design(
     for group in [&contrast.level, &contrast.reference] {
         let n = n_in(group);
         if n == 0 {
-            return Err(DeError::LevelNotInData { factor: contrast.factor.clone(), level: group.clone() });
+            return Err(DeError::LevelNotInData {
+                factor: contrast.factor.clone(),
+                level: group.clone(),
+            });
         }
     }
     for group in [&contrast.level, &contrast.reference] {
         let n = n_in(group);
         if n < 2 {
-            return Err(DeError::TooFewReplicates { group: group.clone(), n });
+            return Err(DeError::TooFewReplicates {
+                group: group.clone(),
+                n,
+            });
         }
     }
     // Counts R cannot hold as integers (R29-9).
     for (gene, row) in matrix.genes.iter().zip(&matrix.counts) {
         if let Some(j) = row.iter().position(|&c| c > i32::MAX as u64) {
-            return Err(DeError::CountTooLarge { gene: gene.clone(), sample: matrix.samples[j].clone() });
+            return Err(DeError::CountTooLarge {
+                gene: gene.clone(),
+                sample: matrix.samples[j].clone(),
+            });
         }
     }
     // All-zero samples.
@@ -192,7 +214,9 @@ pub fn r_string(s: &str) -> String {
             '\n' => o.push_str("\\n"),
             '\r' => o.push_str("\\r"),
             '\t' => o.push_str("\\t"),
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => o.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                o.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c => o.push(c),
         }
     }
@@ -228,11 +252,22 @@ pub fn deseq2_script(
     line("storage.mode(counts) <- \"integer\"");
     let cc: Vec<String> = std::iter::once(format!("{} = \"character\"", q("sample")))
         .chain(columns.iter().map(|(n, t)| {
-            format!("{} = \"{}\"", q(n), if *t == ColType::Numeric { "numeric" } else { "character" })
+            format!(
+                "{} = \"{}\"",
+                q(n),
+                if *t == ColType::Numeric {
+                    "numeric"
+                } else {
+                    "character"
+                }
+            )
         }))
         .collect();
     line("coldata <- read.delim(args[2], row.names = 1, check.names = FALSE, quote = \"\",");
-    line(&format!("  comment.char = \"\", na.strings = character(0), colClasses = c({}))", cc.join(", ")));
+    line(&format!(
+        "  comment.char = \"\", na.strings = character(0), colClasses = c({}))",
+        cc.join(", ")
+    ));
     for (n, t) in columns {
         if *t != ColType::Factor {
             continue;
@@ -244,14 +279,20 @@ pub fn deseq2_script(
                 n = q(n)
             ));
         } else {
-            line(&format!("coldata[[{n}]] <- factor(coldata[[{n}]])", n = q(n)));
+            line(&format!(
+                "coldata[[{n}]] <- factor(coldata[[{n}]])",
+                n = q(n)
+            ));
         }
     }
     line("if (!setequal(colnames(counts), rownames(coldata))) {");
     line("  stop(\"sample names differ between the count matrix and the coldata\")");
     line("}");
     line("coldata <- coldata[colnames(counts), , drop = FALSE]");
-    line(&format!("dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata, design = {})", design.to_r()));
+    line(&format!(
+        "dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata, design = {})",
+        design.to_r()
+    ));
     line("dds <- DESeq(dds, test = \"Wald\", quiet = TRUE)");
     line(&format!(
         "contrast_spec <- c({}, {}, {})",
@@ -275,7 +316,10 @@ pub fn deseq2_script(
     line(&format!("    paste(\"design:\", {}),", q(&design.to_r())));
     line(&format!(
         "    paste(\"contrast:\", {}),",
-        q(&format!("{},{},{}", contrast.factor, contrast.level, contrast.reference))
+        q(&format!(
+            "{},{},{}",
+            contrast.factor, contrast.level, contrast.reference
+        ))
     ));
     line("    paste(\"test: Wald\"),");
     line("    paste(\"vst: blind=FALSE\"),");
@@ -287,7 +331,9 @@ pub fn deseq2_script(
     if let Some(m) = shrink {
         let name = m.name();
         if m != Shrink::Normal {
-            line(&format!("if (!requireNamespace(\"{name}\", quietly = TRUE)) {{"));
+            line(&format!(
+                "if (!requireNamespace(\"{name}\", quietly = TRUE)) {{"
+            ));
             line(&format!(
                 "  stop(\"MISSING_PACKAGE:{name} is not installed; the unshrunk results were written\")"
             ));

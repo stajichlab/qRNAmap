@@ -5,17 +5,32 @@ use genome_catalog::{FileRef, Genome};
 use std::path::{Path, PathBuf};
 
 fn download_one(agent: &ureq::Agent, f: &FileRef, out_dir: &Path) -> Result<PathBuf, FetchError> {
-    let http_err = |status, message: String| FetchError::Http { url: f.url.clone(), status, message };
+    let http_err = |status, message: String| FetchError::Http {
+        url: f.url.clone(),
+        status,
+        message,
+    };
     let response = match agent.get(&f.url).call() {
         Ok(r) => r,
-        Err(ureq::Error::Status(code, _)) => return Err(http_err(Some(code), "download failed".into())),
+        Err(ureq::Error::Status(code, _)) => {
+            return Err(http_err(Some(code), "download failed".into()))
+        }
         Err(e) => return Err(http_err(None, e.to_string())),
     };
     if response.status() != 200 {
-        return Err(http_err(Some(response.status()), "unexpected status".into()));
+        return Err(http_err(
+            Some(response.status()),
+            "unexpected status".into(),
+        ));
     }
     // The catalog names are already `.gz`; the bytes are stored as received.
-    save(response.into_reader(), out_dir, &f.name, false, Some(f.bytes))
+    save(
+        response.into_reader(),
+        out_dir,
+        &f.name,
+        false,
+        Some(f.bytes),
+    )
 }
 
 /// Download the FASTA and, when the catalog has one, the GFF3 of `g` into `out_dir`.

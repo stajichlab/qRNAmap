@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use qrnamap_core::{
-    assemble, build_transcripts, gene_counts_from_abundance, gene_counts_from_salmon, parse_featurecounts, saf, tx2gene_tsv,
-    unlisted_genes, CountError, CountMatrix,
+    assemble, build_transcripts, gene_counts_from_abundance, gene_counts_from_salmon,
+    parse_featurecounts, saf, tx2gene_tsv, unlisted_genes, CountError, CountMatrix,
 };
 use qseq_io::{parse_gff3, read_fasta};
 
@@ -37,7 +37,12 @@ fn names(v: &[&str]) -> Vec<String> {
 #[test]
 fn sum_est_counts_per_gene_rounds() {
     let m = t2g(&[("t1", "g1"), ("t2", "g1"), ("t3", "g2"), ("t4", "g3")]);
-    let tsv = abundance(&[("t1", "1.4"), ("t2", "1.2"), ("t3", "2.5"), ("t4", "2.4999")]);
+    let tsv = abundance(&[
+        ("t1", "1.4"),
+        ("t2", "1.2"),
+        ("t3", "2.5"),
+        ("t4", "2.4999"),
+    ]);
     let got = gene_counts_from_abundance(&tsv, &m).unwrap();
     // g1: 1.4 + 1.2 = 2.6 -> 3 (rounding each transcript first would give 1 + 1 = 2)
     assert_eq!(got, map(&[("g1", 3), ("g2", 3), ("g3", 2)]));
@@ -84,7 +89,10 @@ fn abundance_missing_column_is_named_error() {
 fn abundance_columns_found_by_name() {
     let m = t2g(&[("t1", "g1")]);
     let tsv = "tpm\test_counts\ttarget_id\n9\t7\tt1\n";
-    assert_eq!(gene_counts_from_abundance(tsv, &m).unwrap(), map(&[("g1", 7)]));
+    assert_eq!(
+        gene_counts_from_abundance(tsv, &m).unwrap(),
+        map(&[("g1", 7)])
+    );
 }
 
 #[test]
@@ -119,7 +127,10 @@ fn abundance_non_finite_and_short_rows_are_bad_rows() {
 fn abundance_crlf_and_blank_trailing_line() {
     let m = t2g(&[("t1", "g1")]);
     let tsv = "target_id\tlength\teff_length\test_counts\ttpm\r\nt1\t100\t50\t3.2\t1\r\n\r\n";
-    assert_eq!(gene_counts_from_abundance(tsv, &m).unwrap(), map(&[("g1", 3)]));
+    assert_eq!(
+        gene_counts_from_abundance(tsv, &m).unwrap(),
+        map(&[("g1", 3)])
+    );
 }
 
 const FC: &str = "# Program:featureCounts v2.1.1; Command:\"featureCounts\" \"-F\" \"SAF\"\n\
@@ -149,9 +160,15 @@ fn featurecounts_crlf_and_blank_trailing_line() {
 #[test]
 fn featurecounts_non_integer_count_is_bad_row_with_line() {
     let tsv = "# Program:featureCounts\nGeneid\tChr\tStart\tEnd\tStrand\tLength\ts.bam\ng1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t1.5\n";
-    assert_eq!(parse_featurecounts(tsv), Err(CountError::BadRow { line: 4 }));
+    assert_eq!(
+        parse_featurecounts(tsv),
+        Err(CountError::BadRow { line: 4 })
+    );
     let neg = "# Program:featureCounts\nGeneid\tChr\tStart\tEnd\tStrand\tLength\ts.bam\ng1\tc\t1\t2\t+\t2\t-3\n";
-    assert_eq!(parse_featurecounts(neg), Err(CountError::BadRow { line: 3 }));
+    assert_eq!(
+        parse_featurecounts(neg),
+        Err(CountError::BadRow { line: 3 })
+    );
 }
 
 const FC_HDR: &str = "Geneid\tChr\tStart\tEnd\tStrand\tLength\ts.bam\n";
@@ -183,19 +200,28 @@ fn featurecounts_empty_and_comment_only_are_missing_header() {
 #[test]
 fn featurecounts_short_row_is_bad_row_with_line() {
     let tsv = format!("# Program:featureCounts\n{FC_HDR}g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\n");
-    assert_eq!(parse_featurecounts(&tsv), Err(CountError::BadRow { line: 4 }));
+    assert_eq!(
+        parse_featurecounts(&tsv),
+        Err(CountError::BadRow { line: 4 })
+    );
 }
 
 #[test]
 fn featurecounts_long_row_is_bad_row() {
     let tsv = format!("# Program:featureCounts\n{FC_HDR}g1\tc\t1\t2\t+\t2\t5\t6\n");
-    assert_eq!(parse_featurecounts(&tsv), Err(CountError::BadRow { line: 3 }));
+    assert_eq!(
+        parse_featurecounts(&tsv),
+        Err(CountError::BadRow { line: 3 })
+    );
 }
 
 #[test]
 fn featurecounts_blank_trailing_and_crlf_still_ok() {
     let tsv = "# Program:featureCounts\r\nGeneid\tChr\tStart\tEnd\tStrand\tLength\ts.bam\r\ng1\tc\t1\t2\t+\t2\t5\r\n\r\ng2\tc\t1\t2\t+\t2\t6\r\n\r\n";
-    assert_eq!(parse_featurecounts(tsv).unwrap(), map(&[("g1", 5), ("g2", 6)]));
+    assert_eq!(
+        parse_featurecounts(tsv).unwrap(),
+        map(&[("g1", 5), ("g2", 6)])
+    );
 }
 
 #[test]
@@ -300,8 +326,12 @@ fn gene_rows_identical_in_both_modes() {
 #[test]
 fn featurecounts_gene_id_starting_with_hash_after_header_is_a_gene() {
     // R29-7: '#' lines are skipped only before the header.
-    let tsv = format!("# Program:featureCounts\n{FC_HDR}#g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t3\n");
-    assert_eq!(parse_featurecounts(&tsv).unwrap(), map(&[("#g1", 5), ("g2", 3)]));
+    let tsv =
+        format!("# Program:featureCounts\n{FC_HDR}#g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t3\n");
+    assert_eq!(
+        parse_featurecounts(&tsv).unwrap(),
+        map(&[("#g1", 5), ("g2", 3)])
+    );
 }
 
 const SF_HEAD: &str = "Name\tLength\tEffectiveLength\tTPM\tNumReads\n";
@@ -360,9 +390,7 @@ fn salmon_and_kallisto_agree_on_same_numbers() {
     let m = t2g(&[("t1", "g1"), ("t2", "g1"), ("t3", "g2")]);
     let k = "target_id\tlength\teff_length\test_counts\ttpm\n\
              t1\t100\t90\t2.5\t1\nt2\t100\t90\t3.2\t1\nt3\t100\t90\t7\t1\n";
-    let s = format!(
-        "{SF_HEAD}t1\t100\t90\t1\t2.5\nt2\t100\t90\t1\t3.2\nt3\t100\t90\t1\t7\n"
-    );
+    let s = format!("{SF_HEAD}t1\t100\t90\t1\t2.5\nt2\t100\t90\t1\t3.2\nt3\t100\t90\t1\t7\n");
     assert_eq!(
         gene_counts_from_salmon(&s, &m).unwrap(),
         gene_counts_from_abundance(k, &m).unwrap()

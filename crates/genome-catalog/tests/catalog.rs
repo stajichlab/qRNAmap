@@ -11,7 +11,11 @@ fn genome_of_size(size: u64) -> Genome {
         assembly: "ASM1".into(),
         genome_size: size,
         genes: None,
-        fasta: FileRef { name: "a.fna.gz".into(), url: "https://x/a.fna.gz".into(), bytes: 1 },
+        fasta: FileRef {
+            name: "a.fna.gz".into(),
+            url: "https://x/a.fna.gz".into(),
+            bytes: 1,
+        },
         gff: None,
     }
 }
@@ -49,7 +53,10 @@ fn genome_without_gff_not_usable_for_rna() {
     assert!(usable.iter().all(|g| g.gff.is_some()));
     assert!(!usable.iter().any(|g| g.accession == "GCA_051225625.1"));
     assert!(usable.iter().any(|g| g.accession == "GCF_000002655.1"));
-    assert_eq!(usable.len(), c.genomes.len() - c.genomes.iter().filter(|g| g.gff.is_none()).count());
+    assert_eq!(
+        usable.len(),
+        c.genomes.len() - c.genomes.iter().filter(|g| g.gff.is_none()).count()
+    );
 }
 
 #[test]
@@ -65,7 +72,10 @@ fn size_warning_above_50mb() {
 #[test]
 fn unknown_schema_version_is_error() {
     let json = r#"{"schema_version": 2, "generated": "2026-01-01", "genomes": []}"#;
-    assert_eq!(parse(json).unwrap_err(), CatalogError::UnknownSchemaVersion(2));
+    assert_eq!(
+        parse(json).unwrap_err(),
+        CatalogError::UnknownSchemaVersion(2)
+    );
 }
 
 #[test]

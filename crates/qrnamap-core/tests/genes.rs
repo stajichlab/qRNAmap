@@ -90,7 +90,10 @@ fn biotype_falls_back_to_transcript_kind() {
 
 #[test]
 fn mrna_wins_over_other_transcript_kinds() {
-    let m = model(vec![gene("a", "c", Strand::Plus, None, &["lnc_RNA", "mRNA"])], &[]);
+    let m = model(
+        vec![gene("a", "c", Strand::Plus, None, &["lnc_RNA", "mRNA"])],
+        &[],
+    );
     let rows = gene_table(&m, &[]);
     assert_eq!(rows[0].biotype, "mRNA");
     assert_eq!(rows[0].class, GeneClass::ProteinCoding);
@@ -114,7 +117,13 @@ fn mito_from_region_and_from_extra_contig() {
         vec![
             gene("n", "chrI", Strand::Plus, Some("protein_coding"), &["mRNA"]),
             gene("m", "chrM", Strand::Plus, Some("protein_coding"), &["mRNA"]),
-            gene("x", "scaf9", Strand::Plus, Some("protein_coding"), &["mRNA"]),
+            gene(
+                "x",
+                "scaf9",
+                Strand::Plus,
+                Some("protein_coding"),
+                &["mRNA"],
+            ),
         ],
         &["chrM"],
     );
@@ -129,7 +138,13 @@ fn mito_from_region_and_from_extra_contig() {
 #[test]
 fn extra_mito_contig_without_genes_is_fine() {
     let m = model(
-        vec![gene("n", "chrI", Strand::Plus, Some("protein_coding"), &["mRNA"])],
+        vec![gene(
+            "n",
+            "chrI",
+            Strand::Plus,
+            Some("protein_coding"),
+            &["mRNA"],
+        )],
         &["regionOnly"],
     );
     let rows = gene_table(&m, &["nothing_here".to_string()]);
@@ -141,7 +156,13 @@ fn extra_mito_contig_without_genes_is_fine() {
 fn tsv_header_and_rows_exact() {
     let m = model(
         vec![
-            gene("YAL001C", "chrI", Strand::Minus, Some("protein_coding"), &["mRNA", "mRNA"]),
+            gene(
+                "YAL001C",
+                "chrI",
+                Strand::Minus,
+                Some("protein_coding"),
+                &["mRNA", "mRNA"],
+            ),
             gene("Q0020", "chrM", Strand::Plus, Some("rRNA"), &["rRNA"]),
             gene("odd", "chrII", Strand::Plus, None, &[]),
         ],

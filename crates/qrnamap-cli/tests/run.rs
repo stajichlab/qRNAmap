@@ -43,7 +43,11 @@ fn count_pairs_plain_and_gzip() {
     for p in [&plain, &multi, &zst] {
         assert_eq!(count_pairs(p, None).unwrap(), 123, "{}", p.display());
         assert_eq!(count_pairs(p, Some(1000)).unwrap(), 123);
-        assert_eq!(count_pairs(p, Some(123)).unwrap(), 123, "equal to the limit is not over it");
+        assert_eq!(
+            count_pairs(p, Some(123)).unwrap(),
+            123,
+            "equal to the limit is not over it"
+        );
         assert_eq!(count_pairs(p, Some(50)).unwrap(), 51, "stops at limit + 1");
     }
     // A truncated record is an error, not a short count.
@@ -92,11 +96,21 @@ fn count_pairs_stops_after_limit() {
     let data = fastq(200_000);
     let total = data.len();
     let taken = Arc::new(AtomicUsize::new(0));
-    let r = open_reader(Counting { inner: std::io::Cursor::new(data), taken: taken.clone() }, Path::new("mem.fq")).unwrap();
+    let r = open_reader(
+        Counting {
+            inner: std::io::Cursor::new(data),
+            taken: taken.clone(),
+        },
+        Path::new("mem.fq"),
+    )
+    .unwrap();
     assert_eq!(count_records(r, Path::new("mem.fq"), Some(10)).unwrap(), 11);
     let used = taken.load(Ordering::SeqCst);
     eprintln!("read {used} of {total} bytes");
-    assert!(used < 64 * 1024, "read {used} of {total} bytes; it must stop after the limit");
+    assert!(
+        used < 64 * 1024,
+        "read {used} of {total} bytes; it must stop after the limit"
+    );
 }
 
 fn sheet_with(d: &Path, rows: &[(&str, usize)]) -> SampleSheet {
@@ -119,7 +133,10 @@ fn exceeds_reads_per_sample_gives_warning_not_error() {
     let names: Vec<&str> = w.iter().map(|x| x.sample.as_str()).collect();
     assert_eq!(names, ["A", "C"]);
     let text = w[0].to_string();
-    assert!(text.contains("'A'") && text.contains("more than 5") && text.contains("reads_per_sample"), "{text}");
+    assert!(
+        text.contains("'A'") && text.contains("more than 5") && text.contains("reads_per_sample"),
+        "{text}"
+    );
     assert!(check_reads_per_sample(&sheet, 30).unwrap().is_empty());
 }
 
@@ -160,7 +177,10 @@ fn qrnamap(args: &[&str], path_env: Option<&Path>) -> Output {
 }
 
 fn ok(o: &Output) -> (String, String) {
-    let (out, err) = (String::from_utf8_lossy(&o.stdout).into_owned(), String::from_utf8_lossy(&o.stderr).into_owned());
+    let (out, err) = (
+        String::from_utf8_lossy(&o.stdout).into_owned(),
+        String::from_utf8_lossy(&o.stderr).into_owned(),
+    );
     assert!(o.status.success(), "stdout:\n{out}\nstderr:\n{err}");
     (out, err)
 }
@@ -186,12 +206,27 @@ fn mini_sheet(d: &Path) -> PathBuf {
     let recs = records();
     let mut t = String::from("sample\tfastq1\tfastq2\tcondition\n");
     for (i, name) in NAMES.iter().enumerate() {
-        let counts: Vec<u64> = COUNTS.iter().zip(FACTORS[i]).map(|(&c, f)| (c as f64 * f).round() as u64).collect();
+        let counts: Vec<u64> = COUNTS
+            .iter()
+            .zip(FACTORS[i])
+            .map(|(&c, f)| (c as f64 * f).round() as u64)
+            .collect();
         let pairs = sim::simulate(&recs, &counts, Strandedness::Unstranded, 100 + i as u64);
-        let (r1, r2) = (d.join(format!("{name}_1.fq")), d.join(format!("{name}_2.fq")));
+        let (r1, r2) = (
+            d.join(format!("{name}_1.fq")),
+            d.join(format!("{name}_2.fq")),
+        );
         sim::write_fastq(&pairs, &r1, &r2);
-        let cond = if name.starts_with('c') { "control" } else { "treated" };
-        t.push_str(&format!("{name}\t{}\t{}\t{cond}\n", r1.display(), r2.display()));
+        let cond = if name.starts_with('c') {
+            "control"
+        } else {
+            "treated"
+        };
+        t.push_str(&format!(
+            "{name}\t{}\t{}\t{cond}\n",
+            r1.display(),
+            r2.display()
+        ));
     }
     let p = d.join("sheet.tsv");
     fs::write(&p, t).unwrap();
@@ -208,12 +243,19 @@ fn r_ready() -> bool {
         return false;
     }
     let ok = Command::new("Rscript")
-        .args(["--vanilla", "-e", "quit(status = if (requireNamespace('DESeq2', quietly = TRUE)) 0 else 1)"])
+        .args([
+            "--vanilla",
+            "-e",
+            "quit(status = if (requireNamespace('DESeq2', quietly = TRUE)) 0 else 1)",
+        ])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !ok {
-        if std::env::var("QRNAMAP_REQUIRE_TOOLS").map(|v| v == "1").unwrap_or(false) {
+        if std::env::var("QRNAMAP_REQUIRE_TOOLS")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
             panic!("the R package DESeq2 is not installed and QRNAMAP_REQUIRE_TOOLS=1");
         }
         eprintln!("SKIP: the R package DESeq2 is not installed");
@@ -235,41 +277,87 @@ fn run_end_to_end_quant_on_mini_fixture() {
     let with_de = r_ready();
     let tmp = d.join("tmp");
     let mut args = vec![
-        "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out),
-        "--tmpdir", s(&tmp),
+        "run",
+        "--samples",
+        s(&sh),
+        "--reference",
+        s(&g),
+        "--gff",
+        s(&gff),
+        "--mode",
+        "quant",
+        "--out",
+        s(&out),
+        "--tmpdir",
+        s(&tmp),
     ];
     if with_de {
         args.extend(["--contrast", "condition,treated,control"]);
     }
     let (stdout, stderr) = ok(&qrnamap(&args, None));
     for n in NAMES {
-        assert!(stdout.contains(&format!("{n}\treads_processed=")), "{stdout}");
+        assert!(
+            stdout.contains(&format!("{n}\treads_processed=")),
+            "{stdout}"
+        );
     }
     let m = read_table(&out.join("counts.tsv.zst")).unwrap();
     assert!(m.starts_with("gene\tc1\tc2\tt1\tt2\n"), "{m}");
     // Row set and order from tx2gene: the five fixture genes in transcript order.
-    let genes: Vec<&str> = m.lines().skip(1).map(|l| l.split('\t').next().unwrap()).collect();
+    let genes: Vec<&str> = m
+        .lines()
+        .skip(1)
+        .map(|l| l.split('\t').next().unwrap())
+        .collect();
     assert_eq!(genes, ["geneA", "geneB", "geneR", "geneC", "geneU"], "{m}");
     assert!(out.join(".prepared").is_file());
-    assert!(!stderr.contains("read pairs (reads_per_sample"), "no reads warning at the default: {stderr}");
+    assert!(
+        !stderr.contains("read pairs (reads_per_sample"),
+        "no reads warning at the default: {stderr}"
+    );
     // The marker written by the local run matches a task run with the same inputs (R27).
     let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
     ok(&qrnamap(
         &[
-            "quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--reference", s(&g),
-            "--gff", s(&gff), "--task-id", "1", "--samples-per-task", "2", "--tmpdir", s(&tmp),
+            "quant",
+            "--samples",
+            s(&sh),
+            "--transcripts",
+            s(&fa),
+            "--tx2gene",
+            s(&t2g),
+            "--out",
+            s(&out),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--task-id",
+            "1",
+            "--samples-per-task",
+            "2",
+            "--tmpdir",
+            s(&tmp),
         ],
         None,
     ));
     if with_de {
-        for f in ["deseq2.results.csv", "deseq2.normalized.csv", "deseq2.vst.csv", "deseq2.versions.txt"] {
+        for f in [
+            "deseq2.results.csv",
+            "deseq2.normalized.csv",
+            "deseq2.vst.csv",
+            "deseq2.versions.txt",
+        ] {
             assert!(out.join(f).is_file(), "{f}\n{stderr}");
         }
         assert!(stdout.contains("DESeq2 "), "{stdout}");
         let res = fs::read_to_string(out.join("deseq2.results.csv")).unwrap();
         assert!(res.contains("geneA"), "{res}");
     }
-    eprintln!("WALL run_end_to_end_quant_on_mini_fixture: {:.2?}", t0.elapsed());
+    eprintln!(
+        "WALL run_end_to_end_quant_on_mini_fixture: {:.2?}",
+        t0.elapsed()
+    );
 }
 
 /// The reviewer's two C1 inputs for one sample S1 of 10,000 simulated pairs: (a) R2 `.gz` cut
@@ -283,12 +371,33 @@ fn c1_sheets(d: &Path) -> (PathBuf, PathBuf) {
     fs::write(&g1, gz(&fs::read(&r1).unwrap())).unwrap();
     let full = gz(&fs::read(&r2).unwrap());
     fs::write(&g2, &full[..full.len() / 2]).unwrap();
-    let short: String = fs::read_to_string(&r2).unwrap().lines().take(8000).map(|l| format!("{l}\n")).collect();
+    let short: String = fs::read_to_string(&r2)
+        .unwrap()
+        .lines()
+        .take(8000)
+        .map(|l| format!("{l}\n"))
+        .collect();
     let r2s = d.join("short_2.fq");
     fs::write(&r2s, short).unwrap();
     let (a, b) = (d.join("trunc.tsv"), d.join("short.tsv"));
-    fs::write(&a, format!("sample\tfastq1\tfastq2\nS1\t{}\t{}\n", g1.display(), g2.display())).unwrap();
-    fs::write(&b, format!("sample\tfastq1\tfastq2\nS1\t{}\t{}\n", r1.display(), r2s.display())).unwrap();
+    fs::write(
+        &a,
+        format!(
+            "sample\tfastq1\tfastq2\nS1\t{}\t{}\n",
+            g1.display(),
+            g2.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &b,
+        format!(
+            "sample\tfastq1\tfastq2\nS1\t{}\t{}\n",
+            r1.display(),
+            r2s.display()
+        ),
+    )
+    .unwrap();
     (a, b)
 }
 
@@ -308,17 +417,51 @@ fn quant_and_run_quant_refuse_truncated_gz_and_short_mate() {
     for (sheet, want) in [(&trunc, "truncated"), (&short, "10000")] {
         let out = d.join("q");
         let err = fail(&qrnamap(
-            &["quant", "--samples", s(sheet), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir", s(&tmp)],
+            &[
+                "quant",
+                "--samples",
+                s(sheet),
+                "--transcripts",
+                s(&fa),
+                "--tx2gene",
+                s(&t2g),
+                "--out",
+                s(&out),
+                "--tmpdir",
+                s(&tmp),
+            ],
             None,
         ));
-        assert!(err.contains("sample 'S1'") && err.contains(want), "quant {}: {err}", sheet.display());
+        assert!(
+            err.contains("sample 'S1'") && err.contains(want),
+            "quant {}: {err}",
+            sheet.display()
+        );
         assert!(!out.join("S1.genecounts.tsv.zst").exists());
         let out = d.join("r");
         let err = fail(&qrnamap(
-            &["run", "--samples", s(sheet), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out), "--tmpdir", s(&tmp)],
+            &[
+                "run",
+                "--samples",
+                s(sheet),
+                "--reference",
+                s(&g),
+                "--gff",
+                s(&gff),
+                "--mode",
+                "quant",
+                "--out",
+                s(&out),
+                "--tmpdir",
+                s(&tmp),
+            ],
             None,
         ));
-        assert!(err.contains("sample 'S1'") && err.contains(want), "run {}: {err}", sheet.display());
+        assert!(
+            err.contains("sample 'S1'") && err.contains(want),
+            "run {}: {err}",
+            sheet.display()
+        );
         assert!(!out.join("S1.genecounts.tsv.zst").exists());
         assert!(!out.join("counts.tsv.zst").exists());
     }
@@ -337,7 +480,21 @@ fn run_end_to_end_align_with_task_slices() {
     // Local run.
     let local = d.join("local");
     ok(&qrnamap(
-        &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&local), "--tmpdir", s(&d.join("tmp"))],
+        &[
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "align",
+            "--out",
+            s(&local),
+            "--tmpdir",
+            s(&d.join("tmp")),
+        ],
         None,
     ));
     // Cluster layout: write the scripts, then run them with bash in order (no SLURM): prepare,
@@ -345,8 +502,22 @@ fn run_end_to_end_align_with_task_slices() {
     let cl = d.join("cluster");
     let (stdout, _) = ok(&qrnamap(
         &[
-            "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&cl),
-            "--slurm", "--samples-per-task", "3", "--qrnamap-bin", env!("CARGO_BIN_EXE_qrnamap"),
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "align",
+            "--out",
+            s(&cl),
+            "--slurm",
+            "--samples-per-task",
+            "3",
+            "--qrnamap-bin",
+            env!("CARGO_BIN_EXE_qrnamap"),
         ],
         None,
     ));
@@ -369,10 +540,17 @@ fn run_end_to_end_align_with_task_slices() {
     let index_file = cl.join("index").join("genome.1.ht2");
     let built = fs::metadata(&index_file).unwrap().modified().unwrap();
     job("samples.sbatch", Some("0"));
-    let made: Vec<bool> = NAMES.iter().map(|n| cl.join(format!("{n}.genecounts.tsv.zst")).is_file()).collect();
+    let made: Vec<bool> = NAMES
+        .iter()
+        .map(|n| cl.join(format!("{n}.genecounts.tsv.zst")).is_file())
+        .collect();
     assert_eq!(made, [true, true, true, false], "task 0 holds samples 0..3");
     job("samples.sbatch", Some("1"));
-    assert_eq!(fs::metadata(&index_file).unwrap().modified().unwrap(), built, "array tasks reuse the index");
+    assert_eq!(
+        fs::metadata(&index_file).unwrap().modified().unwrap(),
+        built,
+        "array tasks reuse the index"
+    );
     job("final.sbatch", None);
     let a = read_table(&local.join("counts.tsv.zst")).unwrap();
     let b = read_table(&cl.join("counts.tsv.zst")).unwrap();
@@ -381,14 +559,30 @@ fn run_end_to_end_align_with_task_slices() {
     // A task id past the last sample is a named error.
     let o = qrnamap(
         &[
-            "align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&cl), "--task-id", "2",
-            "--samples-per-task", "3", "--tmpdir", s(&scratch),
+            "align",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--out",
+            s(&cl),
+            "--task-id",
+            "2",
+            "--samples-per-task",
+            "3",
+            "--tmpdir",
+            s(&scratch),
         ],
         None,
     );
     let err = fail(&o);
     assert!(err.contains("task 2") && err.contains("4 samples"), "{err}");
-    eprintln!("WALL run_end_to_end_align_with_task_slices: {:.2?}", t0.elapsed());
+    eprintln!(
+        "WALL run_end_to_end_align_with_task_slices: {:.2?}",
+        t0.elapsed()
+    );
 }
 
 #[test]
@@ -401,20 +595,55 @@ fn task_id_needs_prepared_run_dir() {
     let (g, gff) = mini();
     // R27: with --task-id, quant needs --reference and --gff (checked against the marker).
     let o = qrnamap(
-        &["quant", "--samples", s(&sh), "--transcripts", "/x/t.fa", "--tx2gene", "/x/t2g", "--out", s(&out), "--task-id", "0", "--tmpdir", s(d)],
-        None,
-    );
-    let err = fail(&o);
-    assert!(err.contains("--task-id") && err.contains("--reference") && err.contains("--gff"), "{err}");
-    let o = qrnamap(
         &[
-            "quant", "--samples", s(&sh), "--transcripts", "/x/t.fa", "--tx2gene", "/x/t2g", "--out", s(&out), "--task-id", "0",
-            "--tmpdir", s(d), "--reference", s(&g), "--gff", s(&gff),
+            "quant",
+            "--samples",
+            s(&sh),
+            "--transcripts",
+            "/x/t.fa",
+            "--tx2gene",
+            "/x/t2g",
+            "--out",
+            s(&out),
+            "--task-id",
+            "0",
+            "--tmpdir",
+            s(d),
         ],
         None,
     );
     let err = fail(&o);
-    assert!(err.contains(".prepared") && err.contains("--step prepare"), "{err}");
+    assert!(
+        err.contains("--task-id") && err.contains("--reference") && err.contains("--gff"),
+        "{err}"
+    );
+    let o = qrnamap(
+        &[
+            "quant",
+            "--samples",
+            s(&sh),
+            "--transcripts",
+            "/x/t.fa",
+            "--tx2gene",
+            "/x/t2g",
+            "--out",
+            s(&out),
+            "--task-id",
+            "0",
+            "--tmpdir",
+            s(d),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+        ],
+        None,
+    );
+    let err = fail(&o);
+    assert!(
+        err.contains(".prepared") && err.contains("--step prepare"),
+        "{err}"
+    );
 }
 
 /// Empty directory to use as PATH, so no tool can be found.
@@ -437,7 +666,12 @@ fn run_removes_old_outputs_of_all_samples_first() {
     let junk: Vec<sim::Pair> = (0..200)
         .map(|i| {
             let r: Vec<u8> = (0..75).map(|_| b"ACGT"[rng.below(4)]).collect();
-            sim::Pair { name: format!("junk{i}"), r1: r.clone(), r2: sim::revcomp(&r), tx: 0 }
+            sim::Pair {
+                name: format!("junk{i}"),
+                r1: r.clone(),
+                r2: sim::revcomp(&r),
+                tx: 0,
+            }
         })
         .collect();
     sim::write_fastq(&junk, &d.join("c1_1.fq"), &d.join("c1_2.fq"));
@@ -445,18 +679,43 @@ fn run_removes_old_outputs_of_all_samples_first() {
     let out = d.join("run");
     fs::create_dir_all(&out).unwrap();
     let stale = out.join("t1.genecounts.tsv.zst");
-    qrnamap_cli::pipeline::write_gene_counts(&stale, "t1", &[("geneA".to_string(), 99u64)].into_iter().collect()).unwrap();
+    qrnamap_cli::pipeline::write_gene_counts(
+        &stale,
+        "t1",
+        &[("geneA".to_string(), 99u64)].into_iter().collect(),
+    )
+    .unwrap();
     let stale_matrix = out.join("counts.tsv.zst");
     fs::write(&stale_matrix, b"old").unwrap();
     let stale_de = out.join("deseq2.results.csv");
     fs::write(&stale_de, b"old").unwrap();
     let o = qrnamap(
-        &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out), "--tmpdir", s(&d.join("tmp"))],
+        &[
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "quant",
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&d.join("tmp")),
+        ],
         None,
     );
     let err = fail(&o);
-    assert!(err.contains("sample 'c1'") && err.contains("pseudoaligned 0 reads"), "{err}");
-    assert!(!stale.exists(), "the stale count file of sample t1 must be gone");
+    assert!(
+        err.contains("sample 'c1'") && err.contains("pseudoaligned 0 reads"),
+        "{err}"
+    );
+    assert!(
+        !stale.exists(),
+        "the stale count file of sample t1 must be gone"
+    );
     assert!(!stale_matrix.exists() && !stale_de.exists());
 }
 
@@ -474,18 +733,39 @@ fn run_removes_old_outputs_even_when_the_index_cannot_be_built() {
     // reads_per_sample 100 is below every sample: a warning each, then the missing kallisto fails.
     let o = qrnamap(
         &[
-            "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out),
-            "--tmpdir", s(&d.join("tmp")), "--reads-per-sample", "100",
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "quant",
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&d.join("tmp")),
+            "--reads-per-sample",
+            "100",
         ],
         Some(&no_tools(d)),
     );
     let err = fail(&o);
     assert!(err.contains("kallisto"), "{err}");
     for n in NAMES {
-        assert!(err.contains(&format!("warning: sample '{n}' has more than 100 read pairs")), "{err}");
+        assert!(
+            err.contains(&format!(
+                "warning: sample '{n}' has more than 100 read pairs"
+            )),
+            "{err}"
+        );
     }
     assert!(!stale.exists());
-    assert!(!out.join(".prepared").exists(), "a failed prepare leaves no completion marker");
+    assert!(
+        !out.join(".prepared").exists(),
+        "a failed prepare leaves no completion marker"
+    );
 }
 
 #[test]
@@ -495,10 +775,28 @@ fn run_bad_design_fails_before_any_tool() {
     let sh = mini_sheet(d);
     let (g, gff) = mini();
     let empty = no_tools(d);
-    for (contrast, want) in [("condition,treated,nosuch", "nosuch"), ("batch,a,b", "batch"), ("condition,treated,treated", "the same")] {
+    for (contrast, want) in [
+        ("condition,treated,nosuch", "nosuch"),
+        ("batch,a,b", "batch"),
+        ("condition,treated,treated", "the same"),
+    ] {
         let out = d.join("run");
         let o = qrnamap(
-            &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out), "--contrast", contrast],
+            &[
+                "run",
+                "--samples",
+                s(&sh),
+                "--reference",
+                s(&g),
+                "--gff",
+                s(&gff),
+                "--mode",
+                "quant",
+                "--out",
+                s(&out),
+                "--contrast",
+                contrast,
+            ],
             Some(&empty),
         );
         let err = fail(&o);
@@ -509,13 +807,28 @@ fn run_bad_design_fails_before_any_tool() {
     // One replicate in a tested group.
     let one = d.join("one.tsv");
     let text = fs::read_to_string(&sh).unwrap();
-    let text: String = text.lines().filter(|l| !l.starts_with("t2\t")).map(|l| format!("{l}\n")).collect();
+    let text: String = text
+        .lines()
+        .filter(|l| !l.starts_with("t2\t"))
+        .map(|l| format!("{l}\n"))
+        .collect();
     fs::write(&one, text).unwrap();
     let out = d.join("run1");
     let o = qrnamap(
         &[
-            "run", "--samples", s(&one), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out),
-            "--contrast", "condition,treated,control",
+            "run",
+            "--samples",
+            s(&one),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "quant",
+            "--out",
+            s(&out),
+            "--contrast",
+            "condition,treated,control",
         ],
         Some(&empty),
     );
@@ -533,10 +846,25 @@ fn run_single_end_without_fragment_length_fails_before_any_tool() {
     let (g, gff) = mini();
     let out = d.join("run");
     for extra in [&[][..], &["--slurm"][..]] {
-        let mut a = vec!["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out)];
+        let mut a = vec![
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "quant",
+            "--out",
+            s(&out),
+        ];
         a.extend_from_slice(extra);
         let err = fail(&qrnamap(&a, Some(&no_tools(d))));
-        assert!(err.contains("SE1") && err.contains("fragment length"), "{err}");
+        assert!(
+            err.contains("SE1") && err.contains("fragment length"),
+            "{err}"
+        );
         assert!(!out.exists());
     }
 }
@@ -566,15 +894,30 @@ fn prepared_align_dir() -> Prepared {
     fs::copy(gff, &gff_copy).unwrap();
     let out = d.join("run");
     fs::create_dir_all(&out).unwrap();
-    let inputs = [("reference", reference.as_path()), ("gff", gff_copy.as_path())];
+    let inputs = [
+        ("reference", reference.as_path()),
+        ("gff", gff_copy.as_path()),
+    ];
     write_prepared_marker(&out, Mode::Align, None, &inputs).unwrap();
     let sheet = mini_sheet(&d);
-    Prepared { _dir: dir, d, reference, gff: gff_copy, out, sheet }
+    Prepared {
+        _dir: dir,
+        d,
+        reference,
+        gff: gff_copy,
+        out,
+        sheet,
+    }
 }
 
 /// `check_prepared` in align mode with the reference of `p` and the GFF3 `gff`.
 fn check_align(p: &Prepared, gff: &Path) -> Result<(), RunError> {
-    check_prepared(&p.out, Mode::Align, None, &[("reference", &p.reference), ("gff", gff)])
+    check_prepared(
+        &p.out,
+        Mode::Align,
+        None,
+        &[("reference", &p.reference), ("gff", gff)],
+    )
 }
 
 fn not_prepared_reason(r: Result<(), RunError>) -> String {
@@ -587,8 +930,19 @@ fn not_prepared_reason(r: Result<(), RunError>) -> String {
 fn align_task(p: &Prepared, gff: &Path) -> Output {
     qrnamap(
         &[
-            "align", "--samples", s(&p.sheet), "--reference", s(&p.reference), "--gff", s(gff), "--out", s(&p.out),
-            "--task-id", "0", "--tmpdir", s(&p.d),
+            "align",
+            "--samples",
+            s(&p.sheet),
+            "--reference",
+            s(&p.reference),
+            "--gff",
+            s(gff),
+            "--out",
+            s(&p.out),
+            "--task-id",
+            "0",
+            "--tmpdir",
+            s(&p.d),
         ],
         Some(&no_tools(&p.d)),
     )
@@ -604,23 +958,45 @@ fn marker_records_inputs_and_version() {
     assert_eq!(lines[1], format!("version\t{}", env!("CARGO_PKG_VERSION")));
     assert_eq!(lines[2], "mode\talign");
     assert_eq!(lines[3], "quantifier\tnone");
-    for (i, (role, path)) in [("reference", &p.reference), ("gff", &p.gff)].iter().enumerate() {
+    for (i, (role, path)) in [("reference", &p.reference), ("gff", &p.gff)]
+        .iter()
+        .enumerate()
+    {
         let m = fs::metadata(path).unwrap();
-        let t = m.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap();
+        let t = m
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
         let canon = fs::canonicalize(path).unwrap();
         assert_eq!(
             lines[4 + i],
-            format!("input\t{role}\t{}\t{}\t{}\t{}", m.len(), t.as_secs(), t.subsec_nanos(), canon.display())
+            format!(
+                "input\t{role}\t{}\t{}\t{}\t{}",
+                m.len(),
+                t.as_secs(),
+                t.subsec_nanos(),
+                canon.display()
+            )
         );
     }
     assert_eq!(lines.len(), 6);
     assert!(check_align(&p, &p.gff).is_ok());
     // Mode and version are checked too.
-    let inputs = [("reference", p.reference.as_path()), ("gff", p.gff.as_path())];
+    let inputs = [
+        ("reference", p.reference.as_path()),
+        ("gff", p.gff.as_path()),
+    ];
     let r = check_prepared(&p.out, Mode::Quant, Some(Quantifier::Kallisto), &inputs);
     let r = not_prepared_reason(r);
-    assert!(r.contains("mode") && r.contains("align") && r.contains("quant"), "{r}");
-    let text2 = text.replace(&format!("version\t{}", env!("CARGO_PKG_VERSION")), "version\t0.0.0-old");
+    assert!(
+        r.contains("mode") && r.contains("align") && r.contains("quant"),
+        "{r}"
+    );
+    let text2 = text.replace(
+        &format!("version\t{}", env!("CARGO_PKG_VERSION")),
+        "version\t0.0.0-old",
+    );
     fs::write(p.out.join(PREPARED_MARKER), text2).unwrap();
     let r = not_prepared_reason(check_align(&p, &p.gff));
     assert!(r.contains("version") && r.contains("0.0.0-old"), "{r}");
@@ -635,15 +1011,22 @@ fn task_run_with_different_gff_is_not_prepared() {
     assert!(r.starts_with("gff: path differs"), "{r}");
     assert!(r.contains("genes.gff3") && r.contains("other.gff3"), "{r}");
     let err = fail(&align_task(&p, &other));
-    assert!(err.contains("not prepared") && err.contains("gff: path differs"), "{err}");
+    assert!(
+        err.contains("not prepared") && err.contains("gff: path differs"),
+        "{err}"
+    );
     assert!(!err.contains("hisat2"), "refused before any tool: {err}");
 }
 
 #[test]
 fn task_run_with_modified_reference_mtime_is_not_prepared() {
     let p = prepared_align_dir();
-    let f = fs::OpenOptions::new().write(true).open(&p.reference).unwrap();
-    f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600)).unwrap();
+    let f = fs::OpenOptions::new()
+        .write(true)
+        .open(&p.reference)
+        .unwrap();
+    f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
+        .unwrap();
     drop(f);
     let r = not_prepared_reason(check_align(&p, &p.gff));
     assert!(r.starts_with("reference: mtime changed"), "{r}");
@@ -655,7 +1038,10 @@ fn task_run_with_modified_reference_mtime_is_not_prepared() {
 fn task_run_with_modified_reference_size_is_not_prepared() {
     let p = prepared_align_dir();
     let before = fs::metadata(&p.reference).unwrap().modified().unwrap();
-    let mut f = fs::OpenOptions::new().append(true).open(&p.reference).unwrap();
+    let mut f = fs::OpenOptions::new()
+        .append(true)
+        .open(&p.reference)
+        .unwrap();
     f.write_all(b"ACGT\n").unwrap();
     f.set_modified(before).unwrap();
     drop(f);
@@ -668,8 +1054,21 @@ fn task_run_with_modified_reference_size_is_not_prepared() {
 fn final_step(p: &Prepared, gff: &Path) -> Output {
     qrnamap(
         &[
-            "run", "--samples", s(&p.sheet), "--reference", s(&p.reference), "--gff", s(gff), "--mode", "align", "--out",
-            s(&p.out), "--step", "final", "--tmpdir", s(&p.d),
+            "run",
+            "--samples",
+            s(&p.sheet),
+            "--reference",
+            s(&p.reference),
+            "--gff",
+            s(gff),
+            "--mode",
+            "align",
+            "--out",
+            s(&p.out),
+            "--step",
+            "final",
+            "--tmpdir",
+            s(&p.d),
         ],
         Some(&no_tools(&p.d)),
     )
@@ -681,7 +1080,10 @@ fn final_step_with_different_gff_is_not_prepared() {
     let other = p.d.join("other.gff3");
     fs::copy(&p.gff, &other).unwrap();
     let err = fail(&final_step(&p, &other));
-    assert!(err.contains("not prepared") && err.contains("gff: path differs"), "{err}");
+    assert!(
+        err.contains("not prepared") && err.contains("gff: path differs"),
+        "{err}"
+    );
     assert!(!p.out.join("counts.tsv.zst").exists());
 }
 
@@ -692,7 +1094,10 @@ fn final_step_without_marker_is_not_prepared() {
     let r = not_prepared_reason(check_align(&p, &p.gff));
     assert!(r.contains("is missing"), "{r}");
     let err = fail(&final_step(&p, &p.gff));
-    assert!(err.contains("not prepared") && err.contains("is missing"), "{err}");
+    assert!(
+        err.contains("not prepared") && err.contains("is missing"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -705,25 +1110,59 @@ fn plain_quant_removes_stale_marker() {
     fs::create_dir_all(&out).unwrap();
     let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
     qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
-    let inputs =
-        [("reference", g.as_path()), ("gff", &gff), ("transcripts", &fa), ("tx2gene", &t2g)];
+    let inputs = [
+        ("reference", g.as_path()),
+        ("gff", &gff),
+        ("transcripts", &fa),
+        ("tx2gene", &t2g),
+    ];
     write_prepared_marker(&out, Mode::Quant, Some(Quantifier::Kallisto), &inputs).unwrap();
     // No kallisto on PATH: the index build fails, but the old marker must already be gone.
     let o = qrnamap(
-        &["quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir", s(d)],
+        &[
+            "quant",
+            "--samples",
+            s(&sh),
+            "--transcripts",
+            s(&fa),
+            "--tx2gene",
+            s(&t2g),
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(d),
+        ],
         Some(&no_tools(d)),
     );
     let err = fail(&o);
     assert!(err.contains("kallisto"), "{err}");
-    assert!(!out.join(PREPARED_MARKER).exists(), "plain quant must remove the stale marker");
+    assert!(
+        !out.join(PREPARED_MARKER).exists(),
+        "plain quant must remove the stale marker"
+    );
     // The same for align.
     write_prepared_marker(&out, Mode::Align, None, &[("reference", &g), ("gff", &gff)]).unwrap();
     let o = qrnamap(
-        &["align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(d)],
+        &[
+            "align",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(d),
+        ],
         Some(&no_tools(d)),
     );
     fail(&o);
-    assert!(!out.join(PREPARED_MARKER).exists(), "plain align must remove the stale marker");
+    assert!(
+        !out.join(PREPARED_MARKER).exists(),
+        "plain align must remove the stale marker"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -749,7 +1188,14 @@ fn prepared_quant_dir(q: Quantifier) -> Prepared {
     ];
     write_prepared_marker(&out, Mode::Quant, Some(q), &inputs).unwrap();
     let sheet = mini_sheet(&d);
-    Prepared { _dir: dir, d, reference, gff: gff_copy, out, sheet }
+    Prepared {
+        _dir: dir,
+        d,
+        reference,
+        gff: gff_copy,
+        out,
+        sheet,
+    }
 }
 
 fn quant_inputs(p: &Prepared) -> Vec<(&'static str, PathBuf)> {
@@ -793,7 +1239,10 @@ fn marker_for_align_writes_none() {
     // A marker without the quantifier line is refused.
     let text2 = text.replace("quantifier\tnone\n", "");
     fs::write(p.out.join(PREPARED_MARKER), text2).unwrap();
-    let inputs = [("reference", p.reference.as_path()), ("gff", p.gff.as_path())];
+    let inputs = [
+        ("reference", p.reference.as_path()),
+        ("gff", p.gff.as_path()),
+    ];
     let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, None, &inputs));
     assert!(r.contains("quantifier"), "{r}");
 }
@@ -806,9 +1255,15 @@ fn marker_version_1_is_refused_with_advice() {
     let v1 = text.replace("qrnamap-prepared\t2", "qrnamap-prepared\t1");
     let v1 = v1.replace("quantifier\tnone\n", "");
     fs::write(p.out.join(PREPARED_MARKER), v1).unwrap();
-    let inputs = [("reference", p.reference.as_path()), ("gff", p.gff.as_path())];
+    let inputs = [
+        ("reference", p.reference.as_path()),
+        ("gff", p.gff.as_path()),
+    ];
     let r = not_prepared_reason(check_prepared(&p.out, Mode::Align, None, &inputs));
-    assert!(r.contains("version 1") && r.contains("prepare") && r.contains("again"), "{r}");
+    assert!(
+        r.contains("version 1") && r.contains("prepare") && r.contains("again"),
+        "{r}"
+    );
 }
 
 /// A "not prepared" error that names both quantifiers.
@@ -820,13 +1275,32 @@ fn names_both_quantifiers(err: &str) -> bool {
 fn task_id_with_other_quantifier_refuses() {
     let p = prepared_quant_dir(Quantifier::Kallisto);
     fs::write(p.out.join("transcripts.kidx"), "stand-in").unwrap();
-    let (fa, t2g) = (p.out.join("transcripts.fa.zst"), p.out.join("tx2gene.tsv.zst"));
+    let (fa, t2g) = (
+        p.out.join("transcripts.fa.zst"),
+        p.out.join("tx2gene.tsv.zst"),
+    );
     let task = |q: &str| {
         qrnamap(
             &[
-                "quant", "--samples", s(&p.sheet), "--transcripts", s(&fa), "--tx2gene", s(&t2g),
-                "--out", s(&p.out), "--task-id", "0", "--tmpdir", s(&p.d), "--reference",
-                s(&p.reference), "--gff", s(&p.gff), "--quantifier", q,
+                "quant",
+                "--samples",
+                s(&p.sheet),
+                "--transcripts",
+                s(&fa),
+                "--tx2gene",
+                s(&t2g),
+                "--out",
+                s(&p.out),
+                "--task-id",
+                "0",
+                "--tmpdir",
+                s(&p.d),
+                "--reference",
+                s(&p.reference),
+                "--gff",
+                s(&p.gff),
+                "--quantifier",
+                q,
             ],
             Some(&no_tools(&p.d)),
         )
@@ -835,9 +1309,23 @@ fn task_id_with_other_quantifier_refuses() {
     assert!(names_both_quantifiers(&err), "{err}");
     let fin = qrnamap(
         &[
-            "run", "--samples", s(&p.sheet), "--reference", s(&p.reference), "--gff", s(&p.gff),
-            "--mode", "quant", "--out", s(&p.out), "--step", "final", "--tmpdir", s(&p.d),
-            "--quantifier", "salmon",
+            "run",
+            "--samples",
+            s(&p.sheet),
+            "--reference",
+            s(&p.reference),
+            "--gff",
+            s(&p.gff),
+            "--mode",
+            "quant",
+            "--out",
+            s(&p.out),
+            "--step",
+            "final",
+            "--tmpdir",
+            s(&p.d),
+            "--quantifier",
+            "salmon",
         ],
         Some(&no_tools(&p.d)),
     );
@@ -854,9 +1342,15 @@ fn prepared_quant_accepts_a_directory_index() {
     use qrnamap_cli::pipeline::Scratch;
     use qrnamap_core::RunConfig;
     let p = prepared_quant_dir(Quantifier::Salmon);
-    let cfg =
-        RunConfig { mode: Mode::Quant, quantifier: Quantifier::Salmon, ..RunConfig::default() };
-    let (fa, t2g) = (p.out.join("transcripts.fa.zst"), p.out.join("tx2gene.tsv.zst"));
+    let cfg = RunConfig {
+        mode: Mode::Quant,
+        quantifier: Quantifier::Salmon,
+        ..RunConfig::default()
+    };
+    let (fa, t2g) = (
+        p.out.join("transcripts.fa.zst"),
+        p.out.join("tx2gene.tsv.zst"),
+    );
     let call = || {
         let scratch = Scratch::new(p.d.join("tmp"));
         let c = cfg.clone();
@@ -897,11 +1391,26 @@ fn strand_check_removes_old_table_before_running_tools() {
     fs::write(&old, STALE_STRAND_CHECK).unwrap();
     fs::write(out.join("strand_check.tsv.partial"), b"old").unwrap();
     let err = fail(&qrnamap(
-        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(&d.join("tmp"))],
+        &[
+            "strand-check",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&d.join("tmp")),
+        ],
         Some(&no_tools(d)),
     ));
     eprintln!("error: {err}");
-    assert!(!old.exists(), "the old strand_check.tsv survived a failed strand-check");
+    assert!(
+        !old.exists(),
+        "the old strand_check.tsv survived a failed strand-check"
+    );
     assert!(!out.join("strand_check.tsv.partial").exists());
 }
 
@@ -919,11 +1428,30 @@ fn bad_input_leaves_old_strand_check_table() {
     fs::write(&old, STALE_STRAND_CHECK).unwrap();
     fs::remove_file(d.join("t1_2.fq")).unwrap();
     let err = fail(&qrnamap(
-        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(&d.join("tmp"))],
+        &[
+            "strand-check",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&d.join("tmp")),
+        ],
         Some(&no_tools(d)),
     ));
-    assert!(err.contains("sample 't1'") && err.contains("t1_2.fq"), "the missing FASTQ must be named: {err}");
-    assert_eq!(fs::read_to_string(&old).unwrap(), STALE_STRAND_CHECK, "old table must survive a bad-input failure");
+    assert!(
+        err.contains("sample 't1'") && err.contains("t1_2.fq"),
+        "the missing FASTQ must be named: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&old).unwrap(),
+        STALE_STRAND_CHECK,
+        "old table must survive a bad-input failure"
+    );
 }
 
 #[test]
@@ -938,26 +1466,95 @@ fn strand_check_into_prepared_dir_removes_marker() {
     let sh = mini_sheet(d);
     let (g, gff) = mini();
     let gff_b = d.join("genes_b.gff3");
-    fs::write(&gff_b, fs::read_to_string(&gff).unwrap().replace("Name=geneA", "Name=geneA_renamed")).unwrap();
+    fs::write(
+        &gff_b,
+        fs::read_to_string(&gff)
+            .unwrap()
+            .replace("Name=geneA", "Name=geneA_renamed"),
+    )
+    .unwrap();
     let out = d.join("run");
     let tmp = d.join("tmp");
     ok(&qrnamap(
-        &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&out), "--tmpdir", s(&tmp), "--step", "prepare"],
+        &[
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "align",
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&tmp),
+            "--step",
+            "prepare",
+        ],
         None,
     ));
     assert!(out.join(PREPARED_MARKER).is_file());
     ok(&qrnamap(
-        &["strand-check", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff_b), "--out", s(&out), "--pairs", "500", "--tmpdir", s(&tmp)],
+        &[
+            "strand-check",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff_b),
+            "--out",
+            s(&out),
+            "--pairs",
+            "500",
+            "--tmpdir",
+            s(&tmp),
+        ],
         None,
     ));
-    assert!(!out.join(PREPARED_MARKER).exists(), "strand-check must remove the marker");
+    assert!(
+        !out.join(PREPARED_MARKER).exists(),
+        "strand-check must remove the marker"
+    );
     let err = fail(&qrnamap(
-        &["align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--task-id", "0", "--tmpdir", s(&tmp)],
+        &[
+            "align",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--out",
+            s(&out),
+            "--task-id",
+            "0",
+            "--tmpdir",
+            s(&tmp),
+        ],
         None,
     ));
     assert!(err.contains("not prepared"), "{err}");
     let err = fail(&qrnamap(
-        &["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&out), "--tmpdir", s(&tmp), "--step", "final"],
+        &[
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "align",
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&tmp),
+            "--step",
+            "final",
+        ],
         None,
     ));
     assert!(err.contains("not prepared"), "{err}");
@@ -970,7 +1567,10 @@ fn sheet_first_sample_fails(d: &Path) -> PathBuf {
     let mut t = String::from("sample\tfastq1\tfastq2\n");
     for (i, name) in ["S1", "S2", "S3"].iter().enumerate() {
         let pairs = sim::simulate(&recs, &COUNTS, Strandedness::Unstranded, 200 + i as u64);
-        let (r1, mut r2) = (d.join(format!("{name}_1.fq")), d.join(format!("{name}_2.fq")));
+        let (r1, mut r2) = (
+            d.join(format!("{name}_1.fq")),
+            d.join(format!("{name}_2.fq")),
+        );
         sim::write_fastq(&pairs, &r1, &r2);
         if i == 0 {
             let full = gz(&fs::read(&r2).unwrap());
@@ -1007,12 +1607,31 @@ fn plain_quant_and_align_remove_old_outputs_of_all_samples_first() {
         let out = d.join(format!("out_{cmd}"));
         fs::create_dir_all(&out).unwrap();
         let stale = out.join("S3.genecounts.tsv.zst");
-        qrnamap_cli::pipeline::write_gene_counts(&stale, "S3", &[("geneA".to_string(), 99u64)].into_iter().collect()).unwrap();
-        let mut a = vec![cmd, "--samples", s(&sh), "--out", s(&out), "--tmpdir", s(&tmp)];
+        qrnamap_cli::pipeline::write_gene_counts(
+            &stale,
+            "S3",
+            &[("geneA".to_string(), 99u64)].into_iter().collect(),
+        )
+        .unwrap();
+        let mut a = vec![
+            cmd,
+            "--samples",
+            s(&sh),
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(&tmp),
+        ];
         a.extend(extra);
         let err = fail(&qrnamap(&a, None));
-        assert!(err.contains("sample 'S1'") && err.contains("truncated"), "{cmd}: {err}");
-        assert!(!stale.exists(), "{cmd}: the stale count file of S3 must be gone");
+        assert!(
+            err.contains("sample 'S1'") && err.contains("truncated"),
+            "{cmd}: {err}"
+        );
+        assert!(
+            !stale.exists(),
+            "{cmd}: the stale count file of S3 must be gone"
+        );
     }
 }
 
@@ -1030,7 +1649,10 @@ fn missing_or_unreadable_fastq_is_named_before_any_tool() {
     let empty = no_tools(d);
     let missing = d.join("t1_2.fq");
     let unreadable = d.join("c2_1.fq");
-    for (case, file, sample) in [("missing", &missing, "t1"), ("unreadable", &unreadable, "c2")] {
+    for (case, file, sample) in [
+        ("missing", &missing, "t1"),
+        ("unreadable", &unreadable, "c2"),
+    ] {
         if case == "missing" {
             fs::remove_file(&missing).unwrap();
         } else {
@@ -1042,15 +1664,61 @@ fn missing_or_unreadable_fastq_is_named_before_any_tool() {
         }
         let out = d.join(format!("out_{case}"));
         let runs: [Vec<&str>; 3] = [
-            vec!["quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g), "--out", s(&out), "--tmpdir", s(d)],
-            vec!["align", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--out", s(&out), "--tmpdir", s(d)],
-            vec!["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "align", "--out", s(&out), "--tmpdir", s(d)],
+            vec![
+                "quant",
+                "--samples",
+                s(&sh),
+                "--transcripts",
+                s(&fa),
+                "--tx2gene",
+                s(&t2g),
+                "--out",
+                s(&out),
+                "--tmpdir",
+                s(d),
+            ],
+            vec![
+                "align",
+                "--samples",
+                s(&sh),
+                "--reference",
+                s(&g),
+                "--gff",
+                s(&gff),
+                "--out",
+                s(&out),
+                "--tmpdir",
+                s(d),
+            ],
+            vec![
+                "run",
+                "--samples",
+                s(&sh),
+                "--reference",
+                s(&g),
+                "--gff",
+                s(&gff),
+                "--mode",
+                "align",
+                "--out",
+                s(&out),
+                "--tmpdir",
+                s(d),
+            ],
         ];
         for a in runs {
             let err = fail(&qrnamap(&a, Some(&empty)));
-            assert!(err.contains(&format!("sample '{sample}'")) && err.contains(s(file)), "{case} {}: {err}", a[0]);
+            assert!(
+                err.contains(&format!("sample '{sample}'")) && err.contains(s(file)),
+                "{case} {}: {err}",
+                a[0]
+            );
             for tool in ["kallisto", "hisat2", "featureCounts"] {
-                assert!(!err.contains(tool), "{case} {}: checked after a tool start: {err}", a[0]);
+                assert!(
+                    !err.contains(tool),
+                    "{case} {}: checked after a tool start: {err}",
+                    a[0]
+                );
             }
             assert!(!out.join("index").exists() && !out.join("transcripts.kidx").exists());
         }
@@ -1062,14 +1730,37 @@ fn missing_or_unreadable_fastq_is_named_before_any_tool() {
 fn out_under_scratch_gives_shared_storage_warning() {
     // R29-13: --out on node-local scratch is a warning (index files must be on shared storage).
     use qrnamap_cli::run::scratch_out_warning;
-    let w = scratch_out_warning(Path::new("/scratch/u/123/run"), None).expect("a /scratch/ path warns");
-    assert!(w.contains("/scratch/u/123/run") && w.contains("shared storage"), "{w}");
-    assert!(scratch_out_warning(Path::new("/node/tmp/x/run"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_some());
-    assert!(scratch_out_warning(Path::new("/node/tmp/x"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_some());
-    assert!(scratch_out_warning(Path::new("/bigdata/lab/run"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_none());
+    let w =
+        scratch_out_warning(Path::new("/scratch/u/123/run"), None).expect("a /scratch/ path warns");
+    assert!(
+        w.contains("/scratch/u/123/run") && w.contains("shared storage"),
+        "{w}"
+    );
+    assert!(scratch_out_warning(
+        Path::new("/node/tmp/x/run"),
+        Some(std::ffi::OsStr::new("/node/tmp/x"))
+    )
+    .is_some());
+    assert!(scratch_out_warning(
+        Path::new("/node/tmp/x"),
+        Some(std::ffi::OsStr::new("/node/tmp/x"))
+    )
+    .is_some());
+    assert!(scratch_out_warning(
+        Path::new("/bigdata/lab/run"),
+        Some(std::ffi::OsStr::new("/node/tmp/x"))
+    )
+    .is_none());
     assert!(scratch_out_warning(Path::new("/bigdata/lab/run"), None).is_none());
-    assert!(scratch_out_warning(Path::new("/scratchy/run"), None).is_none(), "prefix must be the directory /scratch/");
-    assert!(scratch_out_warning(Path::new("/node/tmp/xy"), Some(std::ffi::OsStr::new("/node/tmp/x"))).is_none());
+    assert!(
+        scratch_out_warning(Path::new("/scratchy/run"), None).is_none(),
+        "prefix must be the directory /scratch/"
+    );
+    assert!(scratch_out_warning(
+        Path::new("/node/tmp/xy"),
+        Some(std::ffi::OsStr::new("/node/tmp/x"))
+    )
+    .is_none());
     // Through the binary: SCRATCH set, --out under it. It is a warning, not an error: the run
     // goes on and here fails later for a reason that has nothing to do with the warning.
     let dir = tempfile::tempdir().unwrap();
@@ -1078,24 +1769,61 @@ fn out_under_scratch_gives_shared_storage_warning() {
     let (g, gff) = mini();
     let out = d.join("run");
     let o = Command::new(env!("CARGO_BIN_EXE_qrnamap"))
-        .args(["run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant", "--out", s(&out)])
+        .args([
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            s(&g),
+            "--gff",
+            s(&gff),
+            "--mode",
+            "quant",
+            "--out",
+            s(&out),
+        ])
         .args(["--contrast", "condition,treated,nosuch"])
         .env("SCRATCH", d)
         .env("PATH", no_tools(d))
         .output()
         .unwrap();
     let err = fail(&o);
-    assert!(err.contains("warning:") && err.contains("shared storage"), "{err}");
-    assert!(err.contains("nosuch"), "the run continued past the warning: {err}");
+    assert!(
+        err.contains("warning:") && err.contains("shared storage"),
+        "{err}"
+    );
+    assert!(
+        err.contains("nosuch"),
+        "the run continued past the warning: {err}"
+    );
 }
 
 /// Write a gene count file and a summary file for every sheet sample of `p`.
 fn write_counts_for_sheet(p: &Prepared) {
     for n in NAMES {
-        let m = [("geneA".to_string(), 5u64), ("geneB".to_string(), 7u64)].into_iter().collect();
-        qrnamap_cli::pipeline::write_gene_counts(&p.out.join(format!("{n}.genecounts.tsv.zst")), n, &m).unwrap();
-        let summary = qrnamap_cli::pipeline::SampleSummary { reads_processed: 1, fraction_mapped: 1.0, fraction_assigned: 1.0 };
-        qrnamap_cli::pipeline::write_sample_summary(&p.out, n, qrnamap_core::Mode::Quant, Some(qrnamap_core::Quantifier::Kallisto), &summary, Strandedness::Unstranded).unwrap();
+        let m = [("geneA".to_string(), 5u64), ("geneB".to_string(), 7u64)]
+            .into_iter()
+            .collect();
+        qrnamap_cli::pipeline::write_gene_counts(
+            &p.out.join(format!("{n}.genecounts.tsv.zst")),
+            n,
+            &m,
+        )
+        .unwrap();
+        let summary = qrnamap_cli::pipeline::SampleSummary {
+            reads_processed: 1,
+            fraction_mapped: 1.0,
+            fraction_assigned: 1.0,
+        };
+        qrnamap_cli::pipeline::write_sample_summary(
+            &p.out,
+            n,
+            qrnamap_core::Mode::Quant,
+            Some(qrnamap_core::Quantifier::Kallisto),
+            &summary,
+            Strandedness::Unstranded,
+        )
+        .unwrap();
     }
 }
 
@@ -1110,12 +1838,21 @@ fn final_step_refuses_count_files_older_than_marker() {
     let p = prepared_align_dir();
     write_counts_for_sheet(&p);
     let now = std::time::SystemTime::now();
-    set_mtime(&p.out.join(PREPARED_MARKER), now + std::time::Duration::from_secs(3600));
+    set_mtime(
+        &p.out.join(PREPARED_MARKER),
+        now + std::time::Duration::from_secs(3600),
+    );
     let err = fail(&final_step(&p, &p.gff));
-    assert!(err.contains("sample 'c1'") && err.contains("older than"), "{err}");
+    assert!(
+        err.contains("sample 'c1'") && err.contains("older than"),
+        "{err}"
+    );
     assert!(!p.out.join("counts.tsv.zst").exists());
     // Count files newer than the marker pass.
-    set_mtime(&p.out.join(PREPARED_MARKER), now - std::time::Duration::from_secs(3600));
+    set_mtime(
+        &p.out.join(PREPARED_MARKER),
+        now - std::time::Duration::from_secs(3600),
+    );
     ok(&final_step(&p, &p.gff));
     assert!(p.out.join("counts.tsv.zst").is_file());
 }
@@ -1134,8 +1871,19 @@ fn plain_quant_with_salmon_then_kallisto_leaves_no_salmon_output() {
     qrnamap_cli::pipeline::run_transcripts(&g, &gff, &fa, &t2g, None, None).unwrap();
     let quant = |q: &str| {
         let args = [
-            "quant", "--samples", s(&sh), "--transcripts", s(&fa), "--tx2gene", s(&t2g),
-            "--out", s(&out), "--tmpdir", s(d), "--quantifier", q,
+            "quant",
+            "--samples",
+            s(&sh),
+            "--transcripts",
+            s(&fa),
+            "--tx2gene",
+            s(&t2g),
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(d),
+            "--quantifier",
+            q,
         ];
         ok(&qrnamap(&args, None));
     };
@@ -1143,15 +1891,29 @@ fn plain_quant_with_salmon_then_kallisto_leaves_no_salmon_output() {
     assert!(out.join("salmon_index").is_dir());
     assert!(out.join("c1").join("quant.sf").is_file());
     let row = read_table(&out.join("c1.summary.tsv.zst")).unwrap();
-    assert_eq!(row.lines().nth(1).unwrap().split('\t').nth(2), Some("salmon"), "{row}");
+    assert_eq!(
+        row.lines().nth(1).unwrap().split('\t').nth(2),
+        Some("salmon"),
+        "{row}"
+    );
     quant("kallisto");
     assert!(out.join("c1").join("abundance.tsv").is_file());
     for n in NAMES {
-        assert!(!out.join(n).join("quant.sf").exists(), "{n}: salmon output survived");
-        assert!(!out.join(n).join("aux_info").exists(), "{n}: salmon aux_info survived");
+        assert!(
+            !out.join(n).join("quant.sf").exists(),
+            "{n}: salmon output survived"
+        );
+        assert!(
+            !out.join(n).join("aux_info").exists(),
+            "{n}: salmon aux_info survived"
+        );
     }
     let row = read_table(&out.join("c1.summary.tsv.zst")).unwrap();
-    assert_eq!(row.lines().nth(1).unwrap().split('\t').nth(2), Some("kallisto"), "{row}");
+    assert_eq!(
+        row.lines().nth(1).unwrap().split('\t').nth(2),
+        Some("kallisto"),
+        "{row}"
+    );
 }
 
 #[test]
@@ -1166,22 +1928,48 @@ fn run_end_to_end_with_salmon_quantifier() {
     let out = d.join("run");
     let tmp = d.join("tmp");
     let args = [
-        "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", "quant",
-        "--quantifier", "salmon", "--out", s(&out), "--tmpdir", s(&tmp),
+        "run",
+        "--samples",
+        s(&sh),
+        "--reference",
+        s(&g),
+        "--gff",
+        s(&gff),
+        "--mode",
+        "quant",
+        "--quantifier",
+        "salmon",
+        "--out",
+        s(&out),
+        "--tmpdir",
+        s(&tmp),
     ];
     let (stdout, _) = ok(&qrnamap(&args, None));
     // The per-sample line names Salmon's fraction "mapped", not "pseudoaligned".
     for l in stdout.lines().filter(|l| l.contains("reads_processed=")) {
-        assert!(l.contains("\tmapped=") && !l.contains("pseudoaligned"), "{l}");
+        assert!(
+            l.contains("\tmapped=") && !l.contains("pseudoaligned"),
+            "{l}"
+        );
     }
-    assert_eq!(stdout.lines().filter(|l| l.contains("reads_processed=")).count(), NAMES.len(), "{stdout}");
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|l| l.contains("reads_processed="))
+            .count(),
+        NAMES.len(),
+        "{stdout}"
+    );
     for f in ["counts.tsv.zst", "genes.tsv.zst", "mapping_summary.tsv.zst"] {
         assert!(out.join(f).is_file(), "{f} missing");
     }
     let m = read_table(&out.join("mapping_summary.tsv.zst")).unwrap();
     let mut lines = m.lines();
     let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
-    let col = header.iter().position(|h| *h == "quantifier").expect("quantifier column");
+    let col = header
+        .iter()
+        .position(|h| *h == "quantifier")
+        .expect("quantifier column");
     let rows: Vec<&str> = lines.collect();
     assert_eq!(rows.len(), NAMES.len(), "{m}");
     for r in rows {
@@ -1198,29 +1986,59 @@ fn reserved_sample_name_fails_before_any_file_is_written() {
     let (r1, r2) = (d.join("r_1.fq"), d.join("r_2.fq"));
     fs::write(&r1, "@r\nACGT\n+\nIIII\n").unwrap();
     fs::write(&r2, "@r\nACGT\n+\nIIII\n").unwrap();
-    let text = format!("sample\tfastq1\tfastq2\nsalmon_index\t{}\t{}\n", s(&r1), s(&r2));
+    let text = format!(
+        "sample\tfastq1\tfastq2\nsalmon_index\t{}\t{}\n",
+        s(&r1),
+        s(&r2)
+    );
     fs::write(&sh, text).unwrap();
     let out = d.join("run");
     for mode in ["quant", "align"] {
         let o = qrnamap(
             &[
-                "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", mode,
-                "--out", s(&out), "--tmpdir", s(d),
+                "run",
+                "--samples",
+                s(&sh),
+                "--reference",
+                s(&g),
+                "--gff",
+                s(&gff),
+                "--mode",
+                mode,
+                "--out",
+                s(&out),
+                "--tmpdir",
+                s(d),
             ],
             Some(&no_tools(d)),
         );
         let err = fail(&o);
-        assert!(err.contains("'salmon_index'") && err.contains("reserved"), "{err}");
+        assert!(
+            err.contains("'salmon_index'") && err.contains("reserved"),
+            "{err}"
+        );
         assert!(!out.exists(), "{mode}: nothing is written");
     }
     let o = qrnamap(
         &[
-            "quant", "--samples", s(&sh), "--transcripts", "/x/t.fa", "--tx2gene", "/x/t2g",
-            "--out", s(&out), "--tmpdir", s(d),
+            "quant",
+            "--samples",
+            s(&sh),
+            "--transcripts",
+            "/x/t.fa",
+            "--tx2gene",
+            "/x/t2g",
+            "--out",
+            s(&out),
+            "--tmpdir",
+            s(d),
         ],
         Some(&no_tools(d)),
     );
     let err = fail(&o);
-    assert!(err.contains("'salmon_index'") && err.contains("reserved"), "{err}");
+    assert!(
+        err.contains("'salmon_index'") && err.contains("reserved"),
+        "{err}"
+    );
     assert!(!out.exists(), "plain quant: nothing is written");
 }

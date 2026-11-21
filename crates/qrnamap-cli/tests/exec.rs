@@ -23,7 +23,10 @@ fn native_failure_reports_stderr() {
     let text = err.to_string();
     assert!(text.contains("kallisto"), "{text}");
     // kallisto's own words, from its stderr.
-    assert!(text.contains("unrecognized option '--bogus-flag'"), "{text}");
+    assert!(
+        text.contains("unrecognized option '--bogus-flag'"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -97,11 +100,23 @@ fn failed_tool_error_has_no_colour_codes() {
     std::fs::write(&r1, "@r\nACGT\n+\nIIII\n").unwrap();
     std::fs::write(&r2, "@r\nACGT\n+\nIIII\n").unwrap();
     let sheet = d.join("sheet.tsv");
-    let text = format!("sample\tfastq1\tfastq2\nS1\t{}\t{}\n", r1.display(), r2.display());
+    let text = format!(
+        "sample\tfastq1\tfastq2\nS1\t{}\t{}\n",
+        r1.display(),
+        r2.display()
+    );
     std::fs::write(&sheet, text).unwrap();
     let s = |p: &std::path::Path| p.to_str().unwrap().to_string();
     let o = std::process::Command::new(env!("CARGO_BIN_EXE_qrnamap"))
-        .args(["quant", "--samples", &s(&sheet), "--transcripts", &s(&fa), "--tx2gene", &s(&t2g)])
+        .args([
+            "quant",
+            "--samples",
+            &s(&sheet),
+            "--transcripts",
+            &s(&fa),
+            "--tx2gene",
+            &s(&t2g),
+        ])
         .args(["--out", &s(&d.join("out")), "--tmpdir", &s(d)])
         .env("PATH", &bin)
         .output()

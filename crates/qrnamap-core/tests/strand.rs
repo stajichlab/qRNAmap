@@ -1,6 +1,8 @@
 //! Strandedness report tests. Inputs are hand-written counts.
 
-use qrnamap_core::{assigned_fraction, parse_featurecounts_summary, Strandedness, STRAND_THRESHOLD};
+use qrnamap_core::{
+    assigned_fraction, parse_featurecounts_summary, Strandedness, STRAND_THRESHOLD,
+};
 
 #[test]
 fn forward_library_suggests_forward() {

@@ -91,7 +91,10 @@ fn sum_by_gene(
         let (Some(id), Some(est)) = (f.get(id_col), f.get(est_col)) else {
             return Err(CountError::BadRow { line });
         };
-        let est: f64 = est.trim().parse().map_err(|_| CountError::BadRow { line })?;
+        let est: f64 = est
+            .trim()
+            .parse()
+            .map_err(|_| CountError::BadRow { line })?;
         if !est.is_finite() || est < 0.0 {
             return Err(CountError::BadRow { line });
         }

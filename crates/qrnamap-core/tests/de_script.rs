@@ -64,7 +64,10 @@ fn script_uses_varianceStabilizingTransformation() {
 fn script_sets_reference_level_explicitly() {
     let s = script("~ condition", None);
     assert!(s.contains("levels = c(\"control\""), "{s}");
-    assert!(s.contains("contrast_spec <- c(\"condition\", \"treated\", \"control\")"), "{s}");
+    assert!(
+        s.contains("contrast_spec <- c(\"condition\", \"treated\", \"control\")"),
+        "{s}"
+    );
 }
 
 #[test]
@@ -80,7 +83,11 @@ fn script_contains_no_user_text() {
     let sh = sheet();
     // Values Task 8 rejects, built by hand.
     let d = Design::parse("~ condition", &sh.columns).unwrap();
-    let c = Contrast { factor: "condition".into(), level: "tr\"eat".into(), reference: "con\\trol\"x".into() };
+    let c = Contrast {
+        factor: "condition".into(),
+        level: "tr\"eat".into(),
+        reference: "con\\trol\"x".into(),
+    };
     let cols = vec![("condition".to_string(), ColType::Factor)];
     let s = deseq2_script(&d, &c, &cols, None);
     assert!(s.contains("\"con\\\\trol\\\"x\""), "{s}");
@@ -115,10 +122,18 @@ fn check_design_accepts_good_input() {
 #[test]
 fn one_replicate_group_refused() {
     let mut sh = sheet();
-    sh.samples[1].covariates.insert("condition".into(), "other".into());
+    sh.samples[1]
+        .covariates
+        .insert("condition".into(), "other".into());
     let m = matrix(&sh);
     let e = check_design(&sh, &contrast(&sh), &m).unwrap_err();
-    assert_eq!(e, DeError::TooFewReplicates { group: "control".into(), n: 1 });
+    assert_eq!(
+        e,
+        DeError::TooFewReplicates {
+            group: "control".into(),
+            n: 1
+        }
+    );
 }
 
 #[test]
@@ -128,21 +143,38 @@ fn all_zero_sample_refused() {
     for row in &mut m.counts {
         row[2] = 0;
     }
-    assert_eq!(check_design(&sh, &contrast(&sh), &m).unwrap_err(), DeError::AllZeroSample("b1".into()));
+    assert_eq!(
+        check_design(&sh, &contrast(&sh), &m).unwrap_err(),
+        DeError::AllZeroSample("b1".into())
+    );
 }
 
 #[test]
 fn level_not_in_data_refused() {
     let sh = sheet();
-    let c = Contrast { factor: "condition".into(), level: "ghost".into(), reference: "control".into() };
+    let c = Contrast {
+        factor: "condition".into(),
+        level: "ghost".into(),
+        reference: "control".into(),
+    };
     assert_eq!(
         check_design(&sh, &c, &matrix(&sh)).unwrap_err(),
-        DeError::LevelNotInData { factor: "condition".into(), level: "ghost".into() }
+        DeError::LevelNotInData {
+            factor: "condition".into(),
+            level: "ghost".into()
+        }
     );
-    let c = Contrast { factor: "condition".into(), level: "treated".into(), reference: "ghost".into() };
+    let c = Contrast {
+        factor: "condition".into(),
+        level: "treated".into(),
+        reference: "ghost".into(),
+    };
     assert_eq!(
         check_design(&sh, &c, &matrix(&sh)).unwrap_err(),
-        DeError::LevelNotInData { factor: "condition".into(), level: "ghost".into() }
+        DeError::LevelNotInData {
+            factor: "condition".into(),
+            level: "ghost".into()
+        }
     );
 }
 
@@ -151,33 +183,56 @@ fn sample_set_mismatch_refused() {
     let sh = sheet();
     let mut m = matrix(&sh);
     m.samples[3] = "zzz".into();
-    assert!(matches!(check_design(&sh, &contrast(&sh), &m).unwrap_err(), DeError::SampleMismatch(_)));
+    assert!(matches!(
+        check_design(&sh, &contrast(&sh), &m).unwrap_err(),
+        DeError::SampleMismatch(_)
+    ));
     let mut m = matrix(&sh);
     m.samples.pop();
     for r in &mut m.counts {
         r.pop();
     }
-    assert!(matches!(check_design(&sh, &contrast(&sh), &m).unwrap_err(), DeError::SampleMismatch(_)));
+    assert!(matches!(
+        check_design(&sh, &contrast(&sh), &m).unwrap_err(),
+        DeError::SampleMismatch(_)
+    ));
 }
 
 #[test]
 fn reference_equals_level_refused() {
     let sh = sheet();
-    let c = Contrast { factor: "condition".into(), level: "control".into(), reference: "control".into() };
-    assert_eq!(check_design(&sh, &c, &matrix(&sh)).unwrap_err(), DeError::SameLevelAndReference("control".into()));
+    let c = Contrast {
+        factor: "condition".into(),
+        level: "control".into(),
+        reference: "control".into(),
+    };
+    assert_eq!(
+        check_design(&sh, &c, &matrix(&sh)).unwrap_err(),
+        DeError::SameLevelAndReference("control".into())
+    );
 }
 
 #[test]
 fn numeric_contrast_factor_refused() {
     let sh = sheet();
-    let c = Contrast { factor: "age".into(), level: "3".into(), reference: "4".into() };
-    assert_eq!(check_design(&sh, &c, &matrix(&sh)).unwrap_err(), DeError::ContrastNotFactor("age".into()));
+    let c = Contrast {
+        factor: "age".into(),
+        level: "3".into(),
+        reference: "4".into(),
+    };
+    assert_eq!(
+        check_design(&sh, &c, &matrix(&sh)).unwrap_err(),
+        DeError::ContrastNotFactor("age".into())
+    );
 }
 
 #[test]
 fn apeglm_coefficient_is_matched_through_make_names() {
     let s = script("~ condition", Some(Shrink::Apeglm));
-    assert!(s.contains("make.names(paste0(\"condition\", \"_\", \"treated\", \"_vs_\", \"control\"))"), "{s}");
+    assert!(
+        s.contains("make.names(paste0(\"condition\", \"_\", \"treated\", \"_vs_\", \"control\"))"),
+        "{s}"
+    );
     assert!(s.contains("resultsNames(dds)"));
     assert!(s.contains("paste(resultsNames(dds), collapse"), "{s}");
 }
@@ -197,7 +252,16 @@ fn count_above_i32_max_is_named_error() {
     check_design(&sh, &contrast(&sh), &m).unwrap();
     m.counts[1][2] = 2_147_483_648;
     let e = check_design(&sh, &contrast(&sh), &m).unwrap_err();
-    assert_eq!(e, DeError::CountTooLarge { gene: "g2".into(), sample: "b1".into() });
+    assert_eq!(
+        e,
+        DeError::CountTooLarge {
+            gene: "g2".into(),
+            sample: "b1".into()
+        }
+    );
     let t = e.to_string();
-    assert!(t.contains("g2") && t.contains("b1") && t.contains("2147483647"), "{t}");
+    assert!(
+        t.contains("g2") && t.contains("b1") && t.contains("2147483647"),
+        "{t}"
+    );
 }

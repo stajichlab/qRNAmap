@@ -27,7 +27,12 @@ pub fn records() -> Vec<TxRecord> {
 
 /// A paired sample parsed through the real sample sheet parser.
 pub fn sample(name: &str, r1: &[&Path], r2: &[&Path]) -> Sample {
-    let j = |v: &[&Path]| v.iter().map(|p| p.to_str().unwrap()).collect::<Vec<_>>().join(",");
+    let j = |v: &[&Path]| {
+        v.iter()
+            .map(|p| p.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     let sheet = format!("sample\tfastq1\tfastq2\n{name}\t{}\t{}\n", j(r1), j(r2));
     SampleSheet::parse(&sheet).unwrap().samples.remove(0)
 }

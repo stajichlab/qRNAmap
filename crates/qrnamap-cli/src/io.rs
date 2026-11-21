@@ -9,11 +9,21 @@ const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 #[derive(Debug)]
 pub enum InputError {
     /// An I/O failure. `path` is empty when built through `From<io::Error>`.
-    Io { path: PathBuf, source: io::Error },
-    Truncated { path: PathBuf },
-    Corrupt { path: PathBuf, detail: String },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
+    Truncated {
+        path: PathBuf,
+    },
+    Corrupt {
+        path: PathBuf,
+        detail: String,
+    },
     /// A 0-byte file whose name ends in `.gz` or `.zst`: not valid compressed data.
-    Empty { path: PathBuf },
+    Empty {
+        path: PathBuf,
+    },
 }
 
 impl fmt::Display for InputError {
@@ -279,7 +289,9 @@ pub fn open_reader<R: Read + 'static>(
     let head = read_head(&mut r).map_err(io_err)?;
     let name = path.to_string_lossy();
     if head.is_empty() && (name.ends_with(".gz") || name.ends_with(".zst")) {
-        return Err(InputError::Empty { path: path.to_path_buf() });
+        return Err(InputError::Empty {
+            path: path.to_path_buf(),
+        });
     }
     let format = detect(&head);
     let stream = BufReader::new(Cursor::new(head).chain(r));

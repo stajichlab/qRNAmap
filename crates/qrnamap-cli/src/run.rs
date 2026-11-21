@@ -28,8 +28,9 @@ use qseq_io::FastqReader;
 use crate::de::{run_de, DeArgs, DeRunError};
 use crate::io::{open_input, InputError};
 use crate::pipeline::{
-    align_sample, check_samples, prepare_align, prepare_quant, quant_sample, read_table, read_tx2gene, GenesSource,
-    gene_list_from_gff, read_gene_list, remove_old_outputs, run_matrix_with_genes, run_transcripts, write_output, AlignContext, GenesFrom, PipelineError,
+    align_sample, check_samples, gene_list_from_gff, prepare_align, prepare_quant, quant_sample,
+    read_gene_list, read_table, read_tx2gene, remove_old_outputs, run_matrix_with_genes,
+    run_transcripts, write_output, AlignContext, GenesFrom, GenesSource, PipelineError,
     QuantContext, SampleResult, Scratch,
 };
 use crate::slurm::{write_slurm_scripts, Plan, SlurmError};
@@ -95,22 +96,35 @@ pub enum RunError {
     De(DeRunError),
     Slurm(SlurmError),
     /// `--task-id` points past the last sample.
-    TaskOutOfRange { task_id: usize, per_task: usize, n_samples: usize },
+    TaskOutOfRange {
+        task_id: usize,
+        per_task: usize,
+        n_samples: usize,
+    },
     /// `--task-id` and `--step final` need a run directory prepared by
     /// `qrnamap run --step prepare` from the same inputs (ruling R27). `reason` names what
     /// differs: a missing marker, the mode, the quantifier, the version, or an input's path,
     /// size or mtime.
-    NotPrepared { dir: PathBuf, reason: String },
+    NotPrepared {
+        dir: PathBuf,
+        reason: String,
+    },
     /// A path with a newline cannot be recorded in the marker.
     UnsupportedPath(PathBuf),
     /// `--step final`: the sample's gene count file is older than the `.prepared` marker, so it
     /// was made before the current prepare step (final review I3).
-    StaleCounts { sample: String, path: PathBuf },
+    StaleCounts {
+        sample: String,
+        path: PathBuf,
+    },
     /// `--slurm` with a `--step` other than `all`.
     SlurmWithStep,
     /// A path is not valid UTF-8, so it cannot go into the scripts.
     NonUtf8Path(PathBuf),
-    Io { path: PathBuf, source: io::Error },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
 }
 
 impl fmt::Display for RunError {
@@ -165,7 +179,11 @@ pub fn load_sheet(path: &Path) -> Result<SampleSheet, RunError> {
     let text = read_table(path)?;
     SampleSheet::parse(&text).map_err(|errs| {
         let lines: Vec<String> = errs.iter().map(|e| format!("  {e}")).collect();
-        RunError::Sheet(format!("sample sheet {}:\n{}", path.display(), lines.join("\n")))
+        RunError::Sheet(format!(
+            "sample sheet {}:\n{}",
+            path.display(),
+            lines.join("\n")
+        ))
     })
 }
 
@@ -173,7 +191,11 @@ pub fn load_sheet(path: &Path) -> Result<SampleSheet, RunError> {
 /// contrast factor is a design term and a factor column, that level and reference differ, occur
 /// in the sheet, and have at least 2 samples each. The all-zero check needs counts and runs in
 /// `de` later.
-pub fn check_de_plan(sheet: &SampleSheet, design: Option<&str>, contrast: Option<&str>) -> Result<(), RunError> {
+pub fn check_de_plan(
+    sheet: &SampleSheet,
+    design: Option<&str>,
+    contrast: Option<&str>,
+) -> Result<(), RunError> {
     let Some(contrast) = contrast else {
         if design.is_some() {
             return Err(RunError::Design("--design needs --contrast".into()));
@@ -182,14 +204,21 @@ pub fn check_de_plan(sheet: &SampleSheet, design: Option<&str>, contrast: Option
     };
     let design = Design::parse(design.unwrap_or(DEFAULT_DESIGN), &sheet.columns)
         .map_err(|e| RunError::Design(format!("design: {e}")))?;
-    let contrast = Contrast::parse(contrast, &sheet.columns).map_err(|e| RunError::Design(format!("contrast: {e}")))?;
+    let contrast = Contrast::parse(contrast, &sheet.columns)
+        .map_err(|e| RunError::Design(format!("contrast: {e}")))?;
     if !design.terms().contains(&contrast.factor) {
-        return Err(RunError::DesignCheck(DeError::ContrastNotInDesign(contrast.factor)));
+        return Err(RunError::DesignCheck(DeError::ContrastNotInDesign(
+            contrast.factor,
+        )));
     }
     // A one-gene stand-in matrix with a count of 1 for every sample, so only the sheet-level
     // checks can fail here.
     let names: Vec<String> = sheet.samples.iter().map(|s| s.name.clone()).collect();
-    let stand_in = CountMatrix { genes: vec!["stand-in".into()], counts: vec![vec![1; names.len()]], samples: names };
+    let stand_in = CountMatrix {
+        genes: vec!["stand-in".into()],
+        counts: vec![vec![1; names.len()]],
+        samples: names,
+    };
     check_design(sheet, &contrast, &stand_in).map_err(RunError::DesignCheck)
 }
 
@@ -197,7 +226,9 @@ pub fn check_de_plan(sheet: &SampleSheet, design: Option<&str>, contrast: Option
 /// `$SCRATCH` (`scratch_env`, when set and non-empty) or under `/scratch`. Index and count files
 /// there are not visible to jobs on other nodes. A warning only, never an error.
 pub fn scratch_out_warning(out: &Path, scratch_env: Option<&std::ffi::OsStr>) -> Option<String> {
-    let under_env = scratch_env.filter(|v| !v.is_empty()).is_some_and(|s| out.starts_with(Path::new(s)));
+    let under_env = scratch_env
+        .filter(|v| !v.is_empty())
+        .is_some_and(|s| out.starts_with(Path::new(s)));
     if under_env || out.starts_with("/scratch") {
         Some(format!(
             "--out {} is on node-local scratch ($SCRATCH or /scratch/); the index and count files must be on shared storage (for example /bigdata) when jobs on other nodes read them",
@@ -211,8 +242,13 @@ pub fn scratch_out_warning(out: &Path, scratch_env: Option<&std::ffi::OsStr>) ->
 /// R34: a warning when the `--tmpdir` of `run --slurm` (absolute) is under `$SCRATCH` or under
 /// `/scratch` (component-wise, so `/scratchy` does not match). Such a path is job-specific and
 /// not valid on other nodes. A warning only, never an error.
-pub fn scratch_tmpdir_warning(tmpdir: &Path, scratch_env: Option<&std::ffi::OsStr>) -> Option<String> {
-    let under_env = scratch_env.filter(|v| !v.is_empty()).is_some_and(|s| tmpdir.starts_with(Path::new(s)));
+pub fn scratch_tmpdir_warning(
+    tmpdir: &Path,
+    scratch_env: Option<&std::ffi::OsStr>,
+) -> Option<String> {
+    let under_env = scratch_env
+        .filter(|v| !v.is_empty())
+        .is_some_and(|s| tmpdir.starts_with(Path::new(s)));
     if under_env || tmpdir.starts_with("/scratch") {
         Some(format!(
             "--tmpdir {} is on node-local scratch ($SCRATCH or /scratch/); node-local scratch paths are job-specific and not valid on other nodes. Use a directory on shared storage (for example /bigdata)",
@@ -224,8 +260,16 @@ pub fn scratch_tmpdir_warning(tmpdir: &Path, scratch_env: Option<&std::ffi::OsSt
 }
 
 /// Samples `[task_id * per_task, min((task_id + 1) * per_task, n))`, in sheet order.
-pub fn task_slice(n_samples: usize, task_id: usize, per_task: usize) -> Result<Range<usize>, RunError> {
-    let out_of_range = || RunError::TaskOutOfRange { task_id, per_task, n_samples };
+pub fn task_slice(
+    n_samples: usize,
+    task_id: usize,
+    per_task: usize,
+) -> Result<Range<usize>, RunError> {
+    let out_of_range = || RunError::TaskOutOfRange {
+        task_id,
+        per_task,
+        n_samples,
+    };
     if per_task == 0 {
         return Err(out_of_range());
     }
@@ -244,14 +288,20 @@ fn mode_word(m: Mode) -> &'static str {
 }
 
 fn io_err(path: &Path) -> impl FnOnce(io::Error) -> RunError + '_ {
-    move |source| RunError::Io { path: path.to_path_buf(), source }
+    move |source| RunError::Io {
+        path: path.to_path_buf(),
+        source,
+    }
 }
 
 fn remove_if_present(p: &Path) -> Result<(), RunError> {
     match fs::remove_file(p) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(RunError::Io { path: p.to_path_buf(), source: e }),
+        Err(e) => Err(RunError::Io {
+            path: p.to_path_buf(),
+            source: e,
+        }),
     }
 }
 
@@ -276,14 +326,22 @@ struct InputStamp {
 }
 
 fn stamp(role: &str, path: &Path) -> Result<InputStamp, String> {
-    let canon = fs::canonicalize(path).map_err(|e| format!("{role}: cannot read {}: {e}", path.display()))?;
-    let meta = fs::metadata(&canon).map_err(|e| format!("{role}: cannot read {}: {e}", canon.display()))?;
+    let canon = fs::canonicalize(path)
+        .map_err(|e| format!("{role}: cannot read {}: {e}", path.display()))?;
+    let meta = fs::metadata(&canon)
+        .map_err(|e| format!("{role}: cannot read {}: {e}", canon.display()))?;
     let t = meta
         .modified()
         .map_err(|e| format!("{role}: no mtime for {}: {e}", canon.display()))?
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| format!("{role}: mtime of {} is before 1970", canon.display()))?;
-    Ok(InputStamp { role: role.to_string(), path: canon, size: meta.len(), secs: t.as_secs(), nanos: t.subsec_nanos() })
+    Ok(InputStamp {
+        role: role.to_string(),
+        path: canon,
+        size: meta.len(),
+        secs: t.as_secs(),
+        nanos: t.subsec_nanos(),
+    })
 }
 
 /// Write `<out>/.prepared` (ruling R27). Only the prepare step calls this, last, after the
@@ -314,12 +372,21 @@ pub fn write_prepared_marker(
         quantifier_word(quantifier)
     );
     for (role, path) in inputs {
-        let st = stamp(role, path).map_err(|reason| RunError::NotPrepared { dir: out.to_path_buf(), reason })?;
-        let ps = st.path.to_str().ok_or_else(|| RunError::NonUtf8Path(st.path.clone()))?;
+        let st = stamp(role, path).map_err(|reason| RunError::NotPrepared {
+            dir: out.to_path_buf(),
+            reason,
+        })?;
+        let ps = st
+            .path
+            .to_str()
+            .ok_or_else(|| RunError::NonUtf8Path(st.path.clone()))?;
         if ps.contains(['\n', '\r']) {
             return Err(RunError::UnsupportedPath(st.path.clone()));
         }
-        text.push_str(&format!("input\t{}\t{}\t{}\t{}\t{ps}\n", st.role, st.size, st.secs, st.nanos));
+        text.push_str(&format!(
+            "input\t{}\t{}\t{}\t{}\t{ps}\n",
+            st.role, st.size, st.secs, st.nanos
+        ));
     }
     write_output(&out.join(PREPARED_MARKER), text.as_bytes())?;
     Ok(())
@@ -372,10 +439,15 @@ fn parse_marker(text: &str) -> Result<Marker, String> {
         }
     }
     match (version, mode, quantifier) {
-        (Some(version), Some(mode), Some(quantifier)) => {
-            Ok(Marker { version, mode, quantifier, inputs })
-        }
-        _ => Err(format!("{PREPARED_MARKER} lacks the version, mode or quantifier line")),
+        (Some(version), Some(mode), Some(quantifier)) => Ok(Marker {
+            version,
+            mode,
+            quantifier,
+            inputs,
+        }),
+        _ => Err(format!(
+            "{PREPARED_MARKER} lacks the version, mode or quantifier line"
+        )),
     }
 }
 
@@ -389,38 +461,66 @@ pub fn check_prepared(
     quantifier: Option<Quantifier>,
     inputs: &[(&str, &Path)],
 ) -> Result<(), RunError> {
-    let not = |reason: String| RunError::NotPrepared { dir: out.to_path_buf(), reason };
+    let not = |reason: String| RunError::NotPrepared {
+        dir: out.to_path_buf(),
+        reason,
+    };
     let marker = out.join(PREPARED_MARKER);
     let text = match fs::read_to_string(&marker) {
         Ok(t) => t,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not(format!("marker {} is missing", marker.display()))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Err(not(format!("marker {} is missing", marker.display())))
+        }
         Err(e) => return Err(not(format!("marker {}: {e}", marker.display()))),
     };
-    let Marker { version, mode: prep_mode, quantifier: prep_q, inputs: recorded } =
-        parse_marker(&text).map_err(not)?;
+    let Marker {
+        version,
+        mode: prep_mode,
+        quantifier: prep_q,
+        inputs: recorded,
+    } = parse_marker(&text).map_err(not)?;
     if prep_mode != mode_word(mode) {
-        return Err(not(format!("mode differs: prepared for {prep_mode}, this run is {}", mode_word(mode))));
+        return Err(not(format!(
+            "mode differs: prepared for {prep_mode}, this run is {}",
+            mode_word(mode)
+        )));
     }
     let q = quantifier_word(quantifier);
     if prep_q != q {
-        return Err(not(format!("quantifier differs: prepared for {prep_q}, this run uses {q}")));
+        return Err(not(format!(
+            "quantifier differs: prepared for {prep_q}, this run uses {q}"
+        )));
     }
     if version != env!("CARGO_PKG_VERSION") {
-        return Err(not(format!("version differs: prepared by qrnamap {version}, this is qrnamap {}", env!("CARGO_PKG_VERSION"))));
+        return Err(not(format!(
+            "version differs: prepared by qrnamap {version}, this is qrnamap {}",
+            env!("CARGO_PKG_VERSION")
+        )));
     }
     let roles = |v: Vec<&str>| v.join(", ");
     let rec_roles: Vec<&str> = recorded.iter().map(|r| r.role.as_str()).collect();
     let given_roles: Vec<&str> = inputs.iter().map(|(r, _)| *r).collect();
     if rec_roles != given_roles {
-        return Err(not(format!("inputs differ: prepared with [{}], given [{}]", roles(rec_roles), roles(given_roles))));
+        return Err(not(format!(
+            "inputs differ: prepared with [{}], given [{}]",
+            roles(rec_roles),
+            roles(given_roles)
+        )));
     }
     for (rec, (role, path)) in recorded.iter().zip(inputs) {
         let now = stamp(role, path).map_err(not)?;
         if now.path != rec.path {
-            return Err(not(format!("{role}: path differs: prepared from {}, given {}", rec.path.display(), now.path.display())));
+            return Err(not(format!(
+                "{role}: path differs: prepared from {}, given {}",
+                rec.path.display(),
+                now.path.display()
+            )));
         }
         if now.size != rec.size {
-            return Err(not(format!("{role}: size changed: {} bytes when prepared, now {} bytes", rec.size, now.size)));
+            return Err(not(format!(
+                "{role}: size changed: {} bytes when prepared, now {} bytes",
+                rec.size, now.size
+            )));
         }
         if (now.secs, now.nanos) != (rec.secs, rec.nanos) {
             return Err(not(format!(
@@ -442,7 +542,12 @@ pub fn check_counts_not_stale(out: &Path, sheet: &SampleSheet) -> Result<(), Run
     for s in &sheet.samples {
         let path = out.join(format!("{}.genecounts.tsv.zst", s.name));
         match mtime(&path) {
-            Ok(t) if t < prepared => return Err(RunError::StaleCounts { sample: s.name.clone(), path }),
+            Ok(t) if t < prepared => {
+                return Err(RunError::StaleCounts {
+                    sample: s.name.clone(),
+                    path,
+                })
+            }
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(RunError::Io { path, source: e }),
@@ -455,7 +560,10 @@ fn require_file(out: &Path, p: &Path) -> Result<(), RunError> {
     if p.is_file() {
         Ok(())
     } else {
-        Err(RunError::NotPrepared { dir: out.to_path_buf(), reason: format!("{} is missing", p.display()) })
+        Err(RunError::NotPrepared {
+            dir: out.to_path_buf(),
+            reason: format!("{} is missing", p.display()),
+        })
     }
 }
 
@@ -465,12 +573,20 @@ fn require_dir(out: &Path, p: &Path) -> Result<(), RunError> {
         Ok(())
     } else {
         let reason = format!("directory {} is missing", p.display());
-        Err(RunError::NotPrepared { dir: out.to_path_buf(), reason })
+        Err(RunError::NotPrepared {
+            dir: out.to_path_buf(),
+            reason,
+        })
     }
 }
 
 /// The marker inputs of a run directory, in marker order.
-fn marker_inputs<'a>(mode: Mode, reference: &'a Path, gff: &'a Path, tx: Option<(&'a Path, &'a Path)>) -> Vec<(&'static str, &'a Path)> {
+fn marker_inputs<'a>(
+    mode: Mode,
+    reference: &'a Path,
+    gff: &'a Path,
+    tx: Option<(&'a Path, &'a Path)>,
+) -> Vec<(&'static str, &'a Path)> {
     let mut v = vec![("reference", reference), ("gff", gff)];
     if let (Mode::Quant, Some((fa, t2g))) = (mode, tx) {
         v.extend([("transcripts", fa), ("tx2gene", t2g)]);
@@ -505,7 +621,13 @@ pub fn prepared_quant(
             index
         }
     };
-    Ok(QuantContext { index, tx2gene: read_tx2gene(tx2gene)?, out_dir: out, scratch, config })
+    Ok(QuantContext {
+        index,
+        tx2gene: read_tx2gene(tx2gene)?,
+        out_dir: out,
+        scratch,
+        config,
+    })
 }
 
 /// The HISAT2 + featureCounts context of a prepared run directory, without building anything.
@@ -519,14 +641,27 @@ pub fn prepared_align(
     keep_sam: bool,
 ) -> Result<AlignContext, RunError> {
     let out = std::path::absolute(out).map_err(io_err(out))?;
-    check_prepared(&out, Mode::Align, None, &marker_inputs(Mode::Align, reference, gff, None))?;
+    check_prepared(
+        &out,
+        Mode::Align,
+        None,
+        &marker_inputs(Mode::Align, reference, gff, None),
+    )?;
     let index_prefix = out.join("index").join("genome");
     let splice_sites = out.join("splice_sites.txt");
     let saf = out.join("genes.saf");
     for p in [&out.join("index").join("genome.1.ht2"), &splice_sites, &saf] {
         require_file(&out, p)?;
     }
-    Ok(AlignContext { index_prefix, splice_sites, saf, out_dir: out, scratch, config, keep_sam })
+    Ok(AlignContext {
+        index_prefix,
+        splice_sites,
+        saf,
+        out_dir: out,
+        scratch,
+        config,
+        keep_sam,
+    })
 }
 
 /// Sheet, builder and design checks shared by every step. No file is written.
@@ -564,10 +699,17 @@ enum Prepared {
     Align(AlignContext),
 }
 
-fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&str)) -> Result<(SampleSheet, Prepared), RunError> {
+fn prepare(
+    args: &RunArgs,
+    out: &Path,
+    scratch: &Scratch,
+    warn: &mut dyn FnMut(&str),
+) -> Result<(SampleSheet, Prepared), RunError> {
     let sheet = check_inputs(args)?;
     crate::pipeline::check_fastq_files(&sheet.samples)?;
-    for w in check_reads_per_sample(&sheet, args.config.reads_per_sample).map_err(RunError::Input)? {
+    for w in
+        check_reads_per_sample(&sheet, args.config.reads_per_sample).map_err(RunError::Input)?
+    {
         warn(&w.to_string());
     }
     fs::create_dir_all(out).map_err(io_err(out))?;
@@ -578,10 +720,28 @@ fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&
         Mode::Quant => {
             let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
             run_transcripts(&args.reference, &args.gff, &fa, &t2g, None, None)?;
-            let genes = GenesSource { gff: &args.gff, mito_contigs: &args.mito_contigs };
-            Prepared::Quant(prepare_quant(&fa, &t2g, out, scratch.clone(), cfg, Some(genes))?)
+            let genes = GenesSource {
+                gff: &args.gff,
+                mito_contigs: &args.mito_contigs,
+            };
+            Prepared::Quant(prepare_quant(
+                &fa,
+                &t2g,
+                out,
+                scratch.clone(),
+                cfg,
+                Some(genes),
+            )?)
         }
-        Mode::Align => Prepared::Align(prepare_align(&args.reference, &args.gff, out, scratch.clone(), cfg, args.keep_sam, &args.mito_contigs)?),
+        Mode::Align => Prepared::Align(prepare_align(
+            &args.reference,
+            &args.gff,
+            out,
+            scratch.clone(),
+            cfg,
+            args.keep_sam,
+            &args.mito_contigs,
+        )?),
     };
     let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
     let inputs = marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g)));
@@ -589,7 +749,12 @@ fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&
     Ok((sheet, ctx))
 }
 
-fn finish(args: &RunArgs, out: &Path, sheet: &SampleSheet, warn: &mut dyn FnMut(&str)) -> Result<RunOutput, RunError> {
+fn finish(
+    args: &RunArgs,
+    out: &Path,
+    sheet: &SampleSheet,
+    warn: &mut dyn FnMut(&str),
+) -> Result<RunOutput, RunError> {
     // Rows: quant from the tx2gene table the marker checked; align from the --gff given.
     let genes = match args.mode {
         Mode::Quant => read_gene_list(GenesFrom::Tx2Gene, &out.join("tx2gene.tsv.zst"))?,
@@ -599,12 +764,18 @@ fn finish(args: &RunArgs, out: &Path, sheet: &SampleSheet, warn: &mut dyn FnMut(
     for w in &warnings {
         warn(w);
     }
-    let mut res = RunOutput { counts: Some(counts.clone()), ..RunOutput::default() };
+    let mut res = RunOutput {
+        counts: Some(counts.clone()),
+        ..RunOutput::default()
+    };
     if let Some(contrast) = &args.contrast {
         let de = DeArgs {
             counts,
             samples: args.samples.clone(),
-            design: args.design.clone().unwrap_or_else(|| DEFAULT_DESIGN.to_string()),
+            design: args
+                .design
+                .clone()
+                .unwrap_or_else(|| DEFAULT_DESIGN.to_string()),
             contrast: contrast.clone(),
             shrink: args.shrink,
             out: out.join(DE_PREFIX),
@@ -653,7 +824,9 @@ pub fn run_local(
 }
 
 fn utf8(p: &Path) -> Result<String, RunError> {
-    p.to_str().map(str::to_string).ok_or_else(|| RunError::NonUtf8Path(p.to_path_buf()))
+    p.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| RunError::NonUtf8Path(p.to_path_buf()))
 }
 
 fn strand_word(s: Strandedness) -> &'static str {
@@ -671,7 +844,13 @@ fn strand_word(s: Strandedness) -> &'static str {
 pub fn required_tools(mode: Mode, quantifier: Quantifier, with_de: bool) -> Vec<&'static str> {
     let mut v = match mode {
         Mode::Quant => vec![quantifier.name()],
-        Mode::Align => vec!["hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts"],
+        Mode::Align => vec![
+            "hisat2-build",
+            "hisat2-build-s",
+            "hisat2-align-s",
+            "python",
+            "featureCounts",
+        ],
     };
     if with_de {
         v.push("Rscript");
@@ -682,10 +861,18 @@ pub fn required_tools(mode: Mode, quantifier: Quantifier, with_de: bool) -> Vec<
 /// The SLURM plan for `args`. Paths become absolute. Sample names and FASTQ paths are not in it.
 pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Result<Plan, RunError> {
     let abs = |p: &Path| std::path::absolute(p).map_err(io_err(p));
-    let (samples, reference, gff, out) = (abs(&args.samples)?, abs(&args.reference)?, abs(&args.gff)?, abs(&args.out)?);
+    let (samples, reference, gff, out) = (
+        abs(&args.samples)?,
+        abs(&args.reference)?,
+        abs(&args.gff)?,
+        abs(&args.out)?,
+    );
     let work_dir = std::env::current_dir().map_err(io_err(Path::new(".")))?;
     let c = &args.config;
-    let mut common = vec!["--strandedness".to_string(), strand_word(c.strandedness).into()];
+    let mut common = vec![
+        "--strandedness".to_string(),
+        strand_word(c.strandedness).into(),
+    ];
     if let Some((m, sd)) = c.fragment_len {
         common.extend(["--fragment-length".into(), format!("{m},{sd}")]);
     }
@@ -716,7 +903,12 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
         c.reads_per_sample.to_string(),
     ]);
     if let Some(ct) = &args.contrast {
-        run_args.extend(["--design".into(), args.design.clone().unwrap_or_else(|| DEFAULT_DESIGN.into()), "--contrast".into(), ct.clone()]);
+        run_args.extend([
+            "--design".into(),
+            args.design.clone().unwrap_or_else(|| DEFAULT_DESIGN.into()),
+            "--contrast".into(),
+            ct.clone(),
+        ]);
         if let Some(s) = args.shrink {
             run_args.extend(["--shrink".into(), s.name().into()]);
         }
@@ -741,7 +933,12 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
             "--tx2gene".into(),
             utf8(&out.join("tx2gene.tsv.zst"))?,
         ]),
-        Mode::Align => task_args.extend(["--reference".into(), utf8(&reference)?, "--gff".into(), utf8(&gff)?]),
+        Mode::Align => task_args.extend([
+            "--reference".into(),
+            utf8(&reference)?,
+            "--gff".into(),
+            utf8(&gff)?,
+        ]),
     }
     task_args.extend(["--out".into(), utf8(&out)?]);
     task_args.extend(common);
@@ -755,8 +952,12 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
         }
     }
     let tools = required_tools(args.mode, c.quantifier, args.contrast.is_some());
-    let tool_dirs = crate::slurm::resolve_tool_dirs(&tools, &opts.tool_paths, std::env::var_os("PATH").as_deref())
-        .map_err(RunError::Slurm)?;
+    let tool_dirs = crate::slurm::resolve_tool_dirs(
+        &tools,
+        &opts.tool_paths,
+        std::env::var_os("PATH").as_deref(),
+    )
+    .map_err(RunError::Slurm)?;
     Ok(Plan {
         n_samples,
         per_task: opts.per_task,
@@ -792,15 +993,25 @@ pub fn run_slurm(args: &RunArgs, opts: &SlurmOptions) -> Result<PathBuf, RunErro
 /// Turn a read error into an `InputError`, keeping a wrapped `Truncated` or `Corrupt` error.
 pub(crate) fn input_error(path: &Path, e: io::Error) -> InputError {
     if e.get_ref().is_some_and(|inner| inner.is::<InputError>()) {
-        return *e.into_inner().and_then(|b| b.downcast::<InputError>().ok()).expect("checked with is::<InputError>()");
+        return *e
+            .into_inner()
+            .and_then(|b| b.downcast::<InputError>().ok())
+            .expect("checked with is::<InputError>()");
     }
-    InputError::Io { path: path.to_path_buf(), source: e }
+    InputError::Io {
+        path: path.to_path_buf(),
+        source: e,
+    }
 }
 
 /// Count the FASTQ records in `reader`. With `limit`, stop as soon as the count is above the
 /// limit and return `limit + 1`, so a large file is not read to its end. A truncated or bad
 /// record is an error. `path` is used in error messages.
-pub fn count_records<R: BufRead>(reader: R, path: &Path, limit: Option<u64>) -> Result<u64, InputError> {
+pub fn count_records<R: BufRead>(
+    reader: R,
+    path: &Path,
+    limit: Option<u64>,
+) -> Result<u64, InputError> {
     let mut n = 0u64;
     for rec in FastqReader::new(reader) {
         rec.map_err(|e| input_error(path, e))?;
@@ -845,7 +1056,10 @@ pub fn check_reads_per_sample(sheet: &SampleSheet, limit: u64) -> Result<Vec<War
         for lane in &s.fastq1 {
             total += count_pairs(Path::new(lane), Some(limit - total))?;
             if total > limit {
-                out.push(Warning { sample: s.name.clone(), limit });
+                out.push(Warning {
+                    sample: s.name.clone(),
+                    limit,
+                });
                 break;
             }
         }
@@ -862,10 +1076,22 @@ mod tests {
         assert_eq!(task_slice(7, 0, 3).unwrap(), 0..3);
         assert_eq!(task_slice(7, 1, 3).unwrap(), 3..6);
         assert_eq!(task_slice(7, 2, 3).unwrap(), 6..7);
-        assert!(matches!(task_slice(7, 3, 3), Err(RunError::TaskOutOfRange { .. })));
-        assert!(matches!(task_slice(6, 2, 3), Err(RunError::TaskOutOfRange { .. })));
-        assert!(matches!(task_slice(6, 0, 0), Err(RunError::TaskOutOfRange { .. })));
-        assert!(matches!(task_slice(6, usize::MAX, 2), Err(RunError::TaskOutOfRange { .. })));
+        assert!(matches!(
+            task_slice(7, 3, 3),
+            Err(RunError::TaskOutOfRange { .. })
+        ));
+        assert!(matches!(
+            task_slice(6, 2, 3),
+            Err(RunError::TaskOutOfRange { .. })
+        ));
+        assert!(matches!(
+            task_slice(6, 0, 0),
+            Err(RunError::TaskOutOfRange { .. })
+        ));
+        assert!(matches!(
+            task_slice(6, usize::MAX, 2),
+            Err(RunError::TaskOutOfRange { .. })
+        ));
         assert_eq!(task_slice(1, 0, 1).unwrap(), 0..1);
     }
 
@@ -873,6 +1099,9 @@ mod tests {
     fn design_without_contrast_is_an_error() {
         let sheet = SampleSheet::parse("sample\tfastq1\tcondition\na\t/x\tc\n").unwrap();
         assert!(check_de_plan(&sheet, None, None).is_ok());
-        assert!(matches!(check_de_plan(&sheet, Some("~ condition"), None), Err(RunError::Design(_))));
+        assert!(matches!(
+            check_de_plan(&sheet, Some("~ condition"), None),
+            Err(RunError::Design(_))
+        ));
     }
 }

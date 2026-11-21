@@ -20,7 +20,15 @@ use common::{records, sample, COUNTS};
 fn transcripts(dir: &Path) -> (PathBuf, PathBuf) {
     let fa = dir.join("tx.fa.zst");
     let t2g = dir.join("tx2gene.tsv.zst");
-    run_transcripts(&common::mini_genome(), &common::mini_gff(), &fa, &t2g, None, None).unwrap();
+    run_transcripts(
+        &common::mini_genome(),
+        &common::mini_gff(),
+        &fa,
+        &t2g,
+        None,
+        None,
+    )
+    .unwrap();
     (fa, t2g)
 }
 
@@ -50,7 +58,15 @@ fn quant_recovers_simulated_counts_within_10_percent() {
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(dir.path());
     let out = dir.path().join("quant");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(dir.path().join("tmp")), RunConfig::default(), None).unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(dir.path().join("tmp")),
+        RunConfig::default(),
+        None,
+    )
+    .unwrap();
     let res = quant_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
     let truth = sim::truth_per_gene(&recs, &COUNTS);
     let worst = max_rel_error(&res.counts, &truth);
@@ -62,7 +78,10 @@ fn quant_recovers_simulated_counts_within_10_percent() {
     assert!(out.join("S1").join("abundance.tsv").is_file());
     let back = read_gene_counts(&out.join("S1.genecounts.tsv.zst"), "S1").unwrap();
     assert_eq!(back, res.counts);
-    eprintln!("WALL quant_recovers_simulated_counts_within_10_percent: {:.2?}", t0.elapsed());
+    eprintln!(
+        "WALL quant_recovers_simulated_counts_within_10_percent: {:.2?}",
+        t0.elapsed()
+    );
 }
 
 #[test]
@@ -75,7 +94,12 @@ fn quant_with_lanes_equals_concatenated() {
     let d = dir.path();
     let recs = records();
     let pairs = sim::simulate(&recs, &COUNTS, Strandedness::Unstranded, 23);
-    let (a1, a2, b1, b2) = (d.join("a_1.fq"), d.join("a_2.fq"), d.join("b_1.fq"), d.join("b_2.fq"));
+    let (a1, a2, b1, b2) = (
+        d.join("a_1.fq"),
+        d.join("a_2.fq"),
+        d.join("b_1.fq"),
+        d.join("b_2.fq"),
+    );
     sim::write_fastq(&pairs[..4000], &a1, &a2);
     sim::write_fastq(&pairs[4000..], &b1, &b2);
     // Lane 2 is zstd-compressed: kallisto cannot read it, so the pipeline must stage it.
@@ -97,20 +121,42 @@ fn quant_with_lanes_equals_concatenated() {
 
     let (fa, t2g) = transcripts(d);
     let out = d.join("quant");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(d.join("tmp")),
+        RunConfig::default(),
+        None,
+    )
+    .unwrap();
     let lanes = quant_sample(&sample("Lanes", &[&g1, &z1], &[&g2, &z2]), &ctx).unwrap();
     let whole = quant_sample(&sample("Whole", &[&c1], &[&c2]), &ctx).unwrap();
     assert_eq!(lanes.counts, whole.counts);
     assert_eq!(lanes.summary.reads_processed, 10_000);
     let est = |s: &str| {
         let t = std::fs::read_to_string(out.join(s).join("abundance.tsv")).unwrap();
-        t.lines().map(|l| l.split('\t').nth(3).unwrap().to_string()).collect::<Vec<_>>()
+        t.lines()
+            .map(|l| l.split('\t').nth(3).unwrap().to_string())
+            .collect::<Vec<_>>()
     };
-    assert_eq!(est("Lanes"), est("Whole"), "est_counts differ between lanes and concatenated");
+    assert_eq!(
+        est("Lanes"),
+        est("Whole"),
+        "est_counts differ between lanes and concatenated"
+    );
     // The staged decompressed copies are removed after the sample.
     let leftovers: Vec<_> = walk(&d.join("tmp"));
-    assert!(leftovers.iter().all(|p| !p.to_string_lossy().ends_with(".fq")), "{leftovers:?}");
-    eprintln!("WALL quant_with_lanes_equals_concatenated: {:.2?}", t0.elapsed());
+    assert!(
+        leftovers
+            .iter()
+            .all(|p| !p.to_string_lossy().ends_with(".fq")),
+        "{leftovers:?}"
+    );
+    eprintln!(
+        "WALL quant_with_lanes_equals_concatenated: {:.2?}",
+        t0.elapsed()
+    );
 }
 
 fn walk(p: &Path) -> Vec<PathBuf> {
@@ -139,15 +185,35 @@ fn quant_wrong_strandedness_is_reported() {
     let d = dir.path();
     let recs = records();
     let (fa, t2g) = transcripts(d);
-    let cfg = RunConfig { strandedness: Strandedness::Forward, ..RunConfig::default() };
-    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), cfg, None).unwrap();
+    let cfg = RunConfig {
+        strandedness: Strandedness::Forward,
+        ..RunConfig::default()
+    };
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &d.join("q"),
+        Scratch::new(d.join("tmp")),
+        cfg,
+        None,
+    )
+    .unwrap();
 
     // (a) dUTP-like library run as forward: kallisto pseudoaligns nothing and exits 1.
     let pairs = sim::simulate(&recs, &COUNTS, Strandedness::Reverse, 5);
     let (r1, r2) = (d.join("rev_1.fq"), d.join("rev_2.fq"));
     sim::write_fastq(&pairs, &r1, &r2);
     let err = quant_sample(&sample("Rev", &[&r1], &[&r2]), &ctx).unwrap_err();
-    assert!(matches!(err, PipelineError::NoReadsPseudoaligned { tool: "kallisto", .. }), "{err:?}");
+    assert!(
+        matches!(
+            err,
+            PipelineError::NoReadsPseudoaligned {
+                tool: "kallisto",
+                ..
+            }
+        ),
+        "{err:?}"
+    );
     let text = err.to_string();
     assert!(text.contains("'Rev'") && text.contains("strand"), "{text}");
 
@@ -156,16 +222,24 @@ fn quant_wrong_strandedness_is_reported() {
     let (u1, u2) = (d.join("un_1.fq"), d.join("un_2.fq"));
     sim::write_fastq(&pairs, &u1, &u2);
     let res = quant_sample(&sample("Un", &[&u1], &[&u2]), &ctx).unwrap();
-    eprintln!("MEASURED unstranded-run-as-forward quant summary: {:?}", res.summary);
+    eprintln!(
+        "MEASURED unstranded-run-as-forward quant summary: {:?}",
+        res.summary
+    );
     assert!(res.summary.fraction_assigned < 0.6, "{:?}", res.summary);
     assert!(res.summary.fraction_assigned < qrnamap_cli::pipeline::LOW_ASSIGNED_FRACTION + 0.1);
-    eprintln!("WALL quant_wrong_strandedness_is_reported: {:.2?}", t0.elapsed());
+    eprintln!(
+        "WALL quant_wrong_strandedness_is_reported: {:.2?}",
+        t0.elapsed()
+    );
 }
 
 #[test]
 fn config_error_names_sample_before_any_tool_runs() {
     // Single-end, no fragment length: R20 / review focus 3. No tool is needed.
-    let s = SampleSheet::parse("sample\tfastq1\nSE1\t/nonexistent/r.fq\n").unwrap().samples;
+    let s = SampleSheet::parse("sample\tfastq1\nSE1\t/nonexistent/r.fq\n")
+        .unwrap()
+        .samples;
     let err = check_samples(&s, &RunConfig::default(), Mode::Quant).unwrap_err();
     assert!(matches!(err, PipelineError::Config { .. }), "{err:?}");
     assert!(err.to_string().contains("SE1"), "{err}");
@@ -193,7 +267,15 @@ fn rerun_with_failing_sample_does_not_leave_old_counts() {
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(d);
     let out = d.join("q");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(d.join("tmp")),
+        RunConfig::default(),
+        None,
+    )
+    .unwrap();
     let good = sample("S1", &[&r1], &[&r2]);
     quant_sample(&good, &ctx).unwrap();
     let counts = out.join("S1.genecounts.tsv.zst");
@@ -209,7 +291,10 @@ fn rerun_with_failing_sample_does_not_leave_old_counts() {
     // kallisto 0.52.0 writes abundance.tsv before it exits with status 1, so the file can
     // exist here. If it does, it is from the failed run (all est_counts 0), not the old one.
     if let Ok(t) = std::fs::read_to_string(out.join("S1").join("abundance.tsv")) {
-        assert!(t.lines().skip(1).all(|l| l.split('\t').nth(3) == Some("0")), "{t}");
+        assert!(
+            t.lines().skip(1).all(|l| l.split('\t').nth(3) == Some("0")),
+            "{t}"
+        );
     }
     let err = qrnamap_cli::pipeline::run_matrix(&out, &[good], None).unwrap_err();
     assert!(err.to_string().contains("S1.genecounts.tsv.zst"), "{err}");
@@ -231,7 +316,15 @@ fn quant_setup(d: &Path, seed: u64) -> (qrnamap_cli::pipeline::QuantContext, Pat
     let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(d);
-    let ctx = prepare_quant(&fa, &t2g, &d.join("q"), Scratch::new(d.join("tmp")), RunConfig::default(), None).unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &d.join("q"),
+        Scratch::new(d.join("tmp")),
+        RunConfig::default(),
+        None,
+    )
+    .unwrap();
     (ctx, r1, r2)
 }
 
@@ -254,8 +347,14 @@ fn quant_truncated_r2_gz_is_named_error() {
         matches!(&err, PipelineError::Input { sample: Some(s), source: qrnamap_cli::io::InputError::Truncated { .. } } if s == "S1"),
         "{err:?}"
     );
-    assert!(text.contains("'S1'") && text.contains("truncated") && text.contains("s_2.fq.gz"), "{text}");
-    assert!(!ctx.out_dir.join("S1.genecounts.tsv.zst").exists(), "no gene counts for a truncated input");
+    assert!(
+        text.contains("'S1'") && text.contains("truncated") && text.contains("s_2.fq.gz"),
+        "{text}"
+    );
+    assert!(
+        !ctx.out_dir.join("S1.genecounts.tsv.zst").exists(),
+        "no gene counts for a truncated input"
+    );
 }
 
 #[test]
@@ -273,13 +372,21 @@ fn quant_mate_record_count_mismatch_is_named_error() {
     std::fs::write(&r2s, short).unwrap();
     let err = quant_sample(&sample("S1", &[&r1], &[&r2s]), &ctx).unwrap_err();
     match &err {
-        PipelineError::MateCountMismatch { sample, lane, r1, r2 } => {
+        PipelineError::MateCountMismatch {
+            sample,
+            lane,
+            r1,
+            r2,
+        } => {
             assert_eq!((sample.as_str(), *lane, *r1, *r2), ("S1", 1, 10_000, 2_000));
         }
         other => panic!("expected MateCountMismatch, got {other:?}"),
     }
     let t = err.to_string();
-    assert!(t.contains("'S1'") && t.contains("10000") && t.contains("2000"), "{t}");
+    assert!(
+        t.contains("'S1'") && t.contains("10000") && t.contains("2000"),
+        "{t}"
+    );
     assert!(!ctx.out_dir.join("S1.genecounts.tsv.zst").exists());
 }
 
@@ -325,13 +432,21 @@ fn quant_valid_gzip_pair_passes_validation() {
 // Salmon
 
 fn salmon_cfg() -> RunConfig {
-    RunConfig { quantifier: Quantifier::Salmon, ..RunConfig::default() }
+    RunConfig {
+        quantifier: Quantifier::Salmon,
+        ..RunConfig::default()
+    }
 }
 
 /// The data row of `<out>/<sample>.summary.tsv.zst`, split on tabs.
 fn summary_row(out: &Path, s: &str) -> Vec<String> {
     let t = read_table(&out.join(format!("{s}.summary.tsv.zst"))).unwrap();
-    t.lines().nth(1).unwrap().split('\t').map(String::from).collect()
+    t.lines()
+        .nth(1)
+        .unwrap()
+        .split('\t')
+        .map(String::from)
+        .collect()
 }
 
 /// Gzip with two members (first half, second half of `src`).
@@ -361,10 +476,20 @@ fn salmon_quant_sample_matches_truth_on_fixture() {
     sim::write_fastq(&pairs, &r1, &r2);
     let (fa, t2g) = transcripts(d);
     let out = d.join("quant");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None)
-        .unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(d.join("tmp")),
+        salmon_cfg(),
+        None,
+    )
+    .unwrap();
     assert!(out.join("salmon_index").is_dir(), "salmon index directory");
-    assert!(!out.join("transcripts.kidx").exists(), "no kallisto index for salmon");
+    assert!(
+        !out.join("transcripts.kidx").exists(),
+        "no kallisto index for salmon"
+    );
     let res = quant_sample(&sample("S1", &[&r1], &[&r2]), &ctx).unwrap();
     let truth = sim::truth_per_gene(&recs, &COUNTS);
     let worst = max_rel_error(&res.counts, &truth);
@@ -373,12 +498,22 @@ fn salmon_quant_sample_matches_truth_on_fixture() {
     assert!(worst <= 0.10, "max relative error {worst}");
     assert_eq!(res.summary.reads_processed, 10_000);
     assert!(out.join("S1").join("quant.sf").is_file());
-    assert!(out.join("S1").join("aux_info").join("meta_info.json").is_file());
+    assert!(out
+        .join("S1")
+        .join("aux_info")
+        .join("meta_info.json")
+        .is_file());
     let back = read_gene_counts(&out.join("S1.genecounts.tsv.zst"), "S1").unwrap();
     assert_eq!(back, res.counts);
     let row = summary_row(&out, "S1");
-    assert_eq!((row[1].as_str(), row[2].as_str(), row[3].as_str()), ("quant", "salmon", "10000"));
-    eprintln!("WALL salmon_quant_sample_matches_truth_on_fixture: {:.2?}", t0.elapsed());
+    assert_eq!(
+        (row[1].as_str(), row[2].as_str(), row[3].as_str()),
+        ("quant", "salmon", "10000")
+    );
+    eprintln!(
+        "WALL salmon_quant_sample_matches_truth_on_fixture: {:.2?}",
+        t0.elapsed()
+    );
 }
 
 #[test]
@@ -390,7 +525,12 @@ fn salmon_reads_gzip_and_zstd_lanes() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
     let pairs = sim::simulate(&records(), &COUNTS, Strandedness::Unstranded, 23);
-    let (a1, a2, b1, b2) = (d.join("a_1.fq"), d.join("a_2.fq"), d.join("b_1.fq"), d.join("b_2.fq"));
+    let (a1, a2, b1, b2) = (
+        d.join("a_1.fq"),
+        d.join("a_2.fq"),
+        d.join("b_1.fq"),
+        d.join("b_2.fq"),
+    );
     sim::write_fastq(&pairs[..4000], &a1, &a2);
     sim::write_fastq(&pairs[4000..], &b1, &b2);
     let (g1, g2) = (d.join("a_1.fq.gz"), d.join("a_2.fq.gz"));
@@ -405,12 +545,25 @@ fn salmon_reads_gzip_and_zstd_lanes() {
     sim::write_fastq(&pairs, &c1, &c2);
     let (fa, t2g) = transcripts(d);
     let out = d.join("quant");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None)
-        .unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(d.join("tmp")),
+        salmon_cfg(),
+        None,
+    )
+    .unwrap();
     let lanes = quant_sample(&sample("Lanes", &[&g1, &z1], &[&g2, &z2]), &ctx).unwrap();
     let whole = quant_sample(&sample("Whole", &[&c1], &[&c2]), &ctx).unwrap();
-    eprintln!("MEASURED salmon lanes {:?} counts {:?}", lanes.summary, lanes.counts);
-    eprintln!("MEASURED salmon whole {:?} counts {:?}", whole.summary, whole.counts);
+    eprintln!(
+        "MEASURED salmon lanes {:?} counts {:?}",
+        lanes.summary, lanes.counts
+    );
+    eprintln!(
+        "MEASURED salmon whole {:?} counts {:?}",
+        whole.summary, whole.counts
+    );
     assert_eq!(lanes.summary.reads_processed, 10_000);
     assert_eq!(lanes.counts, whole.counts);
 }
@@ -424,13 +577,24 @@ fn salmon_zero_mapped_reads_is_named_error() {
     let d = dir.path();
     let (fa, t2g) = transcripts(d);
     let out = d.join("q");
-    let ctx = prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None)
-        .unwrap();
+    let ctx = prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(d.join("tmp")),
+        salmon_cfg(),
+        None,
+    )
+    .unwrap();
     // 500 pairs of random bases: none should map to the six fixture transcripts. salmon 2.8.0
     // exited 0 here (checked by hand with the same kind of reads); the error comes from
     // `num_mapped` 0 in meta_info.json.
     let mut rng = sim::Lcg::new(77);
-    let mut rand_seq = || (0..75).map(|_| b"ACGT"[rng.below(4)] as char).collect::<String>();
+    let mut rand_seq = || {
+        (0..75)
+            .map(|_| b"ACGT"[rng.below(4)] as char)
+            .collect::<String>()
+    };
     let (mut t1, mut t2) = (String::new(), String::new());
     let q = "I".repeat(75);
     for i in 0..500 {
@@ -449,7 +613,10 @@ fn salmon_zero_mapped_reads_is_named_error() {
         other => panic!("expected NoReadsPseudoaligned, got {other:?}"),
     }
     let t = err.to_string();
-    assert!(t.contains("'Z1'") && t.contains("salmon") && !t.contains("kallisto"), "{t}");
+    assert!(
+        t.contains("'Z1'") && t.contains("salmon") && !t.contains("kallisto"),
+        "{t}"
+    );
     assert!(!out.join("Z1.genecounts.tsv.zst").exists());
     assert!(!out.join("Z1.summary.tsv.zst").exists());
 }
@@ -501,7 +668,15 @@ fn salmon_prepare_removes_stale_index_directory() {
     let stale = out.join("salmon_index").join("stale.txt");
     std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
     std::fs::write(&stale, b"old").unwrap();
-    prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None).unwrap();
+    prepare_quant(
+        &fa,
+        &t2g,
+        &out,
+        Scratch::new(d.join("tmp")),
+        salmon_cfg(),
+        None,
+    )
+    .unwrap();
     assert!(out.join("salmon_index").is_dir(), "salmon index directory");
     assert!(!stale.exists(), "a file of the old index survived");
 }
@@ -541,9 +716,15 @@ fn reserved_sample_names_are_rejected() {
             let PipelineError::ReservedSampleName { sample, reserved } = &err else {
                 panic!("{name}: expected ReservedSampleName, got {err:?}");
             };
-            assert_eq!((sample.as_str(), reserved.as_str()), (name.as_str(), name.as_str()));
+            assert_eq!(
+                (sample.as_str(), reserved.as_str()),
+                (name.as_str(), name.as_str())
+            );
             let t = err.to_string();
-            assert!(t.contains(&format!("'{name}'")) && t.contains("reserved"), "{t}");
+            assert!(
+                t.contains(&format!("'{name}'")) && t.contains("reserved"),
+                "{t}"
+            );
         }
     }
     // Normal names, and names that only start like a reserved name, are accepted.
@@ -580,7 +761,11 @@ fn old_output_removal_keeps_user_files_in_salmon_dirs() {
     for f in salmon {
         assert!(!sd.join(f).exists(), "{f} survived");
     }
-    assert_eq!(std::fs::read(&user).unwrap(), b"keep", "a user file was removed");
+    assert_eq!(
+        std::fs::read(&user).unwrap(),
+        b"keep",
+        "a user file was removed"
+    );
     // Empty salmon directories are removed; the one with the user file stays.
     assert!(sd.join("aux_info").is_dir());
     assert!(!sd.join("logs").exists() && !sd.join("libParams").exists());
