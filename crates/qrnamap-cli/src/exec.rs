@@ -16,13 +16,25 @@ pub const TAIL_BYTES: usize = 4096;
 #[derive(Debug)]
 pub enum ExecError {
     /// The program could not be started (for example, it is not on PATH).
-    Spawn { program: String, source: std::io::Error },
+    Spawn {
+        program: String,
+        source: std::io::Error,
+    },
     /// A declared input does not exist. Checked before the program runs.
     MissingInput { program: String, path: PathBuf },
     /// The program exited with a non-zero status or was killed by a signal.
-    Failed { program: String, status: String, stderr_tail: String, stdout_tail: String },
+    Failed {
+        program: String,
+        status: String,
+        stderr_tail: String,
+        stdout_tail: String,
+    },
     /// The program exited with status 0 but a declared output is missing.
-    MissingOutput { program: String, path: PathBuf, stderr_tail: String },
+    MissingOutput {
+        program: String,
+        path: PathBuf,
+        stderr_tail: String,
+    },
 }
 
 impl fmt::Display for ExecError {
@@ -70,6 +82,38 @@ pub fn tail(bytes: &[u8]) -> String {
         start += 1;
     }
     format!("...{}", String::from_utf8_lossy(&bytes[start..]))
+}
+
+/// Remove ANSI CSI sequences (`ESC [`, parameter and intermediate bytes, one final byte in
+/// `@`..`~`), such as colour codes. A sequence cut off at the end is removed. Any other byte,
+/// a lone ESC too, is kept.
+fn strip_csi(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b && bytes.get(i + 1) == Some(&b'[') {
+            let mut j = i + 2;
+            while j < bytes.len() && (0x20..=0x3f).contains(&bytes[j]) {
+                j += 1;
+            }
+            // Skip the final byte when it is there.
+            i = if j < bytes.len() && (0x40..=0x7e).contains(&bytes[j]) {
+                j + 1
+            } else {
+                j
+            };
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    out
+}
+
+/// The tool output tail kept in an error: `tail` after ANSI CSI sequences (colour codes) are
+/// removed, so they do not reach the error message.
+pub fn error_tail(bytes: &[u8]) -> String {
+    tail(&strip_csi(bytes))
 }
 
 fn resolve(base: &Path, p: &Path) -> PathBuf {
@@ -122,19 +166,27 @@ pub fn run_call_stderr(call: &ToolCall, scratch: &Path) -> Result<String, ExecEr
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|source| ExecError::Spawn { program: program.clone(), source })?;
+        .map_err(|source| ExecError::Spawn {
+            program: program.clone(),
+            source,
+        })?;
     if !out.status.success() {
         return Err(ExecError::Failed {
             program,
             status: out.status.to_string(),
-            stderr_tail: tail(&out.stderr),
+            stderr_tail: error_tail(&out.stderr),
             stdout_tail: tail(&out.stdout),
         });
     }
     for p in &call.outputs {
         let p = resolve(scratch, p);
         if !p.exists() {
-            return Err(ExecError::MissingOutput { program, path: p, stderr_tail: tail(&out.stderr) });
+            let stderr_tail = error_tail(&out.stderr);
+            return Err(ExecError::MissingOutput {
+                program,
+                path: p,
+                stderr_tail,
+            });
         }
     }
     Ok(tail(&out.stderr))

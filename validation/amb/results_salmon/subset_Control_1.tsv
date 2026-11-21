@@ -1,0 +1,7 @@
+variant	options	pairs	percent_mapped	RPL41A	RPL41B	YOR302W
+defaults	salmon (defaults)	500000	87.9636	0.000	0.000	0.000
+softclipOverhangs	salmon --softclipOverhangs	500000	88.1294	54.583	108.417	1.000
+softclip	salmon --softclip	500000	88.9424	56.139	112.861	1.000
+softclipOverhangs_msf0.5	salmon --softclipOverhangs --minScoreFraction 0.5	500000	89.7554	279.131	462.869	1.000
+useEM	salmon --useEM	500000	87.9636	0.000	0.000	0.000
+kallisto	kallisto 0.52.0 (unstranded)	500000	93.8	1132.73	968.269	8

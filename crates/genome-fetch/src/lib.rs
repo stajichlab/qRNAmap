@@ -122,14 +122,27 @@ pub(crate) fn agent_without_redirects() -> ureq::Agent {
 }
 
 fn invalid_name(name: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, format!("unsafe output file name \"{name}\""))
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("unsafe output file name \"{name}\""),
+    )
 }
 
 /// Write `reader` to `out_dir/final_name` through `final_name.part`.
 /// With `gzip`, the data is compressed on the way. `expected` is the required length of the received data in bytes
 /// (before compression); on a mismatch the part file is removed and `SizeMismatch` is returned.
-pub(crate) fn save(mut reader: impl Read, out_dir: &Path, final_name: &str, gzip: bool, expected: Option<u64>) -> Result<PathBuf, FetchError> {
-    if final_name.is_empty() || final_name.contains(['/', '\\']) || final_name == "." || final_name == ".." {
+pub(crate) fn save(
+    mut reader: impl Read,
+    out_dir: &Path,
+    final_name: &str,
+    gzip: bool,
+    expected: Option<u64>,
+) -> Result<PathBuf, FetchError> {
+    if final_name.is_empty()
+        || final_name.contains(['/', '\\'])
+        || final_name == "."
+        || final_name == ".."
+    {
         return Err(invalid_name(final_name).into());
     }
     fs::create_dir_all(out_dir)?;
@@ -150,7 +163,11 @@ pub(crate) fn save(mut reader: impl Read, out_dir: &Path, final_name: &str, gzip
         };
         if let Some(expected) = expected {
             if received != expected {
-                return Err(FetchError::SizeMismatch { file: final_name.to_string(), expected, actual: received });
+                return Err(FetchError::SizeMismatch {
+                    file: final_name.to_string(),
+                    expected,
+                    actual: received,
+                });
             }
         }
         fs::rename(&part_path, &final_path)?;

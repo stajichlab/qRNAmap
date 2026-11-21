@@ -44,22 +44,39 @@ pub struct GeneModel {
 #[derive(Debug)]
 pub enum GffError {
     /// Fewer than 9 columns, or a bad start/end. `line` is 1-based.
-    BadLine { line: usize },
+    BadLine {
+        line: usize,
+    },
     /// Strand is not `+` or `-` on a gene or transcript that has children.
-    BadStrand { line: usize, value: String },
+    BadStrand {
+        line: usize,
+        value: String,
+    },
     DuplicateGeneLabel(String),
     /// An exon/CDS/UTR line whose `Parent` is missing (`parent` empty) or matches no feature. `line` is 1-based.
-    UnresolvedParent { line: usize, parent: String },
+    UnresolvedParent {
+        line: usize,
+        parent: String,
+    },
     /// A transcript's strand differs from the strand of its gene `parent`. `line` is the
     /// transcript's line (1-based).
-    StrandMismatch { line: usize, parent: String },
+    StrandMismatch {
+        line: usize,
+        parent: String,
+    },
     /// A transcript's (or child's) seqid differs from the seqid of its parent feature `parent`.
     /// `line` is the line of the transcript or child (1-based).
-    ContigMismatch { line: usize, parent: String },
+    ContigMismatch {
+        line: usize,
+        parent: String,
+    },
     /// An ID is repeated on features that differ in type, seqid or strand. (Lines of one
     /// discontinuous feature share an ID and agree in all three; that stays legal.) `line` is the
     /// later line (1-based).
-    DuplicateId { id: String, line: usize },
+    DuplicateId {
+        id: String,
+        line: usize,
+    },
     Io(io::Error),
 }
 
@@ -118,18 +135,29 @@ struct Feat {
 
 impl Feat {
     fn raw(&self, key: &str) -> Option<&str> {
-        self.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str()).filter(|v| !v.is_empty())
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+            .filter(|v| !v.is_empty())
     }
     fn get(&self, key: &str) -> Option<String> {
         self.raw(key).map(percent_decode)
     }
     fn parents(&self) -> Vec<String> {
         self.raw("Parent")
-            .map(|p| p.split(',').filter(|s| !s.is_empty()).map(percent_decode).collect())
+            .map(|p| {
+                p.split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(percent_decode)
+                    .collect()
+            })
             .unwrap_or_default()
     }
     fn label(&self) -> Option<String> {
-        self.get("locus_tag").or_else(|| self.get("Name")).or_else(|| self.get("ID"))
+        self.get("locus_tag")
+            .or_else(|| self.get("Name"))
+            .or_else(|| self.get("ID"))
     }
 }
 
@@ -146,7 +174,11 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && b[i + 1].is_ascii_hexdigit()
+            && b[i + 2].is_ascii_hexdigit()
+        {
             let h = |c: u8| (c as char).to_digit(16).unwrap() as u8;
             out.push(h(b[i + 1]) * 16 + h(b[i + 2]));
             i += 3;
@@ -168,7 +200,10 @@ fn strand_of(f: &Feat) -> Result<Strand, GffError> {
     match f.strand.as_str() {
         "+" => Ok(Strand::Plus),
         "-" => Ok(Strand::Minus),
-        other => Err(GffError::BadStrand { line: f.line, value: other.to_string() }),
+        other => Err(GffError::BadStrand {
+            line: f.line,
+            value: other.to_string(),
+        }),
     }
 }
 
@@ -208,12 +243,20 @@ impl Builder<'_> {
         }
         let f = &self.feats[fi];
         let strand = strand_of(f)?;
-        let label = f.label().unwrap_or_else(|| format!("{}@line{}", f.kind, f.line));
+        let label = f
+            .label()
+            .unwrap_or_else(|| format!("{}@line{}", f.kind, f.line));
         let gi = self.genes.len();
         if self.label_owner.insert(label.clone(), gi).is_some() {
             return Err(GffError::DuplicateGeneLabel(label));
         }
-        self.genes.push(Gene { label, contig: f.contig.clone(), strand, biotype: f.get("gene_biotype"), transcripts: Vec::new() });
+        self.genes.push(Gene {
+            label,
+            contig: f.contig.clone(),
+            strand,
+            biotype: f.get("gene_biotype"),
+            transcripts: Vec::new(),
+        });
         self.gene_of_feat.insert(fi, gi);
         Ok(gi)
     }
@@ -238,8 +281,14 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
         if cols.len() < 9 {
             return Err(GffError::BadLine { line: lineno });
         }
-        let start: u64 = cols[3].trim().parse().map_err(|_| GffError::BadLine { line: lineno })?;
-        let end: u64 = cols[4].trim().parse().map_err(|_| GffError::BadLine { line: lineno })?;
+        let start: u64 = cols[3]
+            .trim()
+            .parse()
+            .map_err(|_| GffError::BadLine { line: lineno })?;
+        let end: u64 = cols[4]
+            .trim()
+            .parse()
+            .map_err(|_| GffError::BadLine { line: lineno })?;
         if start == 0 || start > end {
             return Err(GffError::BadLine { line: lineno });
         }
@@ -257,9 +306,21 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
         };
         if is_child_kind(&feat.kind) {
             let parents = feat.parents();
-            child_recs.push(ChildRec { line: lineno, kind: feat.kind, contig: feat.contig, parents, start, end });
+            child_recs.push(ChildRec {
+                line: lineno,
+                kind: feat.kind,
+                contig: feat.contig,
+                parents,
+                start,
+                end,
+            });
         } else {
-            if feat.kind == "region" && matches!(feat.get("genome").as_deref(), Some("mitochondrion" | "mitochondrial")) {
+            if feat.kind == "region"
+                && matches!(
+                    feat.get("genome").as_deref(),
+                    Some("mitochondrion" | "mitochondrial")
+                )
+            {
                 mito_contigs.insert(feat.contig.clone());
             }
             feats.push(feat);
@@ -288,14 +349,23 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
     let mut children: HashMap<usize, Children> = HashMap::new();
     for c in &child_recs {
         if c.parents.is_empty() {
-            return Err(GffError::UnresolvedParent { line: c.line, parent: String::new() });
+            return Err(GffError::UnresolvedParent {
+                line: c.line,
+                parent: String::new(),
+            });
         }
         for p in &c.parents {
             let Some(&fi) = by_id.get(p) else {
-                return Err(GffError::UnresolvedParent { line: c.line, parent: p.clone() });
+                return Err(GffError::UnresolvedParent {
+                    line: c.line,
+                    parent: p.clone(),
+                });
             };
             if feats[fi].contig != c.contig {
-                return Err(GffError::ContigMismatch { line: c.line, parent: p.clone() });
+                return Err(GffError::ContigMismatch {
+                    line: c.line,
+                    parent: p.clone(),
+                });
             }
             let ch = children.entry(fi).or_default();
             let list = match c.kind.as_str() {
@@ -309,7 +379,12 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
     }
 
     // Pass 3: build genes and transcripts in file order.
-    let mut b = Builder { feats: &feats, genes: Vec::new(), gene_of_feat: HashMap::new(), label_owner: HashMap::new() };
+    let mut b = Builder {
+        feats: &feats,
+        genes: Vec::new(),
+        gene_of_feat: HashMap::new(),
+        label_owner: HashMap::new(),
+    };
     for (i, f) in feats.iter().enumerate() {
         let id = f.get("ID");
         if let Some(id) = &id {
@@ -349,15 +424,24 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             let g = &feats[gp];
             let parent = || g.get("ID").unwrap_or_default();
             if g.contig != f.contig {
-                return Err(GffError::ContigMismatch { line: f.line, parent: parent() });
+                return Err(GffError::ContigMismatch {
+                    line: f.line,
+                    parent: parent(),
+                });
             }
             if strand_of(f).is_ok_and(|s| s != b.genes[gi].strand) {
-                return Err(GffError::StrandMismatch { line: f.line, parent: parent() });
+                return Err(GffError::StrandMismatch {
+                    line: f.line,
+                    parent: parent(),
+                });
             }
         }
         push_transcript(&mut b.genes[gi], f, id, children.get(&i));
     }
-    Ok(GeneModel { genes: b.genes, mito_contigs })
+    Ok(GeneModel {
+        genes: b.genes,
+        mito_contigs,
+    })
 }
 
 fn push_transcript(gene: &mut Gene, f: &Feat, id: Option<String>, ch: Option<&Children>) {

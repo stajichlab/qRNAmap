@@ -5,14 +5,18 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use qrnamap_cli::pipeline::{
-    self, align_sample, check_fastq_files, check_samples, prepare_align, prepare_quant, quant_sample, run_matrix,
-    run_transcripts_with_genes, strand_check_sample, GenesFrom, GenesSource, SampleResult, Scratch,
-    LOW_ASSIGNED_FRACTION,
+    self, align_sample, check_fastq_files, check_samples, prepare_align, prepare_quant,
+    quant_sample, run_matrix, run_transcripts_with_genes, strand_check_sample, GenesFrom,
+    GenesSource, SampleResult, Scratch, LOW_ASSIGNED_FRACTION,
 };
-use qrnamap_core::{Mode, RunConfig, Sample, SampleSheet, Strandedness};
+use qrnamap_core::{Mode, Quantifier, RunConfig, Sample, SampleSheet, Strandedness};
 
 #[derive(Parser)]
-#[command(name = "qrnamap", version, about = "Bulk RNA-seq quantification (kallisto or HISAT2 + featureCounts)")]
+#[command(
+    name = "qrnamap",
+    version,
+    about = "Bulk RNA-seq quantification (kallisto, salmon, or HISAT2 + featureCounts)"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -64,10 +68,14 @@ enum Cmd {
         #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
         mito_contig: Vec<String>,
     },
-    /// kallisto index and quant per sample; writes DIR/<sample>.genecounts.tsv.zst.
+    /// kallisto or salmon index and quant per sample; writes DIR/<sample>.genecounts.tsv.zst.
     Quant {
         #[arg(long)]
         samples: PathBuf,
+        /// Pseudo-alignment tool. Default: kallisto. With --task-id it must match the
+        /// quantifier the run directory was prepared with.
+        #[arg(long, value_enum)]
+        quantifier: Option<QuantArg>,
         #[arg(long)]
         transcripts: PathBuf,
         #[arg(long)]
@@ -127,6 +135,10 @@ enum Cmd {
         gff: PathBuf,
         #[arg(long, value_enum)]
         mode: ModeArg,
+        /// Pseudo-alignment tool (quant mode only; an error with --mode align). Default:
+        /// kallisto.
+        #[arg(long, value_enum)]
+        quantifier: Option<QuantArg>,
         /// Run directory. On a cluster it must be on shared storage (for example /bigdata).
         #[arg(long)]
         out: PathBuf,
@@ -257,6 +269,26 @@ enum ModeArg {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum QuantArg {
+    Kallisto,
+    Salmon,
+}
+
+impl QuantArg {
+    fn core(self) -> Quantifier {
+        match self {
+            QuantArg::Kallisto => Quantifier::Kallisto,
+            QuantArg::Salmon => Quantifier::Salmon,
+        }
+    }
+}
+
+/// The quantifier of `--quantifier`, or the default (kallisto) when the flag is not given.
+fn quantifier_or_default(q: Option<QuantArg>) -> Quantifier {
+    q.map_or(Quantifier::Kallisto, QuantArg::core)
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum StepArg {
     All,
     Prepare,
@@ -300,7 +332,7 @@ enum ShrinkArg {
 struct RunFlags {
     #[arg(long, value_enum, default_value = "unstranded")]
     strandedness: StrandArg,
-    /// Fragment length mean and SD for single-end kallisto, as MEAN,SD.
+    /// Fragment length mean and SD for single-end kallisto or salmon, as MEAN,SD.
     #[arg(long, value_parser = parse_fragment_length)]
     fragment_length: Option<(f64, f64)>,
     #[arg(long, default_value_t = 1)]
@@ -329,7 +361,8 @@ impl TaskFlags {
     fn range(&self, n: usize) -> Result<std::ops::Range<usize>, String> {
         match self.task_id {
             None => Ok(0..n),
-            Some(id) => qrnamap_cli::run::task_slice(n, id, self.samples_per_task).map_err(|x| x.to_string()),
+            Some(id) => qrnamap_cli::run::task_slice(n, id, self.samples_per_task)
+                .map_err(|x| x.to_string()),
         }
     }
 }
@@ -344,11 +377,17 @@ fn parse_contig_name(s: &str) -> Result<String, String> {
 
 fn parse_fragment_length(s: &str) -> Result<(f64, f64), String> {
     let (a, b) = s.split_once(',').ok_or("expected MEAN,SD")?;
-    let p = |x: &str| x.trim().parse::<f64>().map_err(|_| format!("{x:?} is not a number"));
+    let p = |x: &str| {
+        x.trim()
+            .parse::<f64>()
+            .map_err(|_| format!("{x:?} is not a number"))
+    };
     Ok((p(a)?, p(b)?))
 }
 
 impl RunFlags {
+    /// The quantifier is not set here: `RunFlags` is also flattened into `align`, which has no
+    /// `--quantifier`. The `quant` and `run` call sites set `quantifier` after this call.
     fn config(&self, mode: Mode) -> RunConfig {
         RunConfig {
             mode,
@@ -366,10 +405,12 @@ impl RunFlags {
 
 fn load_sheet(path: &Path) -> Result<Vec<Sample>, String> {
     let text = pipeline::read_table(path).map_err(|e| e.to_string())?;
-    SampleSheet::parse(&text).map(|s| s.samples).map_err(|errs| {
-        let lines: Vec<String> = errs.iter().map(|e| format!("  {e}")).collect();
-        format!("sample sheet {}:\n{}", path.display(), lines.join("\n"))
-    })
+    SampleSheet::parse(&text)
+        .map(|s| s.samples)
+        .map_err(|errs| {
+            let lines: Vec<String> = errs.iter().map(|e| format!("  {e}")).collect();
+            format!("sample sheet {}:\n{}", path.display(), lines.join("\n"))
+        })
 }
 
 /// Remove the old outputs of every sheet sample (ruling R24, final review I2). Plain `quant`
@@ -380,7 +421,17 @@ fn remove_all_old_outputs(out: &Path, samples: &[Sample]) -> Result<(), pipeline
     }
     pipeline::remove_old_genes_table(out)?;
     pipeline::remove_old_mapping_summary(out)?;
-    samples.iter().try_for_each(|s| pipeline::remove_old_outputs(out, &s.name))
+    samples
+        .iter()
+        .try_for_each(|s| pipeline::remove_old_outputs(out, &s.name))
+}
+
+/// Label of the mapped fraction in the per-sample stdout line: kallisto pseudoaligns, salmon maps.
+fn quant_label(q: Quantifier) -> &'static str {
+    match q {
+        Quantifier::Kallisto => "pseudoaligned",
+        Quantifier::Salmon => "mapped",
+    }
 }
 
 fn report(r: &SampleResult, what: &str) {
@@ -406,13 +457,27 @@ fn report(r: &SampleResult, what: &str) {
 fn run(cli: Cli) -> Result<(), String> {
     let e = |x: pipeline::PipelineError| x.to_string();
     match cli.cmd {
-        Cmd::Fetch { source, id, out, eupathdb_key_file, base_url, catalog } => {
+        Cmd::Fetch {
+            source,
+            id,
+            out,
+            eupathdb_key_file,
+            base_url,
+            catalog,
+        } => {
             use qrnamap_cli::fetch_cmd::{run_fetch, FetchArgs, Source};
             let source = match source {
                 SourceArg::Ncbi => Source::Ncbi,
                 SourceArg::Fungidb => Source::Fungidb,
             };
-            let args = FetchArgs { source, id, out, key_file: eupathdb_key_file, base_url, catalog };
+            let args = FetchArgs {
+                source,
+                id,
+                out,
+                key_file: eupathdb_key_file,
+                base_url,
+                catalog,
+            };
             let r = run_fetch(&args).map_err(|x| x.to_string())?;
             for w in &r.warnings {
                 eprintln!("warning: {w}");
@@ -422,26 +487,61 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("gff\t{}", g.display());
             }
         }
-        Cmd::Transcripts { reference, gff, out, tx2gene, saf, splice_sites, genes_table, mito_contig } => {
+        Cmd::Transcripts {
+            reference,
+            gff,
+            out,
+            tx2gene,
+            saf,
+            splice_sites,
+            genes_table,
+            mito_contig,
+        } => {
             if genes_table.is_none() && !mito_contig.is_empty() {
                 eprintln!("note: --mito-contig has no effect without --genes-table (no gene table is written)");
             }
             let genes = genes_table.as_deref().map(|p| (p, mito_contig.as_slice()));
-            let n = run_transcripts_with_genes(&reference, &gff, &out, &tx2gene, saf.as_deref(), splice_sites.as_deref(), genes)
-                .map_err(e)?;
+            let n = run_transcripts_with_genes(
+                &reference,
+                &gff,
+                &out,
+                &tx2gene,
+                saf.as_deref(),
+                splice_sites.as_deref(),
+                genes,
+            )
+            .map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());
         }
-        Cmd::Quant { samples, transcripts, tx2gene, out, run, task, reference, gff, mito_contig } => {
+        Cmd::Quant {
+            samples,
+            quantifier,
+            transcripts,
+            tx2gene,
+            out,
+            run,
+            task,
+            reference,
+            gff,
+            mito_contig,
+        } => {
             let samples = load_sheet(&samples)?;
-            let cfg = run.config(Mode::Quant);
+            let mut cfg = run.config(Mode::Quant);
+            cfg.quantifier = quantifier_or_default(quantifier);
             check_samples(&samples, &cfg, Mode::Quant).map_err(e)?;
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
             if task.task_id.is_none() && gff.is_none() {
                 if !mito_contig.is_empty() {
-                    return Err("quant: --mito-contig needs --gff (the gene table comes from the GFF3)".into());
+                    return Err(
+                        "quant: --mito-contig needs --gff (the gene table comes from the GFF3)"
+                            .into(),
+                    );
                 }
-                eprintln!("note: no --gff given, so {}/genes.tsv.zst is not written", out.display());
+                eprintln!(
+                    "note: no --gff given, so {}/genes.tsv.zst is not written",
+                    out.display()
+                );
             }
             if task.task_id.is_some() && !mito_contig.is_empty() {
                 eprintln!("note: --mito-contig has no effect with --task-id (the prepare step writes genes.tsv.zst)");
@@ -450,8 +550,16 @@ fn run(cli: Cli) -> Result<(), String> {
                 let (Some(r), Some(g)) = (&reference, &gff) else {
                     return Err("quant --task-id needs --reference and --gff (the inputs the run directory was prepared from)".into());
                 };
-                let ctx = qrnamap_cli::run::prepared_quant(&out, r, g, &transcripts, &tx2gene, scratch.clone(), cfg)
-                    .map_err(|x| x.to_string())?;
+                let ctx = qrnamap_cli::run::prepared_quant(
+                    &out,
+                    r,
+                    g,
+                    &transcripts,
+                    &tx2gene,
+                    scratch.clone(),
+                    cfg,
+                )
+                .map_err(|x| x.to_string())?;
                 check_fastq_files(&samples).map_err(e)?;
                 ctx
             } else {
@@ -460,15 +568,32 @@ fn run(cli: Cli) -> Result<(), String> {
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 // Final review I2: a failing sample must not leave later samples' old counts.
                 remove_all_old_outputs(&out, &samples).map_err(e)?;
-                let genes = gff.as_deref().map(|g| GenesSource { gff: g, mito_contigs: &mito_contig });
-                prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg, genes).map_err(e)?
+                let genes = gff.as_deref().map(|g| GenesSource {
+                    gff: g,
+                    mito_contigs: &mito_contig,
+                });
+                prepare_quant(&transcripts, &tx2gene, &out, scratch.clone(), cfg, genes)
+                    .map_err(e)?
             };
             for s in &samples[range] {
-                report(&quant_sample(s, &ctx).map_err(e)?, "pseudoaligned");
+                report(
+                    &quant_sample(s, &ctx).map_err(e)?,
+                    quant_label(ctx.config.quantifier),
+                );
             }
             scratch.cleanup();
         }
-        Cmd::Align { samples, reference, gff, out, run, task, max_intron, keep_sam, mito_contig } => {
+        Cmd::Align {
+            samples,
+            reference,
+            gff,
+            out,
+            run,
+            task,
+            max_intron,
+            keep_sam,
+            mito_contig,
+        } => {
             let samples = load_sheet(&samples)?;
             let mut cfg = run.config(Mode::Align);
             cfg.max_intron = max_intron;
@@ -479,8 +604,15 @@ fn run(cli: Cli) -> Result<(), String> {
                 eprintln!("note: --mito-contig has no effect with --task-id (the prepare step writes genes.tsv.zst)");
             }
             let ctx = if task.task_id.is_some() {
-                let ctx = qrnamap_cli::run::prepared_align(&out, &reference, &gff, scratch.clone(), cfg, keep_sam)
-                    .map_err(|x| x.to_string())?;
+                let ctx = qrnamap_cli::run::prepared_align(
+                    &out,
+                    &reference,
+                    &gff,
+                    scratch.clone(),
+                    cfg,
+                    keep_sam,
+                )
+                .map_err(|x| x.to_string())?;
                 check_fastq_files(&samples).map_err(e)?;
                 ctx
             } else {
@@ -489,7 +621,16 @@ fn run(cli: Cli) -> Result<(), String> {
                 qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
                 // Final review I2: a failing sample must not leave later samples' old counts.
                 remove_all_old_outputs(&out, &samples).map_err(e)?;
-                prepare_align(&reference, &gff, &out, scratch.clone(), cfg, keep_sam, &mito_contig).map_err(e)?
+                prepare_align(
+                    &reference,
+                    &gff,
+                    &out,
+                    scratch.clone(),
+                    cfg,
+                    keep_sam,
+                    &mito_contig,
+                )
+                .map_err(e)?
             };
             for s in &samples[range] {
                 report(&align_sample(s, &ctx).map_err(e)?, "mapped");
@@ -497,18 +638,53 @@ fn run(cli: Cli) -> Result<(), String> {
             scratch.cleanup();
         }
         Cmd::Run {
-            samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
-            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path, mito_contig,
+            samples,
+            reference,
+            gff,
+            mode,
+            quantifier,
+            out,
+            run,
+            max_intron,
+            design,
+            contrast,
+            shrink,
+            reads_per_sample,
+            keep_sam,
+            step,
+            slurm,
+            samples_per_task,
+            cpus,
+            mem_gb,
+            time,
+            partition,
+            account,
+            qrnamap_bin,
+            tool_path,
+            mito_contig,
         } => {
-            use qrnamap_cli::run::{run_local, run_slurm, scratch_out_warning, scratch_tmpdir_warning, RunArgs, SlurmOptions, Step};
-            let abs_out = std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
+            use qrnamap_cli::run::{
+                run_local, run_slurm, scratch_out_warning, scratch_tmpdir_warning, RunArgs,
+                SlurmOptions, Step,
+            };
+            // Spec decision 7: --quantifier with align mode is an error, not ignored.
+            if matches!(mode, ModeArg::Align) && quantifier.is_some() {
+                let m = "--quantifier cannot be used with --mode align; \
+                         it applies to --mode quant only";
+                return Err(m.into());
+            }
+            let abs_out =
+                std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
             if let Some(w) = scratch_out_warning(&abs_out, std::env::var_os("SCRATCH").as_deref()) {
                 eprintln!("warning: {w}");
             }
             if slurm {
                 if let Some(t) = &run.tmpdir {
-                    let abs_t = std::path::absolute(t).map_err(|x| format!("{}: {x}", t.display()))?;
-                    if let Some(w) = scratch_tmpdir_warning(&abs_t, std::env::var_os("SCRATCH").as_deref()) {
+                    let abs_t =
+                        std::path::absolute(t).map_err(|x| format!("{}: {x}", t.display()))?;
+                    if let Some(w) =
+                        scratch_tmpdir_warning(&abs_t, std::env::var_os("SCRATCH").as_deref())
+                    {
                         eprintln!("warning: {w}");
                     }
                 }
@@ -518,6 +694,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 ModeArg::Align => Mode::Align,
             };
             let mut config = run.config(mode);
+            config.quantifier = quantifier_or_default(quantifier);
             config.max_intron = max_intron;
             config.reads_per_sample = reads_per_sample;
             let step = match step {
@@ -526,13 +703,25 @@ fn run(cli: Cli) -> Result<(), String> {
                 StepArg::Final => Step::Final,
             };
             let args = RunArgs {
-                samples, reference, gff, mode, out, config, tmpdir: run.tmpdir.clone(), design, contrast,
-                shrink: shrink.map(ShrinkArg::core), keep_sam, step, mito_contigs: mito_contig,
+                samples,
+                reference,
+                gff,
+                mode,
+                out,
+                config,
+                tmpdir: run.tmpdir.clone(),
+                design,
+                contrast,
+                shrink: shrink.map(ShrinkArg::core),
+                keep_sam,
+                step,
+                mito_contigs: mito_contig,
             };
             if slurm {
                 let qrnamap_bin = match qrnamap_bin {
                     Some(p) => p,
-                    None => std::env::current_exe().map_err(|x| format!("cannot find the path of this program: {x}"))?,
+                    None => std::env::current_exe()
+                        .map_err(|x| format!("cannot find the path of this program: {x}"))?,
                 };
                 let opts = SlurmOptions {
                     per_task: samples_per_task,
@@ -545,14 +734,24 @@ fn run(cli: Cli) -> Result<(), String> {
                     tool_paths: tool_path,
                 };
                 let submit = run_slurm(&args, &opts).map_err(|x| x.to_string())?;
-                let q = qrnamap_cli::slurm::sh_quote(&submit.to_string_lossy()).map_err(|x| x.to_string())?;
-                println!("wrote SLURM scripts to {}", submit.parent().unwrap_or(&submit).display());
+                let q = qrnamap_cli::slurm::sh_quote(&submit.to_string_lossy())
+                    .map_err(|x| x.to_string())?;
+                println!(
+                    "wrote SLURM scripts to {}",
+                    submit.parent().unwrap_or(&submit).display()
+                );
                 println!("submit with:\n  bash {q}");
                 println!("The --cpus, --mem-gb and --time values are UNMEASURED placeholders; check them before submitting.");
             } else {
-                let what = if mode == Mode::Quant { "pseudoaligned" } else { "mapped" };
-                let r = run_local(&args, &mut |r| report(r, what), &mut |w| eprintln!("warning: {w}"))
-                    .map_err(|x| x.to_string())?;
+                let what = if mode == Mode::Quant {
+                    quant_label(args.config.quantifier)
+                } else {
+                    "mapped"
+                };
+                let r = run_local(&args, &mut |r| report(r, what), &mut |w| {
+                    eprintln!("warning: {w}")
+                })
+                .map_err(|x| x.to_string())?;
                 if let Some(p) = &r.counts {
                     eprintln!("wrote {}", p.display());
                 }
@@ -564,7 +763,11 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
             }
         }
-        Cmd::Matrix { out, samples, genes_from } => {
+        Cmd::Matrix {
+            out,
+            samples,
+            genes_from,
+        } => {
             let samples = load_sheet(&samples)?;
             let gf = match genes_from.as_deref() {
                 None => None,
@@ -572,31 +775,66 @@ fn run(cli: Cli) -> Result<(), String> {
                     let k = match kind.as_str() {
                         "tx2gene" => GenesFrom::Tx2Gene,
                         "saf" => GenesFrom::Saf,
-                        other => return Err(format!("--genes-from: kind must be tx2gene or saf, not {other:?}")),
+                        other => {
+                            return Err(format!(
+                                "--genes-from: kind must be tx2gene or saf, not {other:?}"
+                            ))
+                        }
                     };
                     Some((k, PathBuf::from(file)))
                 }
                 Some(_) => return Err("--genes-from takes KIND FILE".into()),
             };
             let (path, warnings) =
-                run_matrix(&out, &samples, gf.as_ref().map(|(k, p)| (*k, p.as_path()))).map_err(e)?;
+                run_matrix(&out, &samples, gf.as_ref().map(|(k, p)| (*k, p.as_path())))
+                    .map_err(e)?;
             for w in &warnings {
                 eprintln!("warning: {w}");
             }
             eprintln!("wrote {}", path.display());
         }
-        Cmd::De { counts, samples, design, contrast, shrink, out, tmpdir } => {
+        Cmd::De {
+            counts,
+            samples,
+            design,
+            contrast,
+            shrink,
+            out,
+            tmpdir,
+        } => {
             let shrink = shrink.map(ShrinkArg::core);
-            let args = qrnamap_cli::de::DeArgs { counts, samples, design, contrast, shrink, out, tmpdir };
+            let args = qrnamap_cli::de::DeArgs {
+                counts,
+                samples,
+                design,
+                contrast,
+                shrink,
+                out,
+                tmpdir,
+            };
             let r = qrnamap_cli::de::run_de(&args).map_err(|x| x.to_string())?;
             println!("DESeq2 {}", r.deseq2_version);
             for f in &r.files {
                 eprintln!("wrote {}", f.display());
             }
         }
-        Cmd::StrandCheck { samples, reference, gff, out, pairs, max_intron, threads, tmpdir } => {
+        Cmd::StrandCheck {
+            samples,
+            reference,
+            gff,
+            out,
+            pairs,
+            max_intron,
+            threads,
+            tmpdir,
+        } => {
             let samples = load_sheet(&samples)?;
-            let cfg = RunConfig { mode: Mode::Align, max_intron, threads, ..RunConfig::default() };
+            let cfg = RunConfig {
+                mode: Mode::Align,
+                max_intron,
+                threads,
+                ..RunConfig::default()
+            };
             check_samples(&samples, &cfg, Mode::Align).map_err(e)?;
             check_fastq_files(&samples).map_err(e)?;
             // Ruling R33 (R24 order: check inputs, remove stale outputs, then build): an old
@@ -605,14 +843,20 @@ fn run(cli: Cli) -> Result<(), String> {
                 match std::fs::remove_file(out.join(name)) {
                     Ok(()) => {}
                     Err(x) if x.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(x) => return Err(e(pipeline::PipelineError::Io { path: out.join(name), source: x })),
+                    Err(x) => {
+                        return Err(e(pipeline::PipelineError::Io {
+                            path: out.join(name),
+                            source: x,
+                        }))
+                    }
                 }
             }
             let scratch = Scratch::from_flag_or_env(tmpdir);
             // Final review I1: the index, genes.saf and splice_sites.txt built below replace the
             // prepared ones in OUT, so the marker no longer describes them.
             qrnamap_cli::run::remove_prepared_marker(&out).map_err(|x| x.to_string())?;
-            let ctx = pipeline::prepare_strand_check(&reference, &gff, &out, scratch.clone(), cfg).map_err(e)?;
+            let ctx = pipeline::prepare_strand_check(&reference, &gff, &out, scratch.clone(), cfg)
+                .map_err(e)?;
             let mut table = String::from(
                 "sample\tsense\tantisense\tambiguous\tsense_fraction\tantisense_fraction\tambiguous_fraction\tsuggested\tlow_fraction_warning\n",
             );
@@ -621,8 +865,14 @@ fn run(cli: Cli) -> Result<(), String> {
                 let suggested = format!("{:?}", r.suggested).to_lowercase();
                 let row = format!(
                     "{}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{:.4}\t{suggested}\t{}\n",
-                    s.name, r.sense, r.antisense, r.ambiguous, r.sense_fraction, r.antisense_fraction,
-                    r.ambiguous_fraction, r.low_fraction_warning
+                    s.name,
+                    r.sense,
+                    r.antisense,
+                    r.ambiguous,
+                    r.sense_fraction,
+                    r.antisense_fraction,
+                    r.ambiguous_fraction,
+                    r.low_fraction_warning
                 );
                 print!("{row}");
                 table.push_str(&row);

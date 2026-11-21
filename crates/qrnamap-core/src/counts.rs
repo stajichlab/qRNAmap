@@ -48,6 +48,26 @@ pub fn gene_counts_from_abundance(
     abundance_tsv: &str,
     tx2gene: &HashMap<String, String>,
 ) -> Result<BTreeMap<String, u64>, CountError> {
+    sum_by_gene(abundance_tsv, tx2gene, "target_id", "est_counts")
+}
+
+/// Gene counts from a salmon `quant.sf`.
+///
+/// Same rules as `gene_counts_from_abundance`, with columns `Name` and `NumReads`.
+pub fn gene_counts_from_salmon(
+    quant_sf: &str,
+    tx2gene: &HashMap<String, String>,
+) -> Result<BTreeMap<String, u64>, CountError> {
+    sum_by_gene(quant_sf, tx2gene, "Name", "NumReads")
+}
+
+/// Sum a count column over the transcripts of each gene and round once per gene.
+fn sum_by_gene(
+    abundance_tsv: &str,
+    tx2gene: &HashMap<String, String>,
+    id_name: &str,
+    count_name: &str,
+) -> Result<BTreeMap<String, u64>, CountError> {
     let mut lines = abundance_tsv
         .lines()
         .enumerate()
@@ -55,15 +75,15 @@ pub fn gene_counts_from_abundance(
         .filter(|(_, l)| !l.trim().is_empty());
     let (_, header) = lines
         .next()
-        .ok_or_else(|| CountError::MissingColumn("target_id".into()))?;
+        .ok_or_else(|| CountError::MissingColumn(id_name.into()))?;
     let cols: Vec<&str> = header.split('\t').collect();
     let find = |name: &str| {
         cols.iter()
             .position(|c| *c == name)
             .ok_or_else(|| CountError::MissingColumn(name.to_string()))
     };
-    let id_col = find("target_id")?;
-    let est_col = find("est_counts")?;
+    let id_col = find(id_name)?;
+    let est_col = find(count_name)?;
 
     let mut sums: BTreeMap<&str, f64> = BTreeMap::new();
     for (line, row) in lines {
@@ -71,7 +91,10 @@ pub fn gene_counts_from_abundance(
         let (Some(id), Some(est)) = (f.get(id_col), f.get(est_col)) else {
             return Err(CountError::BadRow { line });
         };
-        let est: f64 = est.trim().parse().map_err(|_| CountError::BadRow { line })?;
+        let est: f64 = est
+            .trim()
+            .parse()
+            .map_err(|_| CountError::BadRow { line })?;
         if !est.is_finite() || est < 0.0 {
             return Err(CountError::BadRow { line });
         }

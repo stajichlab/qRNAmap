@@ -202,7 +202,12 @@ chr1\ts\tncRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n";
     assert_eq!(t.len(), 1);
     assert_eq!(t[0].id, "t1");
     assert_eq!(t[0].kind, "ncRNA");
-    assert!(t[0].exons.is_empty() && t[0].cds.is_empty() && t[0].utr5.is_empty() && t[0].utr3.is_empty());
+    assert!(
+        t[0].exons.is_empty()
+            && t[0].cds.is_empty()
+            && t[0].utr5.is_empty()
+            && t[0].utr3.is_empty()
+    );
 }
 
 #[test]
@@ -317,9 +322,18 @@ chr2\ts\texon\t60\t100\t.\t+\t.\tParent=t1\n";
 #[test]
 fn repeated_id_with_different_type_or_place_is_error() {
     for (second, what) in [
-        ("chr1\ts\tncRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n", "type"),
-        ("chr1\ts\tmRNA\t200\t300\t.\t-\t.\tID=t1;Parent=g1\n", "strand"),
-        ("chr2\ts\tmRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n", "contig"),
+        (
+            "chr1\ts\tncRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n",
+            "type",
+        ),
+        (
+            "chr1\ts\tmRNA\t200\t300\t.\t-\t.\tID=t1;Parent=g1\n",
+            "strand",
+        ),
+        (
+            "chr2\ts\tmRNA\t200\t300\t.\t+\t.\tID=t1;Parent=g1\n",
+            "contig",
+        ),
     ] {
         let s = format!(
             "chr1\ts\tgene\t1\t300\t.\t+\t.\tID=g1\n\
@@ -327,7 +341,9 @@ chr1\ts\tmRNA\t1\t100\t.\t+\t.\tID=t1;Parent=g1\n{second}\
 chr1\ts\texon\t1\t100\t.\t+\t.\tParent=t1\n"
         );
         match parse(&s) {
-            Err(GffError::DuplicateId { id, line }) => assert_eq!((id.as_str(), line), ("t1", 3), "{what}"),
+            Err(GffError::DuplicateId { id, line }) => {
+                assert_eq!((id.as_str(), line), ("t1", 3), "{what}")
+            }
             other => panic!("{what}: expected DuplicateId, got {other:?}"),
         }
     }

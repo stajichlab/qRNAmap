@@ -19,7 +19,10 @@ pub struct Request {
 impl Request {
     pub fn header(&self, name: &str) -> Option<&str> {
         let name = name.to_ascii_lowercase();
-        self.headers.iter().find(|(n, _)| *n == name).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -32,17 +35,33 @@ pub struct Response {
 
 impl Response {
     pub fn ok(body: impl Into<Vec<u8>>) -> Response {
-        Response { status: 200, headers: vec![], body: body.into() }
+        Response {
+            status: 200,
+            headers: vec![],
+            body: body.into(),
+        }
     }
     pub fn status(status: u16) -> Response {
-        Response { status, headers: vec![], body: vec![] }
+        Response {
+            status,
+            headers: vec![],
+            body: vec![],
+        }
     }
     /// Close the connection without sending a response (a transport failure for the client).
     pub fn close() -> Response {
-        Response { status: 0, headers: vec![], body: vec![] }
+        Response {
+            status: 0,
+            headers: vec![],
+            body: vec![],
+        }
     }
     pub fn redirect(location: &str) -> Response {
-        Response { status: 302, headers: vec![("Location".into(), location.into())], body: vec![] }
+        Response {
+            status: 302,
+            headers: vec![("Location".into(), location.into())],
+            body: vec![],
+        }
     }
 }
 
@@ -66,7 +85,9 @@ impl Server {
         thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
-                let Some(req) = read_request(&mut stream) else { continue };
+                let Some(req) = read_request(&mut stream) else {
+                    continue;
+                };
                 rec.lock().unwrap().push(req.clone());
                 let resp = handler(&req, &own);
                 if resp.status == 0 {
@@ -75,7 +96,11 @@ impl Server {
                 let _ = write_response(&mut stream, &resp);
             }
         });
-        Server { base, port, requests }
+        Server {
+            base,
+            port,
+            requests,
+        }
     }
 
     /// All requests seen so far.
@@ -104,7 +129,11 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
 }
 
 fn write_response(stream: &mut TcpStream, r: &Response) -> std::io::Result<()> {
-    let mut head = format!("HTTP/1.1 {} X\r\nContent-Length: {}\r\nConnection: close\r\n", r.status, r.body.len());
+    let mut head = format!(
+        "HTTP/1.1 {} X\r\nContent-Length: {}\r\nConnection: close\r\n",
+        r.status,
+        r.body.len()
+    );
     for (n, v) in &r.headers {
         head.push_str(&format!("{n}: {v}\r\n"));
     }

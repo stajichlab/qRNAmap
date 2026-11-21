@@ -88,22 +88,33 @@ fn assert_error_is_sticky(path: &Path, want: fn(&InputError) -> bool) {
     let mut r = open_input(path).unwrap();
     let mut out = Vec::new();
     let first = r.read_to_end(&mut out).unwrap_err();
-    let inner = first.get_ref().and_then(|e| e.downcast_ref::<InputError>()).expect("inner InputError");
+    let inner = first
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<InputError>())
+        .expect("inner InputError");
     assert!(want(inner), "first error: {inner:?}");
     let mut buf = [0u8; 64];
     let second = r.read(&mut buf);
     match second {
         Err(e) => {
-            let inner = e.get_ref().and_then(|e| e.downcast_ref::<InputError>()).expect("inner InputError");
+            let inner = e
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<InputError>())
+                .expect("inner InputError");
             assert!(want(inner), "second error: {inner:?}");
         }
-        Ok(n) => panic!("a read after the error returned Ok({n}) for {}", path.display()),
+        Ok(n) => panic!(
+            "a read after the error returned Ok({n}) for {}",
+            path.display()
+        ),
     }
 }
 
 #[test]
 fn gzip_error_is_returned_again_on_later_reads() {
-    let data: Vec<u8> = (0..20000u32).flat_map(|i| i.to_string().into_bytes()).collect();
+    let data: Vec<u8> = (0..20000u32)
+        .flat_map(|i| i.to_string().into_bytes())
+        .collect();
     let full = gz(&data);
     let (_d, p) = write_tmp("t.gz", &full[..full.len() / 2]);
     assert_error_is_sticky(&p, |e| matches!(e, InputError::Truncated { .. }));
@@ -116,7 +127,9 @@ fn gzip_error_is_returned_again_on_later_reads() {
 
 #[test]
 fn zstd_error_is_returned_again_on_later_reads() {
-    let data: Vec<u8> = (0..20000u32).flat_map(|i| i.to_string().into_bytes()).collect();
+    let data: Vec<u8> = (0..20000u32)
+        .flat_map(|i| i.to_string().into_bytes())
+        .collect();
     let full = zstd::encode_all(&data[..], 3).unwrap();
     let (_d, p) = write_tmp("t.zst", &full[..full.len() / 2]);
     assert_error_is_sticky(&p, |e| matches!(e, InputError::Truncated { .. }));
@@ -148,7 +161,9 @@ fn assert_truncated(path: &Path) {
 
 #[test]
 fn truncated_gzip_is_named_error() {
-    let data: Vec<u8> = (0..20000u32).flat_map(|i| i.to_string().into_bytes()).collect();
+    let data: Vec<u8> = (0..20000u32)
+        .flat_map(|i| i.to_string().into_bytes())
+        .collect();
     let full = gz(&data);
     let (_d, p) = write_tmp("t.gz", &full[..full.len() / 2]);
     assert_truncated(&p);
@@ -156,7 +171,9 @@ fn truncated_gzip_is_named_error() {
 
 #[test]
 fn truncated_zstd_is_named_error() {
-    let data: Vec<u8> = (0..20000u32).flat_map(|i| i.to_string().into_bytes()).collect();
+    let data: Vec<u8> = (0..20000u32)
+        .flat_map(|i| i.to_string().into_bytes())
+        .collect();
     let full = zstd::encode_all(&data[..], 3).unwrap();
     let (_d, p) = write_tmp("t.zst", &full[..full.len() / 2]);
     assert_truncated(&p);

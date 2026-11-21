@@ -76,7 +76,11 @@ pub fn simulate(records: &[TxRecord], counts: &[u64], lib: Strandedness, seed: u
         counts,
         lib,
         seed,
-        SimParams { read_len: READ_LEN, frag_mean: FRAGMENT_LEN, frag_spread: 0 },
+        SimParams {
+            read_len: READ_LEN,
+            frag_mean: FRAGMENT_LEN,
+            frag_spread: 0,
+        },
     )
 }
 
@@ -121,7 +125,12 @@ pub fn simulate_with(
             Strandedness::Unstranded => rng.next_u32() & 1 == 1,
         };
         let (r1, r2) = if reverse { (fwd2, fwd1) } else { (fwd1, fwd2) };
-        out.push(Pair { name: format!("sim{k}_{}", records[t].id), r1, r2, tx: t });
+        out.push(Pair {
+            name: format!("sim{k}_{}", records[t].id),
+            r1,
+            r2,
+            tx: t,
+        });
     }
     out
 }
@@ -131,15 +140,32 @@ pub fn write_fastq(pairs: &[Pair], r1: &Path, r2: &Path) {
     let mut a = std::io::BufWriter::new(std::fs::File::create(r1).unwrap());
     let mut b = std::io::BufWriter::new(std::fs::File::create(r2).unwrap());
     for p in pairs {
-        writeln!(a, "@{}/1\n{}\n+\n{}", p.name, std::str::from_utf8(&p.r1).unwrap(), "I".repeat(p.r1.len())).unwrap();
-        writeln!(b, "@{}/2\n{}\n+\n{}", p.name, std::str::from_utf8(&p.r2).unwrap(), "I".repeat(p.r2.len())).unwrap();
+        writeln!(
+            a,
+            "@{}/1\n{}\n+\n{}",
+            p.name,
+            std::str::from_utf8(&p.r1).unwrap(),
+            "I".repeat(p.r1.len())
+        )
+        .unwrap();
+        writeln!(
+            b,
+            "@{}/2\n{}\n+\n{}",
+            p.name,
+            std::str::from_utf8(&p.r2).unwrap(),
+            "I".repeat(p.r2.len())
+        )
+        .unwrap();
     }
     a.flush().unwrap();
     b.flush().unwrap();
 }
 
 /// True pair count per gene.
-pub fn truth_per_gene(records: &[TxRecord], counts: &[u64]) -> std::collections::BTreeMap<String, u64> {
+pub fn truth_per_gene(
+    records: &[TxRecord],
+    counts: &[u64],
+) -> std::collections::BTreeMap<String, u64> {
     let mut m = std::collections::BTreeMap::new();
     for (r, &n) in records.iter().zip(counts) {
         *m.entry(r.gene.clone()).or_insert(0) += n;

@@ -19,12 +19,19 @@ fn r_ready() -> bool {
         return false;
     }
     let ok = Command::new("Rscript")
-        .args(["--vanilla", "-e", "quit(status = if (requireNamespace('DESeq2', quietly = TRUE)) 0 else 1)"])
+        .args([
+            "--vanilla",
+            "-e",
+            "quit(status = if (requireNamespace('DESeq2', quietly = TRUE)) 0 else 1)",
+        ])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !ok {
-        if std::env::var("QRNAMAP_REQUIRE_TOOLS").map(|v| v == "1").unwrap_or(false) {
+        if std::env::var("QRNAMAP_REQUIRE_TOOLS")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
             panic!("the R package DESeq2 is not installed and QRNAMAP_REQUIRE_TOOLS=1");
         }
         eprintln!("SKIP: the R package DESeq2 is not installed");
@@ -37,7 +44,10 @@ struct Lcg(u64);
 
 impl Lcg {
     fn next_f64(&mut self) -> f64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 11) as f64 + 0.5) / (1u64 << 53) as f64
     }
     fn normal(&mut self) -> f64 {
@@ -71,7 +81,11 @@ fn synth(names: &[&str; 6]) -> CountMatrix {
         genes.push(format!("g{i:03}"));
         counts.push(row);
     }
-    CountMatrix { genes, samples: names.iter().map(|s| s.to_string()).collect(), counts }
+    CountMatrix {
+        genes,
+        samples: names.iter().map(|s| s.to_string()).collect(),
+        counts,
+    }
 }
 
 const FASTQ: &str = "/data/secret_reads";
@@ -86,7 +100,9 @@ fn sheet_text(names: &[&str; 6], extra: &[(&str, [&str; 6])], lv: (&str, &str)) 
     s.push('\n');
     for (j, n) in names.iter().enumerate() {
         let cond = if j < 3 { lv.0 } else { lv.1 };
-        s.push_str(&format!("{n}\t{FASTQ}_{n}_R1.fastq.gz\t{FASTQ}_{n}_R2.fastq.gz\t{cond}"));
+        s.push_str(&format!(
+            "{n}\t{FASTQ}_{n}_R1.fastq.gz\t{FASTQ}_{n}_R2.fastq.gz\t{cond}"
+        ));
         for (_, v) in extra {
             s.push('\t');
             s.push_str(v[j]);
@@ -117,7 +133,13 @@ fn case_levels(names: &[&str; 6], extra: &[(&str, [&str; 6])], ctrl: &str, trt: 
     let mut enc = zstd::Encoder::new(std::fs::File::create(&counts).unwrap(), 3).unwrap();
     enc.write_all(tsv.as_bytes()).unwrap();
     enc.finish().unwrap();
-    Case { ctrl: ctrl.into(), trt: trt.into(), dir, sheet, counts }
+    Case {
+        ctrl: ctrl.into(),
+        trt: trt.into(),
+        dir,
+        sheet,
+        counts,
+    }
 }
 
 impl Case {
@@ -153,7 +175,11 @@ fn synthetic_de_detects_changed_genes() {
     }
     let c = case(&NAMES, &[]);
     let out = run_de(&c.args("~ condition")).unwrap();
-    assert!(out.deseq2_version.chars().next().unwrap().is_ascii_digit(), "{}", out.deseq2_version);
+    assert!(
+        out.deseq2_version.chars().next().unwrap().is_ascii_digit(),
+        "{}",
+        out.deseq2_version
+    );
     let (_, rows) = read_csv(&c.dir.path().join("out/de.results.csv"));
     assert_eq!(rows.len(), 200);
     let mut hit_changed = 0;
@@ -212,29 +238,58 @@ fn de_does_not_print_fastq_paths() {
         .arg(&c.counts)
         .arg("--samples")
         .arg(&c.sheet)
-        .args(["--design", "~ condition", "--contrast", "condition,treated,control", "--out"])
+        .args([
+            "--design",
+            "~ condition",
+            "--contrast",
+            "condition,treated,control",
+            "--out",
+        ])
         .arg(c.dir.path().join("o/de"))
         .arg("--tmpdir")
         .arg(c.dir.path().join("tmp"))
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    assert!(!all.contains("secret_reads") && !all.contains(".fastq"), "{all}");
-    assert!(String::from_utf8_lossy(&out.stdout).contains("DESeq2 "), "{all}");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !all.contains("secret_reads") && !all.contains(".fastq"),
+        "{all}"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("DESeq2 "),
+        "{all}"
+    );
     // A failing run does not print them either.
     let bad = Command::new(env!("CARGO_BIN_EXE_qrnamap"))
         .args(["de", "--counts"])
         .arg(&c.counts)
         .arg("--samples")
         .arg(&c.sheet)
-        .args(["--design", "~ condition", "--contrast", "condition,ghost,control", "--out"])
+        .args([
+            "--design",
+            "~ condition",
+            "--contrast",
+            "condition,ghost,control",
+            "--out",
+        ])
         .arg(c.dir.path().join("o2/de"))
         .output()
         .unwrap();
     assert!(!bad.status.success());
     let all = String::from_utf8_lossy(&bad.stderr);
-    assert!(all.contains("ghost") && !all.contains("secret_reads"), "{all}");
+    assert!(
+        all.contains("ghost") && !all.contains("secret_reads"),
+        "{all}"
+    );
 }
 
 #[test]
@@ -246,7 +301,11 @@ fn shrink_apeglm_missing_package_is_named_error_or_runs() {
     let mut a = c.args("~ condition");
     a.shrink = Some(Shrink::Apeglm);
     let have = Command::new("Rscript")
-        .args(["--vanilla", "-e", "quit(status = if (requireNamespace('apeglm', quietly = TRUE)) 0 else 1)"])
+        .args([
+            "--vanilla",
+            "-e",
+            "quit(status = if (requireNamespace('apeglm', quietly = TRUE)) 0 else 1)",
+        ])
         .output()
         .unwrap()
         .status
@@ -258,7 +317,10 @@ fn shrink_apeglm_missing_package_is_named_error_or_runs() {
         }
         Err(e) => {
             assert!(!have, "apeglm is installed but the run failed: {e}");
-            assert!(matches!(e, DeRunError::MissingPackage(ref p) if p == "apeglm"), "{e}");
+            assert!(
+                matches!(e, DeRunError::MissingPackage(ref p) if p == "apeglm"),
+                "{e}"
+            );
             assert!(e.to_string().contains("apeglm"));
             // The unshrunk results are kept.
             assert!(c.dir.path().join("out/de.results.csv").is_file());
@@ -282,7 +344,11 @@ fn shrink_normal_writes_extra_file_and_keeps_unshrunk() {
     let versions = std::fs::read_to_string(c.dir.path().join("out/de.versions.txt")).unwrap();
     assert!(versions.contains("shrink: normal"), "{versions}");
     // Shrinkage pulls the estimates toward zero: the sum of |lfc| must not grow.
-    let sum = |v: &[HashMap<String, String>]| -> f64 { v.iter().map(|r| r["log2FoldChange"].parse::<f64>().unwrap().abs()).sum() };
+    let sum = |v: &[HashMap<String, String>]| -> f64 {
+        v.iter()
+            .map(|r| r["log2FoldChange"].parse::<f64>().unwrap().abs())
+            .sum()
+    };
     assert!(sum(&shrunk) <= sum(&plain));
 }
 
@@ -347,14 +413,35 @@ fn read_count_matrix_names_its_errors() {
     use qrnamap_cli::de::MatrixReadError as E;
     assert!(matches!(read_count_matrix(""), Err(E::Empty)));
     assert!(matches!(read_count_matrix("id\ta\n"), Err(E::BadHeader)));
-    assert!(matches!(read_count_matrix("gene\ta\ta\ng\t1\t1\n"), Err(E::DuplicateSample(_))));
-    assert!(matches!(read_count_matrix("gene\ta\ng\t1\ng\t2\n"), Err(E::DuplicateGene(_))));
-    assert!(matches!(read_count_matrix("gene\ta\tb\ng\t1\n"), Err(E::BadRow { line: 2 })));
-    assert!(matches!(read_count_matrix("gene\ta\ng\t1.5\n"), Err(E::BadCount { line: 2, .. })));
-    assert!(matches!(read_count_matrix("gene\ta\ng\t-1\n"), Err(E::BadCount { line: 2, .. })));
+    assert!(matches!(
+        read_count_matrix("gene\ta\ta\ng\t1\t1\n"),
+        Err(E::DuplicateSample(_))
+    ));
+    assert!(matches!(
+        read_count_matrix("gene\ta\ng\t1\ng\t2\n"),
+        Err(E::DuplicateGene(_))
+    ));
+    assert!(matches!(
+        read_count_matrix("gene\ta\tb\ng\t1\n"),
+        Err(E::BadRow { line: 2 })
+    ));
+    assert!(matches!(
+        read_count_matrix("gene\ta\ng\t1.5\n"),
+        Err(E::BadCount { line: 2, .. })
+    ));
+    assert!(matches!(
+        read_count_matrix("gene\ta\ng\t-1\n"),
+        Err(E::BadCount { line: 2, .. })
+    ));
 }
 
-fn de_bin(c: &Case, design: &str, contrast: &str, prefix: &str, shrink: Option<&str>) -> std::process::Output {
+fn de_bin(
+    c: &Case,
+    design: &str,
+    contrast: &str,
+    prefix: &str,
+    shrink: Option<&str>,
+) -> std::process::Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_qrnamap"));
     cmd.args(["de", "--counts"])
         .arg(&c.counts)
@@ -391,7 +478,11 @@ fn shrink_apeglm_level_with_dash() {
     let mut a = c.args("~ condition");
     a.shrink = Some(Shrink::Apeglm);
     let have = Command::new("Rscript")
-        .args(["--vanilla", "-e", "quit(status = if (requireNamespace('apeglm', quietly = TRUE)) 0 else 1)"])
+        .args([
+            "--vanilla",
+            "-e",
+            "quit(status = if (requireNamespace('apeglm', quietly = TRUE)) 0 else 1)",
+        ])
         .output()
         .unwrap()
         .status
@@ -403,7 +494,10 @@ fn shrink_apeglm_level_with_dash() {
         }
         Err(e) => {
             assert!(!have, "apeglm is installed but the run failed: {e}");
-            assert!(matches!(e, DeRunError::MissingPackage(ref p) if p == "apeglm"), "{e}");
+            assert!(
+                matches!(e, DeRunError::MissingPackage(ref p) if p == "apeglm"),
+                "{e}"
+            );
         }
     }
 }
@@ -436,9 +530,21 @@ fn failed_rerun_leaves_no_old_results() {
     run_de(&a).unwrap();
     // Refused in check_design.
     a.contrast = "condition,ghost,control".into();
-    assert!(matches!(run_de(&a), Err(DeRunError::De(DeError::LevelNotInData { .. }))));
-    for f in ["results.csv", "normalized.csv", "vst.csv", "versions.txt", "results.shrunk.csv"] {
-        assert!(!c.dir.path().join(format!("out/de.{f}")).exists(), "{f} is stale");
+    assert!(matches!(
+        run_de(&a),
+        Err(DeRunError::De(DeError::LevelNotInData { .. }))
+    ));
+    for f in [
+        "results.csv",
+        "normalized.csv",
+        "vst.csv",
+        "versions.txt",
+        "results.shrunk.csv",
+    ] {
+        assert!(
+            !c.dir.path().join(format!("out/de.{f}")).exists(),
+            "{f} is stale"
+        );
     }
     // Failed inside R: a good run, then a not-full-rank rerun.
     let batch = ["x", "x", "x", "y", "y", "y"];
@@ -456,13 +562,25 @@ fn r_warnings_are_forwarded_on_success() {
         return;
     }
     let c = case(&NAMES, &[("age:numeric", ["3", "5", "4", "6", "4", "5"])]);
-    let o = de_bin(&c, "~ age + condition", "condition,treated,control", "o/de", None);
+    let o = de_bin(
+        &c,
+        "~ age + condition",
+        "condition,treated,control",
+        "o/de",
+        None,
+    );
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let err = String::from_utf8_lossy(&o.stderr);
     eprintln!("STDERR:\n{err}");
     assert!(err.contains("R: "), "{err}");
-    assert!(err.contains("numeric variables with integer values"), "{err}");
-    assert!(err.lines().filter(|l| l.contains("R: ")).all(|l| l.starts_with("R: ")));
+    assert!(
+        err.contains("numeric variables with integer values"),
+        "{err}"
+    );
+    assert!(err
+        .lines()
+        .filter(|l| l.contains("R: "))
+        .all(|l| l.starts_with("R: ")));
 }
 
 #[test]
@@ -472,7 +590,13 @@ fn r_failure_text_is_not_duplicated() {
     }
     let batch = ["x", "x", "x", "y", "y", "y"];
     let c = case(&NAMES, &[("batch", batch)]);
-    let o = de_bin(&c, "~ batch + condition", "condition,treated,control", "o/de", None);
+    let o = de_bin(
+        &c,
+        "~ batch + condition",
+        "condition,treated,control",
+        "o/de",
+        None,
+    );
     assert!(!o.status.success());
     let err = String::from_utf8_lossy(&o.stderr);
     assert_eq!(err.matches("Error in checkFullRank").count(), 1, "{err}");

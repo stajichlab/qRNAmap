@@ -75,8 +75,8 @@ pub fn gene_table(model: &GeneModel, extra_mito_contigs: &[String]) -> Vec<GeneR
         .map(|g| {
             let biotype = biotype_of(g);
             let class = class_of(&biotype);
-            let mito = model.mito_contigs.contains(&g.contig)
-                || extra_mito_contigs.contains(&g.contig);
+            let mito =
+                model.mito_contigs.contains(&g.contig) || extra_mito_contigs.contains(&g.contig);
             GeneRow {
                 gene: g.label.clone(),
                 contig: g.contig.clone(),

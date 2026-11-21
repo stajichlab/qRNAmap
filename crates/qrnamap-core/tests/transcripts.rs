@@ -445,7 +445,10 @@ fn duplicate_contig_name_is_named_error() {
     // R29-5: a genome FASTA with two records of one name is an error, not "first wins".
     let mut genome = small_genome();
     genome.push(("ctg".to_string(), b"TTTTTTTT".to_vec()));
-    let m = GeneModel { genes: vec![gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(1, 4)])])], ..Default::default() };
+    let m = GeneModel {
+        genes: vec![gene("g1", "ctg", Strand::Plus, vec![tx("t1", &[(1, 4)])])],
+        ..Default::default()
+    };
     let err = build_transcripts(&genome, &m).unwrap_err();
     assert_eq!(err, BuildError::DuplicateContig("ctg".to_string()));
     assert!(err.to_string().contains("'ctg'"), "{err}");

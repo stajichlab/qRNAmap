@@ -9,7 +9,9 @@ pub struct FastqReader<R: BufRead> {
 
 impl<R: BufRead> FastqReader<R> {
     pub fn new(reader: R) -> Self {
-        FastqReader { lines: reader.lines() }
+        FastqReader {
+            lines: reader.lines(),
+        }
     }
 
     fn next_line(&mut self, what: &str) -> io::Result<String> {
@@ -38,7 +40,10 @@ impl<R: BufRead> Iterator for FastqReader<R> {
                 match line {
                     Ok(l) if l.trim().is_empty() => {}
                     Ok(_) => {
-                        return Some(Err(io::Error::new(io::ErrorKind::InvalidData, "blank line between FASTQ records")))
+                        return Some(Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "blank line between FASTQ records",
+                        )))
                     }
                     Err(e) => return Some(Err(e)),
                 }
@@ -48,7 +53,12 @@ impl<R: BufRead> Iterator for FastqReader<R> {
         let record = (|| {
             let name = header
                 .strip_prefix('@')
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "FASTQ header does not start with @"))?
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "FASTQ header does not start with @",
+                    )
+                })?
                 .split_whitespace()
                 .next()
                 .unwrap_or("")
@@ -56,7 +66,10 @@ impl<R: BufRead> Iterator for FastqReader<R> {
             let seq = self.next_line("sequence")?;
             self.next_line("+ line")?;
             self.next_line("quality")?;
-            Ok((name, seq.trim().bytes().map(|b| b.to_ascii_uppercase()).collect()))
+            Ok((
+                name,
+                seq.trim().bytes().map(|b| b.to_ascii_uppercase()).collect(),
+            ))
         })();
         Some(record)
     }
@@ -94,7 +107,13 @@ impl FastqChunker {
     /// A chunker that gives an error when an unfinished record grows past `limit` bytes. Input with no line breaks, or text that is not
     /// FASTQ, would otherwise fill the memory of the tab before the end of the file shows the problem.
     pub fn with_limit(limit: usize) -> Self {
-        FastqChunker { buffer: Vec::new(), limit, scanned: 0, newlines: 0, scan_work: 0 }
+        FastqChunker {
+            buffer: Vec::new(),
+            limit,
+            scanned: 0,
+            newlines: 0,
+            scan_work: 0,
+        }
     }
 
     /// Add a chunk. Returns the records that are complete now.
@@ -157,7 +176,11 @@ mod tests {
         // 6 MB in one record, in chunks of 2 KiB: 3,000 pushes. A scan from the start of the
         // buffer on every push would examine about 9 GB; a scan of the new bytes examines each
         // byte once.
-        let record = format!("@long\n{}\n+\n{}\n", "A".repeat(3_000_000), "I".repeat(3_000_000));
+        let record = format!(
+            "@long\n{}\n+\n{}\n",
+            "A".repeat(3_000_000),
+            "I".repeat(3_000_000)
+        );
         let mut chunker = FastqChunker::new();
         let mut n = 0;
         for chunk in record.as_bytes().chunks(2048) {
@@ -165,7 +188,11 @@ mod tests {
         }
         n += chunker.finish().unwrap().len();
         assert_eq!(n, 1);
-        assert_eq!(chunker.scan_work, record.len() as u64, "each byte is scanned once");
+        assert_eq!(
+            chunker.scan_work,
+            record.len() as u64,
+            "each byte is scanned once"
+        );
     }
 
     #[test]
@@ -183,7 +210,10 @@ mod tests {
             }
         }
         assert!(failed, "the limit was not reached");
-        assert!(pushed <= limit as u64 + 2048, "the error came late: {pushed} bytes pushed");
+        assert!(
+            pushed <= limit as u64 + 2048,
+            "the error came late: {pushed} bytes pushed"
+        );
         assert_eq!(chunker.scan_work, pushed, "each byte is scanned once");
     }
 }

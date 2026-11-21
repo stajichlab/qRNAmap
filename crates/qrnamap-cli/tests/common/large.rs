@@ -102,7 +102,11 @@ pub fn generate() -> Large {
         let mut exons = Vec::new();
         let mut pos = cursor[c];
         for i in 0..n_exons {
-            let len = if kind == "rrna" { 1500 } else { range(&mut rng, 150, 450) };
+            let len = if kind == "rrna" {
+                1500
+            } else {
+                range(&mut rng, 150, 450)
+            };
             exons.push((pos, pos + len - 1));
             pos += len;
             if i + 1 < n_exons {
@@ -128,18 +132,43 @@ pub fn generate() -> Large {
         let isos = match kind {
             "skip2" => vec![
                 iso(".a", exons.clone(), "mRNA", false),
-                iso(".b", exons.iter().enumerate().filter(|(i, _)| *i != 1).map(|(_, e)| *e).collect(), "mRNA", false),
+                iso(
+                    ".b",
+                    exons
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != 1)
+                        .map(|(_, e)| *e)
+                        .collect(),
+                    "mRNA",
+                    false,
+                ),
             ],
             "g07" => vec![
                 iso(".a", exons.clone(), "mRNA", false),
-                iso(".b", exons.iter().enumerate().filter(|(i, _)| *i != 2).map(|(_, e)| *e).collect(), "mRNA", false),
+                iso(
+                    ".b",
+                    exons
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != 2)
+                        .map(|(_, e)| *e)
+                        .collect(),
+                    "mRNA",
+                    false,
+                ),
                 iso(".c", exons[..4].to_vec(), "mRNA", false),
             ],
             "rrna" => vec![iso(".r", exons.clone(), "rRNA", false)],
             "cds" => vec![iso(".a", exons.clone(), "mRNA", true)],
             _ => vec![iso(".a", exons.clone(), "mRNA", false)],
         };
-        genes.push(Gene { id: id.to_string(), contig: genome[c].0.clone(), plus, isos });
+        genes.push(Gene {
+            id: id.to_string(),
+            contig: genome[c].0.clone(),
+            plus,
+            isos,
+        });
     }
 
     // True transcripts from the generator's own structure.
@@ -154,11 +183,21 @@ pub fn generate() -> Large {
             if !g.plus {
                 s = revcomp(&s);
             }
-            truth.push(TxRecord { id: iso.id.clone(), gene: g.id.clone(), biotype: iso.kind.into(), seq: s });
+            truth.push(TxRecord {
+                id: iso.id.clone(),
+                gene: g.id.clone(),
+                biotype: iso.kind.into(),
+                seq: s,
+            });
         }
     }
     assert_eq!(truth.len(), COUNTS_LARGE.len());
-    Large { genome, genes, truth, counts: COUNTS_LARGE.to_vec() }
+    Large {
+        genome,
+        genes,
+        truth,
+        counts: COUNTS_LARGE.to_vec(),
+    }
 }
 
 impl Large {
@@ -183,14 +222,38 @@ impl Large {
         for g in &self.genes {
             let st = if g.plus { '+' } else { '-' };
             let lo = g.isos.iter().map(|i| i.exons[0].0).min().unwrap();
-            let hi = g.isos.iter().map(|i| i.exons.last().unwrap().1).max().unwrap();
-            writeln!(s, "{}\tgen\tgene\t{lo}\t{hi}\t.\t{st}\t.\tID={};Name={}", g.contig, g.id, g.id).unwrap();
+            let hi = g
+                .isos
+                .iter()
+                .map(|i| i.exons.last().unwrap().1)
+                .max()
+                .unwrap();
+            writeln!(
+                s,
+                "{}\tgen\tgene\t{lo}\t{hi}\t.\t{st}\t.\tID={};Name={}",
+                g.contig, g.id, g.id
+            )
+            .unwrap();
             for iso in &g.isos {
                 let (a, b) = (iso.exons[0].0, iso.exons.last().unwrap().1);
-                writeln!(s, "{}\tgen\t{}\t{a}\t{b}\t.\t{st}\t.\tID={};Parent={}", g.contig, iso.kind, iso.id, g.id).unwrap();
+                writeln!(
+                    s,
+                    "{}\tgen\t{}\t{a}\t{b}\t.\t{st}\t.\tID={};Parent={}",
+                    g.contig, iso.kind, iso.id, g.id
+                )
+                .unwrap();
                 for &(x, y) in &iso.exons {
-                    let (ty, phase) = if iso.cds_only { ("CDS", "0") } else { ("exon", ".") };
-                    writeln!(s, "{}\tgen\t{ty}\t{x}\t{y}\t.\t{st}\t{phase}\tParent={}", g.contig, iso.id).unwrap();
+                    let (ty, phase) = if iso.cds_only {
+                        ("CDS", "0")
+                    } else {
+                        ("exon", ".")
+                    };
+                    writeln!(
+                        s,
+                        "{}\tgen\t{ty}\t{x}\t{y}\t.\t{st}\t{phase}\tParent={}",
+                        g.contig, iso.id
+                    )
+                    .unwrap();
                 }
             }
         }

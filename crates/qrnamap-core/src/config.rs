@@ -15,10 +15,21 @@ pub enum Mode {
     Align,
 }
 
-/// Pseudo-alignment quantifier. Salmon is added in a later plan.
+/// Pseudo-alignment quantifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quantifier {
     Kallisto,
+    Salmon,
+}
+
+impl Quantifier {
+    /// Lower-case tool name, as used on the command line and in file names.
+    pub fn name(self) -> &'static str {
+        match self {
+            Quantifier::Kallisto => "kallisto",
+            Quantifier::Salmon => "salmon",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +39,7 @@ pub struct RunConfig {
     pub strandedness: Strandedness,
     /// Read pairs per sample (default 20,000,000).
     pub reads_per_sample: u64,
-    /// Fragment length mean and SD. Required for single-end kallisto.
+    /// Fragment length mean and SD. Required for single-end kallisto and salmon.
     pub fragment_len: Option<(f64, f64)>,
     /// HISAT2 `--max-intronlen`. The default of 5000 is a chosen value.
     /// UNVERIFIED for fungal genomes. Revisit with data.

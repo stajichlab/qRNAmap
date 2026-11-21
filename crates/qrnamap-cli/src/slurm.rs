@@ -23,11 +23,12 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use qrnamap_core::Mode;
+use qrnamap_core::{Mode, Quantifier};
 
 /// Default `--time`. Placeholder, not derived from a measurement. Measured AMB rates with
 /// `--threads 1` (`validation/amb/README.md`, "Bundling"): quant 22.7 to 26.8 s and align 35.2
-/// to 52.1 s per million read pairs.
+/// to 52.1 s per million read pairs. The quant rates were measured with kallisto. Salmon rates
+/// are not measured.
 pub const DEFAULT_TIME: &str = "02:00:00";
 /// Default `--mem-gb`. Placeholder, small on purpose. Measured on the AMB data set (see
 /// `validation/amb/README.md`): HISAT2 used 41,208 KB and featureCounts used 36,144 KB resident
@@ -63,6 +64,9 @@ pub struct Plan {
     /// Absolute path of the `qrnamap` binary.
     pub qrnamap_bin: PathBuf,
     pub mode: Mode,
+    /// The quantifier in quant mode, `None` in align mode. Used for the rate note only; the
+    /// `--quantifier` flag itself is in `run_args` and `task_args`.
+    pub quantifier: Option<Quantifier>,
     /// Arguments after `qrnamap run` for the prepare and final jobs (without `--step`,
     /// `--tmpdir` and `--slurm`).
     pub run_args: Vec<String>,
@@ -96,7 +100,10 @@ pub enum SlurmError {
     /// The sample sheet has no samples, so there is no array.
     NoSamples,
     /// A value that goes into an `#SBATCH` line or a count is not allowed.
-    BadValue { what: &'static str, value: String },
+    BadValue {
+        what: &'static str,
+        value: String,
+    },
     /// Text that would go into a script holds a newline or NUL. It is refused, not quoted.
     NewlineOrNul(String),
     NonUtf8Path(PathBuf),
@@ -107,8 +114,14 @@ pub enum SlurmError {
     /// Tools the jobs need that are neither on PATH nor in a `--tool-path` directory.
     MissingTools(Vec<String>),
     /// A `--tool-path` directory (or a tool directory) is not usable.
-    ToolPath { path: PathBuf, detail: String },
-    Io { path: PathBuf, source: std::io::Error },
+    ToolPath {
+        path: PathBuf,
+        detail: String,
+    },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 impl fmt::Display for SlurmError {
@@ -153,7 +166,8 @@ fn path_str(p: &Path) -> Result<&str, SlurmError> {
     if !p.is_absolute() {
         return Err(SlurmError::RelativePath(p.to_path_buf()));
     }
-    p.to_str().ok_or_else(|| SlurmError::NonUtf8Path(p.to_path_buf()))
+    p.to_str()
+        .ok_or_else(|| SlurmError::NonUtf8Path(p.to_path_buf()))
 }
 
 fn quote_path(p: &Path) -> Result<String, SlurmError> {
@@ -161,19 +175,31 @@ fn quote_path(p: &Path) -> Result<String, SlurmError> {
 }
 
 fn quote_all(words: &[String]) -> Result<String, SlurmError> {
-    Ok(words.iter().map(|w| sh_quote(w)).collect::<Result<Vec<_>, _>>()?.join(" "))
+    Ok(words
+        .iter()
+        .map(|w| sh_quote(w))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(" "))
 }
 
-fn check_sbatch_value(what: &'static str, v: &str, ok: impl Fn(char) -> bool) -> Result<(), SlurmError> {
+fn check_sbatch_value(
+    what: &'static str,
+    v: &str,
+    ok: impl Fn(char) -> bool,
+) -> Result<(), SlurmError> {
     if v.is_empty() || !v.chars().all(ok) {
-        return Err(SlurmError::BadValue { what, value: v.to_string() });
+        return Err(SlurmError::BadValue {
+            what,
+            value: v.to_string(),
+        });
     }
     Ok(())
 }
 
 /// True when the path can go into an `#SBATCH` line without quoting.
 fn plain_path(s: &str) -> bool {
-    s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+'))
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+'))
 }
 
 fn n_tasks(plan: &Plan) -> Result<usize, SlurmError> {
@@ -181,7 +207,10 @@ fn n_tasks(plan: &Plan) -> Result<usize, SlurmError> {
         return Err(SlurmError::NoSamples);
     }
     if plan.per_task == 0 {
-        return Err(SlurmError::BadValue { what: "--samples-per-task", value: "0".into() });
+        return Err(SlurmError::BadValue {
+            what: "--samples-per-task",
+            value: "0".into(),
+        });
     }
     Ok(plan.n_samples.div_ceil(plan.per_task))
 }
@@ -201,12 +230,20 @@ struct Checked<'a> {
 fn check(plan: &Plan) -> Result<Checked<'_>, SlurmError> {
     let n_tasks = n_tasks(plan)?;
     if plan.cpus == 0 {
-        return Err(SlurmError::BadValue { what: "--cpus", value: "0".into() });
+        return Err(SlurmError::BadValue {
+            what: "--cpus",
+            value: "0".into(),
+        });
     }
     if plan.mem_gb == 0 {
-        return Err(SlurmError::BadValue { what: "--mem-gb", value: "0".into() });
+        return Err(SlurmError::BadValue {
+            what: "--mem-gb",
+            value: "0".into(),
+        });
     }
-    check_sbatch_value("--time", &plan.time, |c| c.is_ascii_digit() || matches!(c, ':' | '-'))?;
+    check_sbatch_value("--time", &plan.time, |c| {
+        c.is_ascii_digit() || matches!(c, ':' | '-')
+    })?;
     let name_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ',' | '-');
     if let Some(p) = &plan.partition {
         check_sbatch_value("--partition", p, name_char)?;
@@ -225,22 +262,41 @@ fn check(plan: &Plan) -> Result<Checked<'_>, SlurmError> {
     for d in &plan.tool_dirs {
         let s = path_str(d)?;
         if s.contains(':') {
-            return Err(SlurmError::ToolPath { path: d.clone(), detail: "contains ':', which separates PATH entries".into() });
+            return Err(SlurmError::ToolPath {
+                path: d.clone(),
+                detail: "contains ':', which separates PATH entries".into(),
+            });
         }
         dirs.push(sh_quote(s)?);
     }
-    let export = if dirs.is_empty() { String::new() } else { format!("export PATH={}:\"$PATH\"\n", dirs.join(":")) };
+    let export = if dirs.is_empty() {
+        String::new()
+    } else {
+        format!("export PATH={}:\"$PATH\"\n", dirs.join(":"))
+    };
     let tool_check = if plan.tools.is_empty() {
         String::new()
     } else {
-        let names = plan.tools.iter().map(|t| sh_quote(t)).collect::<Result<Vec<_>, _>>()?.join(" ");
+        let names = plan
+            .tools
+            .iter()
+            .map(|t| sh_quote(t))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" ");
         format!(
             "missing=\"\"\nfor tool in {names}; do\n  command -v \"$tool\" >/dev/null 2>&1 || missing=\"$missing $tool\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"qrnamap: required tools not found on PATH:$missing\" >&2\n  exit 1\nfi\n"
         )
     };
     let tmpdir = plan.tmpdir.as_deref().map(quote_path).transpose()?;
     let logs = plan.run_dir.join("slurm").join("logs");
-    Ok(Checked { plan, n_tasks, logs: path_str(&logs)?.to_string(), export, tool_check, tmpdir })
+    Ok(Checked {
+        plan,
+        n_tasks,
+        logs: path_str(&logs)?.to_string(),
+        export,
+        tool_check,
+        tmpdir,
+    })
 }
 
 impl Checked<'_> {
@@ -263,13 +319,21 @@ impl Checked<'_> {
         // submit.sh also passes --output (quoted) on the command line, which wins over this
         // line. The line is written only when the path needs no quoting.
         if plain_path(&self.logs) {
-            h.push_str(&format!("#SBATCH --output={}/{}\n", self.logs, log_pattern(array)));
+            h.push_str(&format!(
+                "#SBATCH --output={}/{}\n",
+                self.logs,
+                log_pattern(array)
+            ));
         }
         h.push_str("#\n");
         h.push_str(&format!("# Generated by `qrnamap run --slurm`. {what}\n"));
         h.push_str("# The --cpus-per-task, --mem and --time defaults are UNMEASURED placeholders. Set them from a measured run\n");
         h.push_str("# with --cpus, --mem-gb and --time. The --time default is a placeholder. Measured AMB rates with\n");
         h.push_str("# --threads 1 (validation/amb/README.md): quant 22.7 to 26.8 s and align 35.2 to 52.1 s per million read pairs.\n");
+        h.push_str("# The quant rates were measured with kallisto.\n");
+        if p.quantifier == Some(Quantifier::Salmon) {
+            h.push_str("# This run uses salmon. Salmon rates are not measured.\n");
+        }
         if p.mem_gb == DEFAULT_MEM_GB {
             h.push_str("# The --mem default is small: AMB data used about 40 MiB (41,208 KB) resident (not measured for large genomes).\n");
         }
@@ -332,34 +396,58 @@ pub fn slurm_scripts(plan: &Plan) -> Result<SlurmScripts, SlurmError> {
             &plan.task_args,
             &format!(" '--task-id' \"$SLURM_ARRAY_TASK_ID\" '--samples-per-task' {}", sh_quote(&k.to_string())?),
         )?;
-    let final_ = c.header("final", false, "Gene matrix, then DESeq2 when a contrast was given.")
-        + &c.command("run", &plan.run_args, " '--step' 'final'")?;
+    let final_ = c.header(
+        "final",
+        false,
+        "Gene matrix, then DESeq2 when a contrast was given.",
+    ) + &c.command("run", &plan.run_args, " '--step' 'final'")?;
 
     let sdir = plan.run_dir.join("slurm");
     let q = |name: &str| quote_path(&sdir.join(name));
     let out = |array: bool| sh_quote(&format!("{}/{}", c.logs, log_pattern(array)));
     let mut submit = String::from("#!/bin/bash\n");
     submit.push_str("# Generated by `qrnamap run --slurm`. Submits three jobs with sbatch:\n");
-    submit.push_str("#   prepare: reference files and index, once; removes old outputs of all samples\n");
-    submit.push_str(&format!("#   samples: array of {} task(s), {k} sample(s) per task; starts after prepare succeeds\n", c.n_tasks));
+    submit.push_str(
+        "#   prepare: reference files and index, once; removes old outputs of all samples\n",
+    );
+    submit.push_str(&format!(
+        "#   samples: array of {} task(s), {k} sample(s) per task; starts after prepare succeeds\n",
+        c.n_tasks
+    ));
     submit.push_str("#   final:   gene matrix (and DESeq2 when a contrast was given); starts after every task succeeds\n");
-    submit.push_str("# All paths are written in by qrnamap. This script does not look up its own location.\n");
+    submit.push_str(
+        "# All paths are written in by qrnamap. This script does not look up its own location.\n",
+    );
     submit.push_str("# The samples and final jobs use --kill-on-invalid-dep=yes: when a job they depend on fails,\n");
     submit.push_str("# SLURM cancels them instead of leaving them pending.\n");
     submit.push_str("#\n");
     submit.push_str("# Recovery when some array tasks fail (the final job is then cancelled, or still pending):\n");
-    submit.push_str("#   1. If the final job is still pending, cancel it (its id is printed by this script):\n");
+    submit.push_str(
+        "#   1. If the final job is still pending, cancel it (its id is printed by this script):\n",
+    );
     submit.push_str("#        scancel FINAL_JOB_ID\n");
-    submit.push_str("#   2. Fix the cause, then run only the failed task ids again (TASK_IDS such as 3,5):\n");
-    submit.push_str(&format!("#        sbatch --array=TASK_IDS --output={} {}\n", out(true)?, q("samples.sbatch")?));
-    submit.push_str("#   3. Submit the final job again, after the new array job (NEW_ARRAY_JOB_ID) succeeds:\n");
+    submit.push_str(
+        "#   2. Fix the cause, then run only the failed task ids again (TASK_IDS such as 3,5):\n",
+    );
+    submit.push_str(&format!(
+        "#        sbatch --array=TASK_IDS --output={} {}\n",
+        out(true)?,
+        q("samples.sbatch")?
+    ));
+    submit.push_str(
+        "#   3. Submit the final job again, after the new array job (NEW_ARRAY_JOB_ID) succeeds:\n",
+    );
     submit.push_str(&format!(
         "#        sbatch --kill-on-invalid-dep=yes --dependency=afterok:NEW_ARRAY_JOB_ID --output={} {}\n",
         out(false)?,
         q("final.sbatch")?
     ));
     submit.push_str("set -euo pipefail\n");
-    submit.push_str(&format!("prepare_id=$(sbatch --parsable --output={} {})\n", out(false)?, q("prepare.sbatch")?));
+    submit.push_str(&format!(
+        "prepare_id=$(sbatch --parsable --output={} {})\n",
+        out(false)?,
+        q("prepare.sbatch")?
+    ));
     submit.push_str("prepare_id=${prepare_id%%;*}\n");
     submit.push_str(&format!(
         "samples_id=$(sbatch --parsable --kill-on-invalid-dep=yes --dependency=afterok:\"$prepare_id\" --output={} {})\n",
@@ -374,41 +462,70 @@ pub fn slurm_scripts(plan: &Plan) -> Result<SlurmScripts, SlurmError> {
     ));
     submit.push_str("final_id=${final_id%%;*}\n");
     submit.push_str("echo \"prepare job: $prepare_id\"\n");
-    submit.push_str(&format!("echo \"samples array job: $samples_id ({} task(s))\"\n", c.n_tasks));
+    submit.push_str(&format!(
+        "echo \"samples array job: $samples_id ({} task(s))\"\n",
+        c.n_tasks
+    ));
     submit.push_str("echo \"final job: $final_id\"\n");
     submit.push_str(&format!("echo \"logs: \"{}\n", sh_quote(&c.logs)?));
-    Ok(SlurmScripts { prepare, samples, final_, submit, n_tasks: c.n_tasks })
+    Ok(SlurmScripts {
+        prepare,
+        samples,
+        final_,
+        submit,
+        n_tasks: c.n_tasks,
+    })
 }
 
 fn is_executable_file(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    fs::metadata(p)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
 }
 
 /// The tool directories to bake into the scripts (ruling R28). `explicit` (`--tool-path`) come
 /// first: each must exist and is canonicalized. Then, for each tool not found in them, the
 /// first directory of `path_env` (the current PATH) that holds it, made absolute. Duplicates
 /// are dropped; the order is stable. A tool found nowhere is listed in `MissingTools`.
-pub fn resolve_tool_dirs(tools: &[&str], explicit: &[PathBuf], path_env: Option<&OsStr>) -> Result<Vec<PathBuf>, SlurmError> {
+pub fn resolve_tool_dirs(
+    tools: &[&str],
+    explicit: &[PathBuf],
+    path_env: Option<&OsStr>,
+) -> Result<Vec<PathBuf>, SlurmError> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     for d in explicit {
-        let canon = fs::canonicalize(d).map_err(|e| SlurmError::ToolPath { path: d.clone(), detail: e.to_string() })?;
+        let canon = fs::canonicalize(d).map_err(|e| SlurmError::ToolPath {
+            path: d.clone(),
+            detail: e.to_string(),
+        })?;
         if !canon.is_dir() {
-            return Err(SlurmError::ToolPath { path: d.clone(), detail: "is not a directory".into() });
+            return Err(SlurmError::ToolPath {
+                path: d.clone(),
+                detail: "is not a directory".into(),
+            });
         }
         if !dirs.contains(&canon) {
             dirs.push(canon);
         }
     }
-    let path_dirs: Vec<PathBuf> = path_env.map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
+    let path_dirs: Vec<PathBuf> = path_env
+        .map(|p| std::env::split_paths(p).collect())
+        .unwrap_or_default();
     let mut missing = Vec::new();
     for t in tools {
         if dirs.iter().any(|d| is_executable_file(&d.join(t))) {
             continue;
         }
-        match path_dirs.iter().find(|d| !d.as_os_str().is_empty() && is_executable_file(&d.join(t))) {
+        match path_dirs
+            .iter()
+            .find(|d| !d.as_os_str().is_empty() && is_executable_file(&d.join(t)))
+        {
             Some(d) => {
-                let abs = std::path::absolute(d).map_err(|e| SlurmError::ToolPath { path: d.clone(), detail: e.to_string() })?;
+                let abs = std::path::absolute(d).map_err(|e| SlurmError::ToolPath {
+                    path: d.clone(),
+                    detail: e.to_string(),
+                })?;
                 if !dirs.contains(&abs) {
                     dirs.push(abs);
                 }
@@ -434,12 +551,28 @@ pub fn write_slurm_scripts(plan: &Plan) -> Result<PathBuf, SlurmError> {
     let s = slurm_scripts(plan)?;
     let sdir = plan.run_dir.join("slurm");
     let logs = sdir.join("logs");
-    fs::create_dir_all(&logs).map_err(|source| SlurmError::Io { path: logs.clone(), source })?;
+    fs::create_dir_all(&logs).map_err(|source| SlurmError::Io {
+        path: logs.clone(),
+        source,
+    })?;
     let submit = sdir.join("submit.sh");
-    for (name, text) in [("prepare.sbatch", &s.prepare), ("samples.sbatch", &s.samples), ("final.sbatch", &s.final_), ("submit.sh", &s.submit)] {
+    for (name, text) in [
+        ("prepare.sbatch", &s.prepare),
+        ("samples.sbatch", &s.samples),
+        ("final.sbatch", &s.final_),
+        ("submit.sh", &s.submit),
+    ] {
         let p = sdir.join(name);
-        fs::write(&p, text).map_err(|source| SlurmError::Io { path: p.clone(), source })?;
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).map_err(|source| SlurmError::Io { path: p.clone(), source })?;
+        fs::write(&p, text).map_err(|source| SlurmError::Io {
+            path: p.clone(),
+            source,
+        })?;
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).map_err(|source| {
+            SlurmError::Io {
+                path: p.clone(),
+                source,
+            }
+        })?;
     }
     Ok(submit)
 }
@@ -482,6 +615,7 @@ mod tests {
             work_dir: "/w".into(),
             qrnamap_bin: "/b".into(),
             mode: Mode::Align,
+            quantifier: None,
             run_args: vec![],
             task_args: vec![],
             tool_dirs: vec![],

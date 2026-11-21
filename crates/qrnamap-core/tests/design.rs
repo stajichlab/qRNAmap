@@ -81,11 +81,29 @@ fn rejects_semicolon_and_backtick() {
 #[test]
 fn rejects_other_bad_input() {
     for f in [
-        "", "~", "condition", "condition ~ batch", "~ ~ condition", "~ condition +",
-        "~ + condition", "~ condition + + batch", "~ condition batch", "~ condition - batch",
-        "~ condition | batch", "~ $condition", "~ \"condition\"", "~ 'condition'", ".",
-        "~ .", "~ 1", "~ condition + 0", "~ condition\nbatch", "~ cond\\ition", "~ (condition)",
-        "~ _x", "~ condition # c",
+        "",
+        "~",
+        "condition",
+        "condition ~ batch",
+        "~ ~ condition",
+        "~ condition +",
+        "~ + condition",
+        "~ condition + + batch",
+        "~ condition batch",
+        "~ condition - batch",
+        "~ condition | batch",
+        "~ $condition",
+        "~ \"condition\"",
+        "~ 'condition'",
+        ".",
+        "~ .",
+        "~ 1",
+        "~ condition + 0",
+        "~ condition\nbatch",
+        "~ cond\\ition",
+        "~ (condition)",
+        "~ _x",
+        "~ condition # c",
     ] {
         bad_syntax(f);
     }
@@ -112,11 +130,17 @@ fn to_r_quotes_nothing_but_names_and_operators() {
         ("a".to_string(), ColType::Factor),
         ("b".to_string(), ColType::Factor),
     ];
-    for f in ["~ condition", "~ batch + condition", "~ batch+condition:dose", "~ a*b"] {
+    for f in [
+        "~ condition",
+        "~ batch + condition",
+        "~ batch+condition:dose",
+        "~ a*b",
+    ] {
         let r = Design::parse(f, &c).unwrap().to_r();
         assert!(r.starts_with('~'));
         assert!(
-            r.chars().all(|ch| ch.is_ascii_alphanumeric() || " _.~+:*".contains(ch)),
+            r.chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || " _.~+:*".contains(ch)),
             "{r}"
         );
         assert!(!r.contains('"') && !r.contains('\'') && !r.contains('`'));
@@ -131,7 +155,11 @@ fn contrast_parse_valid_and_invalid() {
     let c = Contrast::parse("condition,treat,ctrl", &cols()).unwrap();
     assert_eq!(
         c,
-        Contrast { factor: "condition".into(), level: "treat".into(), reference: "ctrl".into() }
+        Contrast {
+            factor: "condition".into(),
+            level: "treat".into(),
+            reference: "ctrl".into()
+        }
     );
     let c = Contrast::parse(" condition , t-1.a_b , c0 ", &cols()).unwrap();
     assert_eq!(c.level, "t-1.a_b");
@@ -162,7 +190,10 @@ fn contrast_parse_valid_and_invalid() {
         "cond`ition,a,b",
     ] {
         assert!(
-            matches!(Contrast::parse(bad, &cols()), Err(DesignError::BadSyntax(_))),
+            matches!(
+                Contrast::parse(bad, &cols()),
+                Err(DesignError::BadSyntax(_))
+            ),
             "{bad:?} -> {:?}",
             Contrast::parse(bad, &cols())
         );
@@ -171,6 +202,8 @@ fn contrast_parse_valid_and_invalid() {
 
 #[test]
 fn errors_display() {
-    assert!(DesignError::UnknownColumn("x".into()).to_string().contains('x'));
+    assert!(DesignError::UnknownColumn("x".into())
+        .to_string()
+        .contains('x'));
     let _: &dyn std::error::Error = &DesignError::BadSyntax("m".into());
 }

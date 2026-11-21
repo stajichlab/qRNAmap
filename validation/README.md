@@ -14,6 +14,13 @@ on real jobs (E2). Finding 2 (D2, align memory) is consistent with page cache of
 Data lives outside the repository in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/`.
 This directory holds the scripts and small summary tables only.
 
+Note added on 2026-11-20 (Salmon change): every quant-mode run in this file used kallisto. The
+`--quantifier` option did not exist then. Salmon was not run on the yeast data. A Salmon run on the AMB
+data is in `validation/amb/salmon.md`. The Salmon change also changed two file formats: the summary
+files now have 8 columns (a `quantifier` column after `mode`), and the `.prepared` marker is format
+version 2. A run directory from these runs must be prepared again before `--task-id` or `--step final`
+can use it.
+
 Files:
 
 - `run_yeast.sh`: the driver. Each stage is one command (see the header of the script).
