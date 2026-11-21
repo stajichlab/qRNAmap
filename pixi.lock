@@ -26,6 +26,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/gffread-0.12.9-hf426362_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/hisat2-2.2.2-h503566f_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/kallisto-0.52.0-hd638d68_1.conda
+      - conda: https://conda.anaconda.org/bioconda/linux-64/salmon-2.8.0-hfa8f182_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/subread-2.1.1-h577a1d6_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/noarch/bioconductor-biocgenerics-0.56.0-r45hdfd78af_2.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/bioconductor-matrixgenerics-1.22.0-r45hdfd78af_1.conda
@@ -473,6 +474,21 @@ packages:
     - kallisto >=0.52.0,<0.53.0a0
   size: 1027147
   timestamp: 1789250845311
+- conda: https://conda.anaconda.org/bioconda/linux-64/salmon-2.8.0-hfa8f182_0.conda
+  sha256: 2daa4cdbb7135c61ebfeb65fac59a766c503ef09a9c9e66a569437006892ed5b
+  md5: b11b7bfe5747a772dd1328d757711933
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  constrains:
+  - __glibc >=2.17
+  license: BSD-3-Clause
+  license_family: BSD
+  run_exports:
+    weak:
+    - salmon >=2.8.0,<3.0a0
+  size: 3763799
+  timestamp: 1790375561731
 - conda: https://conda.anaconda.org/bioconda/linux-64/subread-2.1.1-h577a1d6_0.tar.bz2
   sha256: e1a558c1d213e670b37b45200522e98c56103616f05cef728d38f6e303e5cad9
   md5: 14a72547038fd8d4af4dc9da0114a78a

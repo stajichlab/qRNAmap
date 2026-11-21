@@ -2,7 +2,7 @@
 
 use qrnamap_core::{
     argv_native, feature_counts, hisat2_align, hisat2_build, kallisto_index, kallisto_quant,
-    ConfigError, Mode, Quantifier, RunConfig, Sample, Strandedness,
+    salmon_index, salmon_quant, ConfigError, Mode, Quantifier, RunConfig, Sample, Strandedness,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -305,4 +305,109 @@ fn config_error_display_names_sample() {
     assert!(d.contains("S1"));
     assert!(d.contains("a,\\\"1\\n.fq"), "{d}");
     assert!(m(ConfigError::InvalidThreads).contains("threads"));
+}
+
+fn threads_cfg(st: Strandedness, threads: u32) -> RunConfig {
+    RunConfig { strandedness: st, threads, ..RunConfig::default() }
+}
+
+#[test]
+fn salmon_quant_paired_unstranded() {
+    let c = salmon_quant(&sample(&["a"], &["b"]), "idx", "out", &cfg(Strandedness::Unstranded))
+        .unwrap();
+    let a = argv_native(&c);
+    assert_eq!(a[0], "salmon");
+    let joined = a.join(" ");
+    assert!(joined.contains("-l IU -1 a -2 b"), "{joined}");
+    assert!(joined.contains("-p 1"), "{joined}");
+    assert!(joined.ends_with("-o out"), "{joined}");
+    assert_eq!(&a[1], "quant");
+    assert_eq!(c.outputs, p(&["out/quant.sf", "out/aux_info/meta_info.json"]));
+}
+
+#[test]
+fn salmon_quant_two_lanes_paired() {
+    let c = salmon_quant(
+        &sample(&["l1_1.fq", "l2_1.fq"], &["l1_2.fq", "l2_2.fq"]),
+        "idx",
+        "out",
+        &cfg(Strandedness::Unstranded),
+    )
+    .unwrap();
+    let joined = argv_native(&c).join(" ");
+    assert!(joined.contains("-1 l1_1.fq l2_1.fq -2 l1_2.fq l2_2.fq"), "{joined}");
+}
+
+#[test]
+fn salmon_quant_strandedness_paired() {
+    let f = salmon_quant(&sample(&["a"], &["b"]), "idx", "out", &cfg(Strandedness::Forward)).unwrap();
+    assert!(argv_native(&f).join(" ").contains("-l ISF "));
+    let r = salmon_quant(&sample(&["a"], &["b"]), "idx", "out", &cfg(Strandedness::Reverse)).unwrap();
+    assert!(argv_native(&r).join(" ").contains("-l ISR "));
+}
+
+#[test]
+fn salmon_quant_single_end() {
+    let mut c0 = cfg(Strandedness::Unstranded);
+    c0.fragment_len = Some((200.0, 20.0));
+    let c = salmon_quant(&sample(&["a.fq"], &[]), "idx", "out", &c0).unwrap();
+    let joined = argv_native(&c).join(" ");
+    assert!(joined.contains("-l U -r a.fq"), "{joined}");
+    assert!(joined.contains("--fldMean 200 --fldSD 20"), "{joined}");
+    let mut c1 = cfg(Strandedness::Forward);
+    c1.fragment_len = Some((200.0, 20.0));
+    let f = salmon_quant(&sample(&["a.fq"], &[]), "idx", "out", &c1).unwrap();
+    assert!(argv_native(&f).join(" ").contains("-l SF "));
+    c1.strandedness = Strandedness::Reverse;
+    let r = salmon_quant(&sample(&["a.fq"], &[]), "idx", "out", &c1).unwrap();
+    assert!(argv_native(&r).join(" ").contains("-l SR "));
+}
+
+#[test]
+fn salmon_quant_single_end_needs_fragment_length() {
+    let e = salmon_quant(&sample(&["a.fq"], &[]), "idx", "out", &cfg(Strandedness::Unstranded))
+        .unwrap_err();
+    assert_eq!(e, ConfigError::FragmentLengthRequired { sample: "S1".into() });
+    for bad in [(f64::NAN, 20.0), (200.0, 0.0), (0.0, 20.0)] {
+        let mut c0 = cfg(Strandedness::Unstranded);
+        c0.fragment_len = Some(bad);
+        let e = salmon_quant(&sample(&["a.fq"], &[]), "idx", "out", &c0).unwrap_err();
+        assert_eq!(e, ConfigError::InvalidFragmentLength { sample: "S1".into() });
+    }
+}
+
+#[test]
+fn salmon_quant_rejects_bad_input() {
+    let ok = sample(&["a"], &["b"]);
+    assert_eq!(
+        salmon_quant(&ok, "idx", "out", &threads_cfg(Strandedness::Unstranded, 0)).unwrap_err(),
+        ConfigError::InvalidThreads
+    );
+    assert_eq!(
+        salmon_quant(&sample(&[], &[]), "idx", "out", &cfg(Strandedness::Unstranded)).unwrap_err(),
+        ConfigError::NoReads { sample: "S1".into() }
+    );
+    assert_eq!(
+        salmon_quant(&sample(&["a", "c"], &["b"]), "idx", "out", &cfg(Strandedness::Unstranded))
+            .unwrap_err(),
+        ConfigError::MateCountMismatch { sample: "S1".into() }
+    );
+}
+
+#[test]
+fn salmon_index_args() {
+    let c = salmon_index("t.fa", "idx", &threads_cfg(Strandedness::Unstranded, 4)).unwrap();
+    assert_eq!(argv_native(&c), s(&["salmon", "index", "-t", "t.fa", "-i", "idx", "-p", "4"]));
+    assert_eq!(c.inputs, p(&["t.fa"]));
+    assert_eq!(c.outputs, p(&["idx"]));
+    assert_eq!(
+        salmon_index("t.fa", "idx", &threads_cfg(Strandedness::Unstranded, 0)).unwrap_err(),
+        ConfigError::InvalidThreads
+    );
+}
+
+#[test]
+fn quantifier_name() {
+    assert_eq!(Quantifier::Kallisto.name(), "kallisto");
+    assert_eq!(Quantifier::Salmon.name(), "salmon");
 }

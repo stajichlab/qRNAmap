@@ -14,6 +14,8 @@ use std::path::PathBuf;
 pub enum Tool {
     KallistoIndex,
     KallistoQuant,
+    SalmonIndex,
+    SalmonQuant,
     Hisat2Build,
     Hisat2Align,
     FeatureCounts,
@@ -30,9 +32,9 @@ pub struct ToolCall {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
-    /// Single-end kallisto needs a fragment length mean and SD.
+    /// Single-end kallisto and salmon need a fragment length mean and SD.
     FragmentLengthRequired { sample: String },
-    /// Fragment length mean or SD is not finite or not > 0 (single-end kallisto).
+    /// Fragment length mean or SD is not finite or not > 0 (single-end kallisto and salmon).
     InvalidFragmentLength { sample: String },
     /// `threads` is 0.
     InvalidThreads,
@@ -49,7 +51,7 @@ impl fmt::Display for ConfigError {
         match self {
             ConfigError::FragmentLengthRequired { sample } => write!(
                 f,
-                "sample '{sample}' is single-end: kallisto needs a fragment length mean and SD"
+                "sample '{sample}' is single-end: the quantifier needs a fragment length mean and SD"
             ),
             ConfigError::InvalidFragmentLength { sample } => write!(
                 f,
@@ -73,6 +75,7 @@ impl std::error::Error for ConfigError {}
 fn program(tool: Tool) -> &'static str {
     match tool {
         Tool::KallistoIndex | Tool::KallistoQuant => "kallisto",
+        Tool::SalmonIndex | Tool::SalmonQuant => "salmon",
         Tool::Hisat2Build => "hisat2-build",
         // Not the `hisat2` wrapper: that Perl script joins its arguments into one string and
         // runs it with `system`, so a shell reads paths and names (a space splits a path, `$HOME`
@@ -100,6 +103,17 @@ fn check_reads(sample: &Sample) -> Result<(), ConfigError> {
         return Err(ConfigError::MateCountMismatch { sample: sample.name.clone() });
     }
     Ok(())
+}
+
+/// Fragment length mean and SD for a single-end sample. Both must be finite and > 0.
+fn fragment_len(sample: &Sample, cfg: &RunConfig) -> Result<(f64, f64), ConfigError> {
+    let (mean, sd) = cfg.fragment_len.ok_or_else(|| ConfigError::FragmentLengthRequired {
+        sample: sample.name.clone(),
+    })?;
+    if !(mean.is_finite() && sd.is_finite() && mean > 0.0 && sd > 0.0) {
+        return Err(ConfigError::InvalidFragmentLength { sample: sample.name.clone() });
+    }
+    Ok((mean, sd))
 }
 
 fn st(args: &[&str]) -> Vec<String> {
@@ -140,12 +154,7 @@ pub fn kallisto_quant(
             files.push(b);
         }
     } else {
-        let (mean, sd) = cfg.fragment_len.ok_or_else(|| ConfigError::FragmentLengthRequired {
-            sample: sample.name.clone(),
-        })?;
-        if !(mean.is_finite() && sd.is_finite() && mean > 0.0 && sd > 0.0) {
-            return Err(ConfigError::InvalidFragmentLength { sample: sample.name.clone() });
-        }
+        let (mean, sd) = fragment_len(sample, cfg)?;
         // f64 Display gives the shortest round-trip form: 200.0 -> "200".
         args.extend(["--single".into(), "-l".into(), mean.to_string(), "-s".into(), sd.to_string()]);
         files.extend(sample.fastq1.iter());
@@ -160,6 +169,76 @@ pub fn kallisto_quant(
         outputs: vec![
             PathBuf::from(out).join("abundance.tsv"),
             PathBuf::from(out).join("run_info.json"),
+        ],
+    })
+}
+
+/// `salmon index -t <transcripts.fa> -i <index_dir> -p <threads>`. The index is a directory.
+pub fn salmon_index(
+    transcripts_fasta: &str,
+    index_dir: &str,
+    cfg: &RunConfig,
+) -> Result<ToolCall, ConfigError> {
+    check_threads(cfg)?;
+    Ok(ToolCall {
+        tool: Tool::SalmonIndex,
+        args: vec![
+            "index".into(),
+            "-t".into(),
+            transcripts_fasta.into(),
+            "-i".into(),
+            index_dir.into(),
+            "-p".into(),
+            cfg.threads.to_string(),
+        ],
+        inputs: vec![transcripts_fasta.into()],
+        outputs: vec![index_dir.into()],
+    })
+}
+
+/// `salmon quant`. Library type comes from strandedness and layout. Lanes are passed as an
+/// R1 list after `-1` and an R2 list after `-2`, in lane order.
+pub fn salmon_quant(
+    sample: &Sample,
+    index_dir: &str,
+    out_dir: &str,
+    cfg: &RunConfig,
+) -> Result<ToolCall, ConfigError> {
+    check_threads(cfg)?;
+    check_reads(sample)?;
+    let paired = !sample.fastq2.is_empty();
+    let lib = match (paired, cfg.strandedness) {
+        (true, Strandedness::Unstranded) => "IU",
+        (true, Strandedness::Forward) => "ISF",
+        (true, Strandedness::Reverse) => "ISR",
+        (false, Strandedness::Unstranded) => "U",
+        (false, Strandedness::Forward) => "SF",
+        (false, Strandedness::Reverse) => "SR",
+    };
+    let mut args = st(&["quant", "-i", index_dir, "--validateMappings", "-l", lib]);
+    let files: Vec<&String> = if paired {
+        args.push("-1".into());
+        args.extend(sample.fastq1.iter().cloned());
+        args.push("-2".into());
+        args.extend(sample.fastq2.iter().cloned());
+        sample.fastq1.iter().chain(&sample.fastq2).collect()
+    } else {
+        let (mean, sd) = fragment_len(sample, cfg)?;
+        args.push("-r".into());
+        args.extend(sample.fastq1.iter().cloned());
+        args.extend(["--fldMean".into(), mean.to_string(), "--fldSD".into(), sd.to_string()]);
+        sample.fastq1.iter().collect()
+    };
+    args.extend(["-p".into(), cfg.threads.to_string(), "-o".into(), out_dir.into()]);
+    let mut inputs: Vec<PathBuf> = files.iter().map(|f| PathBuf::from(f.as_str())).collect();
+    inputs.push(index_dir.into());
+    Ok(ToolCall {
+        tool: Tool::SalmonQuant,
+        args,
+        inputs,
+        outputs: vec![
+            PathBuf::from(out_dir).join("quant.sf"),
+            PathBuf::from(out_dir).join("aux_info").join("meta_info.json"),
         ],
     })
 }

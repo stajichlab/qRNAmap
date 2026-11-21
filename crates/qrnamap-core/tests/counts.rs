@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use qrnamap_core::{
-    assemble, build_transcripts, gene_counts_from_abundance, parse_featurecounts, saf, tx2gene_tsv,
+    assemble, build_transcripts, gene_counts_from_abundance, gene_counts_from_salmon, parse_featurecounts, saf, tx2gene_tsv,
     unlisted_genes, CountError, CountMatrix,
 };
 use qseq_io::{parse_gff3, read_fasta};
@@ -302,4 +302,69 @@ fn featurecounts_gene_id_starting_with_hash_after_header_is_a_gene() {
     // R29-7: '#' lines are skipped only before the header.
     let tsv = format!("# Program:featureCounts\n{FC_HDR}#g1\tc\t1\t2\t+\t2\t5\ng2\tc\t1\t2\t+\t2\t3\n");
     assert_eq!(parse_featurecounts(&tsv).unwrap(), map(&[("#g1", 5), ("g2", 3)]));
+}
+
+const SF_HEAD: &str = "Name\tLength\tEffectiveLength\tTPM\tNumReads\n";
+
+#[test]
+fn salmon_gene_sum_rounds_once() {
+    let m = t2g(&[("t1", "g1"), ("t2", "g1")]);
+    let a = format!("{SF_HEAD}t1\t100\t90\t1\t0.4\nt2\t100\t90\t1\t0.4\n");
+    assert_eq!(gene_counts_from_salmon(&a, &m).unwrap(), map(&[("g1", 1)]));
+    let b = format!("{SF_HEAD}t1\t100\t90\t1\t0.25\nt2\t100\t90\t1\t0.25\n");
+    assert_eq!(gene_counts_from_salmon(&b, &m).unwrap(), map(&[("g1", 1)]));
+}
+
+#[test]
+fn salmon_unknown_transcript() {
+    let m = t2g(&[("t1", "g1")]);
+    let a = format!("{SF_HEAD}tX\t100\t90\t1\t3\n");
+    assert_eq!(
+        gene_counts_from_salmon(&a, &m),
+        Err(CountError::UnknownTranscript("tX".into()))
+    );
+}
+
+#[test]
+fn salmon_missing_column() {
+    let m = t2g(&[("t1", "g1")]);
+    let a = "Name\tLength\tTPM\nt1\t100\t1\n";
+    assert_eq!(
+        gene_counts_from_salmon(a, &m),
+        Err(CountError::MissingColumn("NumReads".into()))
+    );
+}
+
+#[test]
+fn salmon_bad_numreads() {
+    let m = t2g(&[("t1", "g1")]);
+    for bad in ["-1", "nan", "inf", "abc"] {
+        let a = format!("{SF_HEAD}t1\t100\t90\t1\t{bad}\n");
+        assert_eq!(
+            gene_counts_from_salmon(&a, &m),
+            Err(CountError::BadRow { line: 2 }),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn salmon_zero_gene_is_present_with_zero() {
+    let m = t2g(&[("t1", "g1")]);
+    let a = format!("{SF_HEAD}t1\t100\t90\t0\t0\n");
+    assert_eq!(gene_counts_from_salmon(&a, &m).unwrap(), map(&[("g1", 0)]));
+}
+
+#[test]
+fn salmon_and_kallisto_agree_on_same_numbers() {
+    let m = t2g(&[("t1", "g1"), ("t2", "g1"), ("t3", "g2")]);
+    let k = "target_id\tlength\teff_length\test_counts\ttpm\n\
+             t1\t100\t90\t2.5\t1\nt2\t100\t90\t3.2\t1\nt3\t100\t90\t7\t1\n";
+    let s = format!(
+        "{SF_HEAD}t1\t100\t90\t1\t2.5\nt2\t100\t90\t1\t3.2\nt3\t100\t90\t1\t7\n"
+    );
+    assert_eq!(
+        gene_counts_from_salmon(&s, &m).unwrap(),
+        gene_counts_from_abundance(k, &m).unwrap()
+    );
 }

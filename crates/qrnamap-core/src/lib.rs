@@ -15,11 +15,11 @@ pub mod transcripts;
 pub use config::{Mode, Quantifier, RunConfig, Strandedness};
 pub use toolcall::{
     argv_native, feature_counts, hisat2_align, hisat2_build, kallisto_index, kallisto_quant,
-    ConfigError, Tool, ToolCall,
+    salmon_index, salmon_quant, ConfigError, Tool, ToolCall,
 };
 
 pub use counts::{
-    assemble, gene_counts_from_abundance, parse_featurecounts, parse_featurecounts_summary,
+    assemble, gene_counts_from_abundance, gene_counts_from_salmon, parse_featurecounts, parse_featurecounts_summary,
     unlisted_genes, CountError, CountMatrix,
 };
 pub use strand::{assigned_fraction, StrandReport, STRAND_THRESHOLD};
