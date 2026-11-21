@@ -156,6 +156,7 @@ Each step has tests before the next one starts. Tests use real small datasets wi
 - Counting: featureCounts (decided by the user; the genomics-wasm port is used as it is). No Rust counter.
 - Quantifier: both kallisto and Salmon (decided by the user). Build order: kallisto first, then Salmon behind the same `Backend` trait. `--quantifier kallisto|salmon` in the CLI and a choice on the page. Both write gene counts in the same format, so DESeq2 does not care which one ran.
 - Salmon needs threads and shared memory in the browser, so it needs the isolation headers like featureCounts. Fast mode with kallisto works without them. Salmon index format and options (for example selective alignment, decoys) are not designed yet; spike 0 reads the Salmon package README and measures it.
+- Note (2026-11-20): the CLI Salmon design is in `2026-11-20-salmon-support-design.md`. That addendum supersedes the Salmon lines of this spec for the CLI: transcripts-only index (no decoys), Salmon defaults, no browser Salmon.
 - Shared crates start inside this workspace and move out later.
 - Single-threaded WASM tools for the first release. Threads only for featureCounts.
 - Bootstrap and `tximport`-style length handling: not in version 1.

@@ -1,11 +1,11 @@
 # qRNAmap
 
 A Rust command-line tool for bulk RNA-seq quantification: genome + GFF3 + sample sheet + FASTQ to
-gene counts (kallisto, or HISAT2 + featureCounts) and DESeq2. Licence: GPL-3.0-only.
+gene counts (kallisto or Salmon, or HISAT2 + featureCounts) and DESeq2. Licence: GPL-3.0-only.
 
 ## Install and build
 
-The tools (kallisto, HISAT2, featureCounts, gffread, R with DESeq2, Rust) come from the pixi
+The tools (kallisto, Salmon, HISAT2, featureCounts, gffread, R with DESeq2, Rust) come from the pixi
 environment in `pixi.toml`.
 
 ```bash
@@ -61,6 +61,10 @@ qrnamap transcripts --reference genome.fna.gz --gff genes.gff.gz --out tx.fa.zst
 # kallisto per sample (writes OUT/<sample>.genecounts.tsv.zst)
 qrnamap quant --samples samples.tsv --transcripts tx.fa.zst --tx2gene tx2gene.tsv.zst --out run/ --strandedness reverse
 
+# The same with Salmon instead of kallisto
+qrnamap quant --quantifier salmon --samples samples.tsv --transcripts tx.fa.zst --tx2gene tx2gene.tsv.zst \
+  --out run/ --strandedness reverse
+
 # HISAT2 + featureCounts per sample
 qrnamap align --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz --out run/ --strandedness reverse
 
@@ -84,6 +88,37 @@ qrnamap run --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz -
   --slurm --tool-path "$PWD/.pixi/envs/default/bin" --time 02:00:00
 bash /bigdata/lab/run/slurm/submit.sh
 ```
+
+### Quantifier (quant mode)
+
+`--quantifier kallisto|salmon` selects the quant-mode tool. It is an option of `quant` and `run`
+only. The default is `kallisto`, so a command without the option behaves as before.
+`run --mode align --quantifier ...` is an error.
+
+| | kallisto | Salmon |
+|---|---|---|
+| version (pixi) | 0.52.0 | 2.8.0 |
+| index in the run directory | `transcripts.kidx` (a file) | `salmon_index/` (a directory) |
+| index command | `kallisto index` | `salmon index -t <transcripts> -i <dir> -p <threads> --keepDuplicates` |
+| library type from `--strandedness` | `--fr-stranded` / `--rf-stranded` | paired `IU` / `ISF` / `ISR`, single-end `U` / `SF` / `SR` (never `-l A`) |
+| output per sample | `<sample>/abundance.tsv`, `<sample>/run_info.json` | `<sample>/quant.sf`, `<sample>/aux_info/meta_info.json` |
+| gene count | sum of `est_counts` per gene, rounded once | sum of `NumReads` per gene, rounded once |
+| single-end | `--fragment-length MEAN,SD` | `--fragment-length MEAN,SD` (`--fldMean`, `--fldSD`) |
+
+- The Salmon index holds the transcripts only. It has no genome decoys.
+- Salmon runs with its defaults. qrnamap does not add `--validateMappings`, bootstrap, Gibbs
+  sampling or bias correction.
+- Salmon reads `.gz` FASTQ directly. qrnamap decompresses `.zst` FASTQ into the temporary directory
+  first, as it does for kallisto.
+- Zero mapped reads stop the sample with the same error as kallisto: `sample '<name>': salmon mapped
+  0 reads (mapped fraction 0). Check the strandedness setting ...`.
+- The `quantifier` column of the summary files records the tool of each sample.
+- A run directory holds the output of one quantifier. A rerun with the other quantifier removes the old
+  per-sample output of both tools first. `quant --task-id` and `run --step final` refuse a run directory
+  that was prepared with the other quantifier.
+- The SLURM scripts check for `salmon` instead of `kallisto` when the quantifier is Salmon. The rates
+  per million read pairs in this README and in the scripts were measured with kallisto only. Salmon
+  rates on the AMB data are in `validation/amb/salmon.md`.
 
 The temporary directory is `--tmpdir`, then `$SCRATCH`, then `$TMPDIR`. A run directory under
 `$SCRATCH` or `/scratch/` gives a warning: SLURM array tasks on other nodes cannot see it.
@@ -152,7 +187,7 @@ Which subcommands write it:
 - `qrnamap quant --gff GFF`: writes `OUT/genes.tsv.zst`. Plain `quant` without `--gff` writes no table
   (stderr says so). `--mito-contig` without `--gff` on plain `quant` is an error. Every gene of the
   `--tx2gene` table must be a gene of the `--gff` GFF3, else `quant` stops with an error that names the
-  missing genes, before kallisto runs. A GFF3 with more genes is accepted.
+  missing genes, before kallisto or Salmon runs. A GFF3 with more genes is accepted.
 - `quant --task-id` and `align --task-id` do not write the table (the prepare step does); `--mito-contig`
   there gives a note that it has no effect. `transcripts --mito-contig` without `--genes-table` gives the
   same note.
@@ -165,8 +200,11 @@ removes an old table first.
 ### `<sample>.summary.tsv.zst` and `mapping_summary.tsv.zst`
 
 `quant` and `align` write `OUT/<sample>.summary.tsv.zst` as the last step for each sample. It has a
-header and one row. Columns: `sample mode reads_processed fraction_mapped fraction_assigned strandedness qrnamap_version`.
-`mode` is `quant` or `align`.
+header and one row. Columns (8): `sample mode quantifier reads_processed fraction_mapped fraction_assigned strandedness qrnamap_version`.
+`mode` is `quant` or `align`. `quantifier` is `kallisto` or `salmon` in quant mode and `none` in align mode.
+
+The `quantifier` column is new. Earlier versions wrote 7 columns, without it. `matrix` and
+`run --step final` refuse a 7-column file with a message that says to run that sample again.
 
 `matrix` (and `run`, and `run --step final`) read these files in sample-sheet order and write
 `OUT/mapping_summary.tsv.zst`: the same columns plus `strand_check_suggestion`.
@@ -188,10 +226,11 @@ header and one row. Columns: `sample mode reads_processed fraction_mapped fracti
 - `strand-check` removes an old `strand_check.tsv` in its `--out` after its input checks and before it
   runs any tool.
 
-### Rounding of kallisto counts
+### Rounding of kallisto and Salmon counts
 
-The count of a gene from kallisto is the sum of `est_counts` over the transcripts of the gene. The sum is
-rounded once per gene, half away from zero. It is not rounded per transcript.
+The count of a gene from kallisto is the sum of `est_counts` over the transcripts of the gene. For
+Salmon it is the sum of `NumReads`. The sum is rounded once per gene, half away from zero. It is not
+rounded per transcript.
 
 ## Output files (in the run directory)
 
@@ -199,6 +238,7 @@ rounded once per gene, half away from zero. It is not rounded per transcript.
 |---|---|
 | `<sample>.genecounts.tsv.zst` | gene counts of one sample (`gene`, sample name) |
 | `<sample>/abundance.tsv`, `<sample>/run_info.json` | kallisto output (quant mode) |
+| `<sample>/quant.sf`, `<sample>/aux_info/meta_info.json` and the other Salmon files | Salmon output (quant mode, `--quantifier salmon`) |
 | `<sample>/featurecounts.summary` | featureCounts summary (align mode) |
 | `<sample>.summary.tsv.zst` | mapping summary of one sample (written by `quant` and `align`) |
 | `counts.tsv.zst` | gene-by-sample matrix |
@@ -206,9 +246,11 @@ rounded once per gene, half away from zero. It is not rounded per transcript.
 | `genes.tsv.zst` | gene table: class, biotype and mitochondrial flag per gene |
 | `deseq2.results.csv`, `deseq2.normalized.csv`, `deseq2.vst.csv`, `deseq2.versions.txt` | DESeq2 output, with `--contrast` |
 | `deseq2.results.shrunk.csv` | with `--shrink` |
-| `transcripts.fa.zst`, `tx2gene.tsv.zst`, `transcripts.kidx` | reference files (quant mode) |
+| `transcripts.fa.zst`, `tx2gene.tsv.zst` | reference files (quant mode) |
+| `transcripts.kidx` | kallisto index (quant mode) |
+| `salmon_index/` | Salmon index directory (quant mode, `--quantifier salmon`) |
 | `splice_sites.txt`, `genes.saf`, `index/` | reference files (align mode) |
-| `.prepared` | marker of the prepare step; array tasks and the final step check it |
+| `.prepared` | marker of the prepare step (format version 2; it records the mode and the quantifier); array tasks and the final step check it |
 | `slurm/` | the SLURM scripts and logs, with `--slurm` |
 | `strand_check.tsv` | from `strand-check`, in its `--out` |
 
@@ -230,7 +272,10 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
 
 - No browser page and no WASM build of the tool. Only the three pure crates are compiled for
   `wasm32-unknown-unknown` as a check.
-- No Salmon.
+- Salmon limits: no genome decoys (transcripts-only index), no bootstrap or Gibbs sampling, no
+  Salmon in align mode, no Salmon in the browser build.
+- A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run
+  `run --step prepare` (or `run`) on such a directory again.
 - No plots.
 - `--shrink apeglm` and `--shrink ashr` need the R packages apeglm and ashr. `pixi.toml` does not
   install them, so these options have never run to success here. Only `--shrink normal` was run.
@@ -273,6 +318,7 @@ All packages solve in one pixi environment (`default`). Solved on 2026-11-19 (li
 | Package | Version | Channel |
 |---|---|---|
 | kallisto | 0.52.0 | bioconda |
+| salmon | 2.8.0 (pinned `==2.8.0`, added 2026-11-20) | bioconda |
 | hisat2 | 2.2.2 | bioconda |
 | subread (featureCounts) | 2.1.1 | bioconda |
 | gffread | 0.12.9 | bioconda |
@@ -293,3 +339,5 @@ Pipeline recovery on simulated reads (Task 11, 2026-11-19). Tests: `crates/qrnam
 Native HISAT2 runs `hisat2-align-s`, not the `hisat2` wrapper: the Perl wrapper passes its arguments through a shell, which split a path with a space and expanded `$HOME` in the tests.
 
 Larger synthetic fixture (`crates/qrnamap-cli/tests/common/large.rs`, test `tests/large.rs`, 2026-11-19): 2 contigs of 20 kb, 12 genes (2 multi-isoform, 1 rRNA, 1 CDS-only), 15 transcripts of 661 to 2,034 bases, 40,000 error-free pairs (read length 100, fragment 200 to 300). The reads come from the generator's own transcripts, not from our builder. Measured maximum relative error per gene (genes with at least 200 pairs): kallisto 0 (unstranded, forward and reverse libraries with the matching flag); HISAT2 + featureCounts 0.0005 unstranded and 0.0018 stranded. The lost pairs are g07 pairs that map to 2 places (`Unassigned_MultiMapping`). A reverse library run as forward: kallisto pseudoaligns no read (exit status 1); featureCounts assigned fraction 0.0.
+
+Salmon 2.8.0 on the same larger fixture (tests in `tests/large.rs`, 2026-11-20): maximum relative error per gene 0 (genes with at least 200 pairs) for unstranded, forward and reverse libraries with the matching flag, and for single-end reads (fragment length mean 200, SD 20). Two lanes (gzip and zstd) gave the same gene counts as one concatenated file (maximum difference 0). A forward library run as reverse, and a reverse library run as forward, stopped with the zero-mapped error. These reads come from the true transcripts, so the zero error does not predict accuracy on real data.

@@ -41,7 +41,7 @@ The user chose option 1 by default ("I will go with my pick unless you object").
 - `config.rs`: add `Quantifier::Salmon`. Fix the doc comment.
 - `toolcall.rs`:
   - `Tool::SalmonIndex`, `Tool::SalmonQuant`.
-  - `salmon_index(transcripts, index_dir, cfg) -> ToolCall`: `salmon index -t <transcripts.fa> -i <index_dir> -p <threads>`.
+  - `salmon_index(transcripts, index_dir, cfg) -> ToolCall`: `salmon index -t <transcripts.fa> -i <index_dir> -p <threads>`. The built command also has `--keepDuplicates`.
   - `salmon_quant(sample, index_dir, out_dir, cfg) -> Result<ToolCall, ConfigError>`.
     - Paired: `-l <lib> -1 <all R1 files> -2 <all R2 files>`. Salmon takes lanes as a list after each flag. This differs from kallisto, which takes adjacent pairs.
     - Single-end: `-l <lib> -r <files>` plus `--fldMean <mean> --fldSD <sd>`. The existing fragment length option supplies the values. Same validation as kallisto (finite, > 0, required).
@@ -87,7 +87,7 @@ The user chose option 1 by default ("I will go with my pick unless you object").
 ## Open points for the builder (flags to confirm from `salmon --help` for 2.8.0)
 
 - Exact flag spelling: `--fldMean`, `--fldSD`, `-p`, and any `--ramLimit` for index.
-- Whether `quant` needs `--validateMappings` (default in recent versions) or `--minAssignedFrags`.
+- Whether `quant` needs `--validateMappings` (default in recent versions) or `--minAssignedFrags`. Result: neither flag is added; `salmon quant` runs with its defaults.
 - Field names in `aux_info/meta_info.json`.
 - Whether the output directory must not exist beforehand.
 
@@ -106,4 +106,4 @@ Run Salmon on the AMB data (GSE80357) and compare gene counts with the kallisto 
 7. `--quantifier salmon` together with align mode is an error. It is not ignored.
 8. The Salmon index is a directory. `QuantContext.index` and `require_file` (run.rs) must accept a directory for Salmon.
 9. Also in scope, found by the builder: the `check_samples` dry validation branches on the quantifier; kallisto-named error variants and messages (`PairCountMismatch { kallisto }`, `NoReadsPseudoaligned`) take the tool name; `RunFlags::config` sets the quantifier; `slurm_plan` forwards `--quantifier`; `required_tools` takes the quantifier (callers and tests change); help text and README name both tools; tests that hard-code the 7-column header are updated.
-10. Minor builder calls: create the sample directory as today; `--quantifier` is a clap `value_enum`; index flags are `-t -i -p` only; add `--validateMappings` only if 2.8.0 needs it; float formatting as kallisto; one shared private sum-and-round helper in `counts.rs`; negative or NaN `NumReads` is a `BadRow` error.
+10. Minor builder calls: create the sample directory as today; `--quantifier` is a clap `value_enum`; index flags are `-t -i -p` plus `--keepDuplicates`; `--validateMappings` is NOT added to the quant command (the built command has no such flag); float formatting as kallisto; one shared private sum-and-round helper in `counts.rs`; negative or NaN `NumReads` is a `BadRow` error.
