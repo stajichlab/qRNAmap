@@ -41,6 +41,9 @@ const MAX_LISTED: usize = 20;
 pub enum PipelineError {
     /// A tool-call builder refused the sample (ruling R20). Raised before any tool runs.
     Config { sample: String, source: ConfigError },
+    /// The sample name equals a name qrnamap writes in the output directory
+    /// (`RESERVED_OUTPUT_NAMES`, or one of them with `.partial`). Raised before any tool runs.
+    ReservedSampleName { sample: String, reserved: String },
     /// A tool failed. `sample` is `None` for index builds.
     Exec { sample: Option<String>, source: ExecError },
     /// Opening or reading an input file failed (includes truncated or corrupt compression).
@@ -101,6 +104,11 @@ impl fmt::Display for PipelineError {
             PipelineError::Config { sample, source } => {
                 write!(f, "sample '{sample}': {source}")
             }
+            PipelineError::ReservedSampleName { sample, reserved } => write!(
+                f,
+                "sample '{sample}': the name is reserved: qrnamap writes '{reserved}' in the \
+                 output directory. Rename the sample in the sheet"
+            ),
             PipelineError::Exec { sample: Some(s), source } => write!(f, "sample '{s}': {source}"),
             PipelineError::Exec { sample: None, source } => write!(f, "{source}"),
             PipelineError::Input { sample: Some(s), source } => write!(f, "sample '{s}': {source}"),
@@ -505,9 +513,13 @@ pub fn run_transcripts_with_genes(
 // Sample checks and read staging
 
 /// Run every tool-call builder for every sample with placeholder paths, so a bad sample is a
-/// named error before any tool runs (ruling R20). Paths are not checked here.
+/// named error before any tool runs (ruling R20). Paths are not checked here. A sample name
+/// in `RESERVED_OUTPUT_NAMES` is refused first.
 pub fn check_samples(samples: &[Sample], cfg: &RunConfig, mode: Mode) -> Result<(), PipelineError> {
     for s in samples {
+        if let Some(r) = reserved_name(&s.name) {
+            return Err(PipelineError::ReservedSampleName { sample: s.name.clone(), reserved: r });
+        }
         let r = match mode {
             Mode::Quant => quant_call(s, "idx", "out", cfg).map(|_| ()),
             Mode::Align => hisat2_align(s, "idx", "ss", "x.sam", cfg)
@@ -517,6 +529,36 @@ pub fn check_samples(samples: &[Sample], cfg: &RunConfig, mode: Mode) -> Result<
         r.map_err(|source| PipelineError::Config { sample: s.name.clone(), source })?;
     }
     Ok(())
+}
+
+/// Names qrnamap writes directly in the output directory that are also valid sample names.
+/// A sample with one of these names (or one of them with `.partial`) would collide with the
+/// file or directory, because each sample gets the directory `<out>/<sample>/`. Checked in
+/// every mode, so one output directory can hold both modes' files.
+pub const RESERVED_OUTPUT_NAMES: &[&str] = &[
+    "index",
+    "salmon_index",
+    "slurm",
+    "transcripts.kidx",
+    "transcripts.fa.zst",
+    "tx2gene.tsv.zst",
+    "genes.saf",
+    "splice_sites.txt",
+    GENES_TABLE,
+    MAPPING_SUMMARY,
+    "counts.tsv.zst",
+    "strand_check.tsv",
+    "deseq2.results.csv",
+    "deseq2.normalized.csv",
+    "deseq2.vst.csv",
+    "deseq2.versions.txt",
+    "deseq2.results.shrunk.csv",
+];
+
+/// The reserved output name that `sample` equals, if any.
+fn reserved_name(sample: &str) -> Option<String> {
+    let base = sample.strip_suffix(".partial").unwrap_or(sample);
+    RESERVED_OUTPUT_NAMES.contains(&base).then(|| sample.to_string())
 }
 
 /// Writes every byte read through it to `out` (a staged copy), so one pass both decompresses a

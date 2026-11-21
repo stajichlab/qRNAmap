@@ -505,3 +505,50 @@ fn salmon_prepare_removes_stale_index_directory() {
     assert!(out.join("salmon_index").is_dir(), "salmon index directory");
     assert!(!stale.exists(), "a file of the old index survived");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Reserved sample names: names qrnamap writes directly in the output directory.
+
+/// Every name qrnamap writes directly in `--out` that is also a valid sample name.
+const RESERVED: &[&str] = &[
+    "index",
+    "salmon_index",
+    "slurm",
+    "transcripts.kidx",
+    "transcripts.fa.zst",
+    "tx2gene.tsv.zst",
+    "genes.saf",
+    "splice_sites.txt",
+    "genes.tsv.zst",
+    "mapping_summary.tsv.zst",
+    "counts.tsv.zst",
+    "strand_check.tsv",
+    "deseq2.results.csv",
+    "deseq2.normalized.csv",
+    "deseq2.vst.csv",
+    "deseq2.versions.txt",
+    "deseq2.results.shrunk.csv",
+];
+
+#[test]
+fn reserved_sample_names_are_rejected() {
+    let cfg = RunConfig::default();
+    let partial = RESERVED.iter().map(|n| format!("{n}.partial"));
+    for name in RESERVED.iter().map(|n| n.to_string()).chain(partial) {
+        let s = sample(&name, &[Path::new("/x/r1.fq")], &[Path::new("/x/r2.fq")]);
+        for mode in [Mode::Quant, Mode::Align] {
+            let err = check_samples(std::slice::from_ref(&s), &cfg, mode).unwrap_err();
+            let PipelineError::ReservedSampleName { sample, reserved } = &err else {
+                panic!("{name}: expected ReservedSampleName, got {err:?}");
+            };
+            assert_eq!((sample.as_str(), reserved.as_str()), (name.as_str(), name.as_str()));
+            let t = err.to_string();
+            assert!(t.contains(&format!("'{name}'")) && t.contains("reserved"), "{t}");
+        }
+    }
+    // Normal names, and names that only start like a reserved name, are accepted.
+    for name in ["S1", "index2", "slurm_A", "counts", "Index"] {
+        let s = sample(name, &[Path::new("/x/r1.fq")], &[Path::new("/x/r2.fq")]);
+        check_samples(&[s], &cfg, Mode::Quant).unwrap();
+    }
+}

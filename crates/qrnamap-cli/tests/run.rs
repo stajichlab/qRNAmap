@@ -1188,3 +1188,39 @@ fn run_end_to_end_with_salmon_quantifier() {
         assert_eq!(r.split('\t').nth(col), Some("salmon"), "{r}");
     }
 }
+
+#[test]
+fn reserved_sample_name_fails_before_any_file_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (g, gff) = mini();
+    let sh = d.join("sheet.tsv");
+    let (r1, r2) = (d.join("r_1.fq"), d.join("r_2.fq"));
+    fs::write(&r1, "@r\nACGT\n+\nIIII\n").unwrap();
+    fs::write(&r2, "@r\nACGT\n+\nIIII\n").unwrap();
+    let text = format!("sample\tfastq1\tfastq2\nsalmon_index\t{}\t{}\n", s(&r1), s(&r2));
+    fs::write(&sh, text).unwrap();
+    let out = d.join("run");
+    for mode in ["quant", "align"] {
+        let o = qrnamap(
+            &[
+                "run", "--samples", s(&sh), "--reference", s(&g), "--gff", s(&gff), "--mode", mode,
+                "--out", s(&out), "--tmpdir", s(d),
+            ],
+            Some(&no_tools(d)),
+        );
+        let err = fail(&o);
+        assert!(err.contains("'salmon_index'") && err.contains("reserved"), "{err}");
+        assert!(!out.exists(), "{mode}: nothing is written");
+    }
+    let o = qrnamap(
+        &[
+            "quant", "--samples", s(&sh), "--transcripts", "/x/t.fa", "--tx2gene", "/x/t2g",
+            "--out", s(&out), "--tmpdir", s(d),
+        ],
+        Some(&no_tools(d)),
+    );
+    let err = fail(&o);
+    assert!(err.contains("'salmon_index'") && err.contains("reserved"), "{err}");
+    assert!(!out.exists(), "plain quant: nothing is written");
+}
