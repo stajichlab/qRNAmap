@@ -297,8 +297,14 @@ Two validation records are in the repository. Both ran on the UCR HPCC cluster.
   - Spearman correlation of gene counts between the two modes, pooled over all 6 samples: 0.964905.
   - DESeq2 genes with padj < 0.05: 2,042 (quant), 2,019 (align), 1,956 in both (Jaccard 0.929216).
   - The `--kill-on-invalid-dep` flag cancelled the dependent jobs 12 s after a failed prepare job, in 2 of 2 attempts.
-- No ground-truth comparison was made. For GSE80357 the GEO series page lists the authors' counts file and
-  fold-change table. They were not downloaded and not compared. The numbers show agreement between the two modes, not accuracy.
+- `validation/geo/README.md`: the AMB results compared with the authors' GSE80357 count and fold-change tables.
+- `validation/amb/salmon.md`: Salmon on the AMB data (commit `ed9d5b6`). Headline numbers from that file:
+  - Salmon mapped 87.54 to 90.45% of pairs (kallisto: 93.6 to 94.7% pseudoaligned).
+  - Spearman correlation of gene counts, Salmon vs kallisto, pooled over all 6 samples: 0.994919.
+  - DESeq2 genes with padj < 0.05: 2,005 (Salmon), 2,042 (kallisto), 1,962 in both (Jaccard 0.941007).
+  - Against the authors' counts (6,008 common genes, pooled): Spearman 0.941675 (Salmon), 0.946995 (kallisto).
+- No ground-truth comparison was made. The authors' tables are another pipeline's output, not a truth. The
+  numbers show agreement between methods, not accuracy.
 
 ## Layout
 

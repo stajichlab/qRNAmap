@@ -10,6 +10,9 @@ Data and run outputs are outside the repository, in
 `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/amb/` (called `$DATA` below). This directory
 holds the scripts and small tables only.
 
+Later run: Salmon on the same data, compared with the kallisto run of this file and with the authors'
+GSE80357 tables, is in `salmon.md` (2026-11-20, commit `ed9d5b6`).
+
 Files:
 
 - `e0_integrity.sh`: E0 job body (`gzip -t` and record count of each FASTQ file).
