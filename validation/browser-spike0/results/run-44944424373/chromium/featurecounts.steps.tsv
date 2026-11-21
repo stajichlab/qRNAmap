@@ -1,0 +1,2 @@
+engine	tool	step	status	exit_code	seconds	args	detail	outputs
+chromium	featurecounts	count	ok	0	1.16	-T 1 -F SAF -a yeast.genes.saf -p --countReadPairs -s 0 -o fc.tsv yeast.sam		fc.tsv=8e3759935bb7338ad61c3473604fe12700bb63972dd53dd87ecee7a605e4247f;fc.tsv.summary=d3a13a69af1c151c478798162a94b4d06adccce08bcf15940d66c9e878382d93

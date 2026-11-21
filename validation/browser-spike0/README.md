@@ -48,3 +48,23 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 - Exclude kallisto `run_info.json` from any comparison. It holds a start time and absolute paths.
 - `fixtures.sh build` falls back to the hard-coded ENA read count (8,405,534) when ENA is unreachable. The record-count
   check in `subset_reads.py` is the check that enforces it.
+
+## Parity runs (Task 3, measured 2026-11-21)
+
+- Workflow: `workflow/qrnamap-spike0.yml`. `sync.sh SRC_DIR FORK_DIR "message" [--push]` copies it to
+  `.github/workflows/` of the fork and copies `*.mjs`, `*.py`, `deseq2_ref.R` and `manifest.tsv` to `spike0/`.
+  It pushes only branch `qrnamap-spike0`. It stops when the branch differs from the pin outside these two paths.
+- Fork head: `955963bd1b67587e401b3c5c8acae3eb804bd01e` (two commits on the pin). Run 44944424373.
+- Tools: the compiled artifacts of the Task 1 runs (kallisto 44939577353, HISAT2 44939585268,
+  featureCounts 44939587731). Their `.wasm` and `.mjs` SHA-256 equal the local baseline copies.
+  DESeq2: release `deseq2-package.zip` (DESeq2 1.52.0, R 4.6.0, webR), not rebuilt.
+- Inputs: release `qrnamap-spike0-fixtures-v1` of the fork (reads, transcripts, SAF, native yeast SAM, count matrix)
+  and the yeast genome from NCBI. Every file is checked against `manifest.tsv` in the workflow.
+  Each WASM tool reads the same bytes as its native reference (`results/run-*/<engine>/staged.sha256`).
+- featureCounts reads the native HISAT2 SAM. This tests featureCounts alone.
+- `parity.mjs` writes `<tool>.steps.tsv` per tool and engine. `compare_parity.py` writes `results/parity_results.tsv`.
+  Test: `python3 -m pytest validation/browser-spike0/test_compare_parity.py`.
+- Result: kallisto, HISAT2 and featureCounts pass in Node, Chromium, Firefox and WebKit.
+  DESeq2 (Node) fails the stated tolerance (absolute 1e-12 or relative 1e-6) on one value of 6477 x 6.
+  The DESeq2 versions differ (1.50.2 native, 1.52.0 WASM). DESeq2 in browsers was not run.
+- Full outputs: `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/parity/run-44944424373/` (SAM files zstd).

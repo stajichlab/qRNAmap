@@ -1,0 +1,68 @@
+{
+  "engine": "firefox",
+  "node": "v22.23.5",
+  "startedAt": "2026-11-21T20:06:57.572Z",
+  "root": "/home/runner/work/genomics-wasm/genomics-wasm",
+  "tools": [
+    "kallisto",
+    "hisat2",
+    "featurecounts"
+  ],
+  "builds": {
+    "kallisto": {
+      "kallisto.mjs": "9836e42fc304d7616ec73d89262498b31cc96e2b35d2d7460b64f358b823b9f1",
+      "kallisto.wasm": "01ef635d8438b7e6ac9c74c9d04a89f83f6801959f799f9f657523c90d37adfc"
+    },
+    "hisat2": {
+      "hisat2.mjs": "7155712db99fa9a4faf176bd30f79439320c458c910d034c028271a51bf2b038",
+      "hisat2.wasm": "068a3bea1c430ddcbf46b72c19398b9c72fe2976fffbca5c2ba87e3c78c97c32"
+    },
+    "featurecounts": {
+      "featurecounts.mjs": "d247ae6714f8a47184b71a8b2c92105aea2aa12869915b3b4331d018cce48a4d",
+      "featurecounts.wasm": "85a372e03f8c26c135142b33175d398cfdaf1c12a420c6875a58326084235e7f",
+      "featurecounts.worker.mjs": "5e53987fb26c1fe6b4d5d8c0ebf97f2ecd89c64ea1479a7d886474f3b0eb731e"
+    }
+  },
+  "inputs": {
+    "yeast.transcripts.fa": {
+      "bytes": 9226153,
+      "sha256": "d476bd033e8fe7b4345d3e39b2a93fcc54fd2b8a4c45555782e90713da6976d9"
+    },
+    "yeast_sub_1.fastq.gz": {
+      "bytes": 17187475,
+      "sha256": "65b5ecb478e51c37ed775932ab2d94d374009accb7e0429406096f929d93dbc4"
+    },
+    "yeast_sub_2.fastq.gz": {
+      "bytes": 17446415,
+      "sha256": "7365754abc272461952c22d5a71682061a2bfb7d8d37a5ea773c9b5d178062bc"
+    },
+    "yeast.fa": {
+      "bytes": 12310392,
+      "sha256": "fe42735d3e6242f8c40b457a232940e34ef15eb4502717e54a34ed118face4c1"
+    },
+    "reads_1.fastq": {
+      "bytes": 56295564,
+      "sha256": "08a51e9081c66c7d0fe14e63a1fbde8ed9f026019c6b600be5e57a1f7ff7e462"
+    },
+    "reads_2.fastq": {
+      "bytes": 56295564,
+      "sha256": "bcf2a084b20d7f9669bf97aa79e709cd19f41a5c1228ef470f603297015b792d"
+    },
+    "yeast.genes.saf": {
+      "bytes": 248000,
+      "sha256": "945c07d2f9dffdc87ab3603b55ab6d0a87799825c21fead8f02dbb4f1fbac7ff"
+    },
+    "native_yeast.sam": {
+      "bytes": 146484806,
+      "sha256": "48ff3a02151acba4ea49189b4e1169dc6b0262856fc04e5b41ad910a6a11e009"
+    }
+  },
+  "runtime": {
+    "index.mjs": "08629fe9067e5e7e0b85fba6e49c050c9b0850b6253c148f3fc458427f7ef3e7",
+    "worker.mjs": "19ac7d452ace47900eb93b7a65a55ff47d3cd5df33ddee35664b93cf7d9ddc4a",
+    "execute.mjs": "b911f4edb82100d0f76da0143aef0ee52b6b777944721fa15f68313d511f2da7"
+  },
+  "browserVersion": "157.0",
+  "crossOriginIsolated": true,
+  "finishedAt": "2026-11-21T20:08:01.898Z"
+}

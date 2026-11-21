@@ -1,0 +1,5 @@
+DESeq2 1.52.0
+R R version 4.6.0 (2026-04-24)
+design: ~ condition
+contrast: condition,AmpB,Control
+genes 6477 samples 6
