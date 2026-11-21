@@ -1,0 +1,47 @@
+name: Deploy site
+
+# Publishes the static page in site/ to GitHub Pages (https://qrnamap.fungalgenomes.org/).
+# The custom domain is set in the repository's Pages settings; the CNAME file below keeps it
+# in the artifact. Same layout as qmutfind's pages workflow, without the WASM build.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Action versions are pinned to exact tags (the same tags qmutfind uses).
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: |
+          mkdir -p dist-site
+          cp -r site/. dist-site/
+          echo "qrnamap.fungalgenomes.org" > dist-site/CNAME
+          touch dist-site/.nojekyll
+      - uses: actions/configure-pages@v5.0.0
+      - uses: actions/upload-pages-artifact@v4.0.0
+        with:
+          path: dist-site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-26.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4.0.5

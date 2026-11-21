@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qRNAmap: RNA-seq counts and differential expression</title>
+<meta name="description" content="qRNAmap maps bulk RNA-seq reads, counts them per gene and tests for differential expression. The command-line tool exists. The browser version is under development.">
+<style>
+:root { --bg:#fbfbfa; --fg:#1d2024; --muted:#5b6470; --line:#d9dde2; --link:#0b5cad; --note:#f1f3f5; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14171a; --fg:#e6e8ea; --muted:#9aa4af; --line:#2c3238; --link:#6cb2ff; --note:#1c2024; }
+}
+html { background: var(--bg); color: var(--fg); }
+body { font: 16px/1.55 system-ui, sans-serif; margin: 0 auto; max-width: 42rem; padding: 2rem 16px 4rem; }
+h1 { margin: 0 0 .25rem; font-size: 1.8rem; }
+p.lead { margin: 0 0 1.5rem; color: var(--muted); }
+h2 { margin: 2rem 0 .5rem; font-size: 1.15rem; }
+a { color: var(--link); }
+.note { background: var(--note); border: 1px solid var(--line); border-radius: 6px; padding: .75rem 1rem; }
+ul { padding-left: 1.2rem; }
+footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>qRNAmap</h1>
+<p class="lead">Map bulk RNA-seq reads, count them per gene, and test for differential expression.</p>
+<p class="note">The browser version is under development. This page is a placeholder. You cannot run an analysis here yet.</p>
+<h2>What exists today</h2>
+<ul>
+  <li>A command-line tool. It wraps kallisto or Salmon (transcript quantification), or HISAT2 with featureCounts (alignment), and then DESeq2.</li>
+  <li>It runs on a laptop or as SLURM jobs on a cluster.</li>
+  <li>Source, install steps and the validation notes are in the <a href="https://github.com/stajichlab/qRNAmap">repository</a>.</li>
+</ul>
+<h2>What is planned</h2>
+<ul>
+  <li>The same steps in a web page, with all computation in your browser and no server.</li>
+  <li>Which tools can run in a browser is being measured now. The results will be published in the repository.</li>
+</ul>
+<footer>qRNAmap, Stajich Lab. <a href="https://github.com/stajichlab/qRNAmap">github.com/stajichlab/qRNAmap</a></footer>
+</body>
+</html>
