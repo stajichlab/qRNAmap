@@ -101,6 +101,24 @@ bash /bigdata/lab/run/slurm/submit.sh
 only. The default is `kallisto`, so a command without the option behaves as before.
 `run --mode align --quantifier ...` is an error.
 
+Two Salmon options are available on `quant` and `run`. Both are off by default. With neither option,
+the `salmon quant` command line is the same as in earlier versions.
+
+| qrnamap option | Salmon option | Rule |
+|---|---|---|
+| `--salmon-softclip-overhangs` | `--softclipOverhangs` | switch |
+| `--salmon-min-score-fraction F` | `--minScoreFraction F` | `F` is a finite number with 0 < F <= 1 |
+
+- Each option needs `--quantifier salmon`. With kallisto, with the default quantifier, or with
+  `run --mode align`, the option is an error that names the option.
+- An invalid `F` (0, a number above 1, a negative number, `NaN`, `inf` or text) is an error before qrnamap
+  writes any file. This includes `run --slurm`.
+- `run --slurm` writes the options that are set into the scripts. Scripts for a run without the options
+  are the same as before.
+- The index and the `.prepared` marker do not depend on the options.
+- Salmon 2.8.0 does not write these two options to `cmd_info.json` or to any other output file of a run
+  (checked on the large test fixture). qrnamap does not record them either. Keep the command line.
+
 | | kallisto | Salmon |
 |---|---|---|
 | version (pixi) | 0.52.0 | 2.8.0 |
@@ -112,7 +130,7 @@ only. The default is `kallisto`, so a command without the option behaves as befo
 | single-end | `--fragment-length MEAN,SD` | `--fragment-length MEAN,SD` (`--fldMean`, `--fldSD`) |
 
 - The Salmon index holds the transcripts only. It has no genome decoys.
-- Salmon runs with its defaults. qrnamap does not add `--validateMappings`, bootstrap, Gibbs
+- Salmon runs with its defaults unless you set one of the two options above. qrnamap does not add `--validateMappings`, bootstrap, Gibbs
   sampling or bias correction.
 - Salmon reads `.gz` FASTQ directly. qrnamap decompresses `.zst` FASTQ into the temporary directory
   first, as it does for kallisto.
@@ -287,9 +305,9 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
 - Salmon limits: no genome decoys (transcripts-only index), no bootstrap or Gibbs sampling, no
   Salmon in align mode, no Salmon in the browser build.
 - Salmon and transcripts shorter than the reads: with Salmon defaults, such transcripts can get 0 reads,
-  also for highly expressed genes (RPL41A and RPL41B on the AMB data). OPEN USER DECISION: whether
-  qrnamap passes `--softclipOverhangs` or `--minScoreFraction` to `salmon quant`. qrnamap passes no
-  tuning flag now, and flag changes are a non-goal of the Salmon spec. On a 500,000-pair subset of one
+  also for highly expressed genes (RPL41A and RPL41B on the AMB data). The options
+  `--salmon-softclip-overhangs` and `--salmon-min-score-fraction` are available and off by default.
+  On a 500,000-pair subset of one
   sample, these flags raised the RPL41A + RPL41B count from 0 to 163 to 742; kallisto gave 2,101
   (`validation/amb/salmon.md`).
 - A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run

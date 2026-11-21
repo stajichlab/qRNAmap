@@ -976,3 +976,34 @@ fn kallisto_quant_ignores_salmon_options() {
     let set = kallisto_quant(&smp, "i.idx", "out", &salmon_opt_cfg(true, Some(0.5))).unwrap();
     assert_eq!(argv_native(&base), argv_native(&set));
 }
+
+#[test]
+fn salmon_quant_single_end_with_overhang_flags() {
+    let mut c = salmon_opt_cfg(true, Some(0.5));
+    c.fragment_len = Some((200.0, 20.0));
+    let t = salmon_quant(&sample(&["a.fq"], &[]), "idx", "out", &c).unwrap();
+    assert_eq!(
+        argv_native(&t),
+        s(&[
+            "salmon",
+            "quant",
+            "-i",
+            "idx",
+            "-l",
+            "U",
+            "-r",
+            "a.fq",
+            "--fldMean",
+            "200",
+            "--fldSD",
+            "20",
+            "--softclipOverhangs",
+            "--minScoreFraction",
+            "0.5",
+            "-p",
+            "1",
+            "-o",
+            "out"
+        ])
+    );
+}

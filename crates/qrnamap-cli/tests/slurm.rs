@@ -1544,3 +1544,136 @@ fn slurm_rate_note_names_kallisto_only() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Salmon overhang flags: forwarded when set, scripts unchanged when not set
+
+/// The four generated scripts of `run --slurm` in `d`, with the paths that change from run to run
+/// replaced by fixed words.
+fn normalized_scripts(d: &Path) -> String {
+    let crate_dir = env!("CARGO_MANIFEST_DIR");
+    let bin = env!("CARGO_BIN_EXE_qrnamap");
+    let mut all = String::new();
+    for f in [
+        "prepare.sbatch",
+        "samples.sbatch",
+        "final.sbatch",
+        "submit.sh",
+    ] {
+        let text = read_script(d, f)
+            .replace(bin, "<BIN>")
+            .replace(crate_dir, "<CRATE>")
+            .replace(d.to_str().unwrap(), "<D>");
+        all.push_str(&format!("=== {f}\n{text}"));
+    }
+    all
+}
+
+#[test]
+fn slurm_forwards_salmon_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    stub_tools(&tools, &["salmon"], &d.join("log"));
+    let o = generate(
+        d,
+        "quant",
+        tools.to_str().unwrap(),
+        &[
+            "--quantifier",
+            "salmon",
+            "--salmon-softclip-overhangs",
+            "--salmon-min-score-fraction",
+            "0.5",
+        ],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    // The samples script runs the array tasks. The prepare and final scripts get the run args.
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        let text = read_script(d, f);
+        assert!(
+            text.contains("'--salmon-softclip-overhangs'"),
+            "{f}:\n{text}"
+        );
+        assert!(
+            text.contains("'--salmon-min-score-fraction' '0.5'"),
+            "{f}:\n{text}"
+        );
+    }
+    // A fraction alone, without the switch.
+    let o = generate(
+        d,
+        "quant",
+        tools.to_str().unwrap(),
+        &["--quantifier", "salmon", "--salmon-min-score-fraction", "1"],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let text = read_script(d, "samples.sbatch");
+    assert!(!text.contains("--salmon-softclip-overhangs"), "{text}");
+    assert!(text.contains("'--salmon-min-score-fraction' '1'"), "{text}");
+}
+
+#[test]
+fn slurm_salmon_flag_errors_write_no_scripts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    stub_tools(&tools, &["salmon", "kallisto"], &d.join("log"));
+    for extra in [
+        &["--quantifier", "salmon", "--salmon-min-score-fraction", "0"][..],
+        &[
+            "--quantifier",
+            "salmon",
+            "--salmon-min-score-fraction",
+            "1.5",
+        ][..],
+        &["--salmon-softclip-overhangs"][..],
+        &[
+            "--quantifier",
+            "kallisto",
+            "--salmon-min-score-fraction",
+            "0.5",
+        ][..],
+    ] {
+        let o = generate(d, "quant", tools.to_str().unwrap(), extra);
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(!o.status.success(), "{extra:?}: {err}");
+        assert!(err.contains("--salmon-"), "{extra:?}: {err}");
+        assert!(!d.join("run").exists(), "{extra:?}: files were written");
+    }
+}
+
+/// Expected scripts are stored in `tests/golden/slurm_main_*.txt`. They were made by the code of
+/// `main` (commit fe1ce5e, before the flags existed): a detached worktree of fe1ce5e, this test
+/// file copied into its `crates/qrnamap-cli/tests/`, and
+/// `QRNAMAP_WRITE_GOLDEN=<dir> cargo test -p qrnamap-cli --test slurm slurm_without_flags_is_unchanged`.
+/// With `QRNAMAP_WRITE_GOLDEN` set, the test writes the files and does not compare.
+#[test]
+fn slurm_without_flags_is_unchanged() {
+    for (quantifier, tool) in [("salmon", "salmon"), ("kallisto", "kallisto")] {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        let tools = d.join("tools");
+        stub_tools(&tools, &[tool], &d.join("log"));
+        let o = generate(
+            d,
+            "quant",
+            tools.to_str().unwrap(),
+            &["--quantifier", quantifier],
+        );
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let got = normalized_scripts(d);
+        let name = format!("slurm_main_{quantifier}.txt");
+        if let Some(dir) = std::env::var_os("QRNAMAP_WRITE_GOLDEN") {
+            fs::write(Path::new(&dir).join(&name), &got).unwrap();
+            continue;
+        }
+        let want = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/golden")
+                .join(&name),
+        )
+        .unwrap();
+        assert_eq!(got, want, "{quantifier}: scripts differ from main");
+    }
+}
