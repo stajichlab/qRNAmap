@@ -407,3 +407,23 @@ fn strand_suggestion_reader_error_paths() {
     assert_eq!(bad_table(&e), (0, "the table is empty".into()));
     assert!(e.to_string().ends_with("strand_check.tsv: the table is empty"), "{e}");
 }
+
+#[test]
+fn matrix_warns_when_quantifiers_differ() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    write_both(d, &["S1", "S2", "S3"]);
+    let mixed = |w: &str| w.contains("quantifier");
+    // One tool: no quantifier warning.
+    let (_, warnings) = run_matrix(d, &samples_of(&["S1", "S2", "S3"]), None).unwrap();
+    assert!(!warnings.iter().any(|w| mixed(w)), "{warnings:?}");
+    // S2 counted with salmon: a warning (not an error) that names both tools and the samples.
+    let s = summ(7, 0.5, 0.5);
+    write_sample_summary(d, "S2", Mode::Quant, Some(Quantifier::Salmon), &s, Strandedness::Reverse)
+        .unwrap();
+    let (path, warnings) = run_matrix(d, &samples_of(&["S1", "S2", "S3"]), None).unwrap();
+    assert!(path.is_file());
+    let w: Vec<&String> = warnings.iter().filter(|w| mixed(w)).collect();
+    assert_eq!(w.len(), 1, "{warnings:?}");
+    assert!(w[0].contains("kallisto (S1, S3)") && w[0].contains("salmon (S2)"), "{}", w[0]);
+}

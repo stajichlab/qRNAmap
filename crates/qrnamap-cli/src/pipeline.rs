@@ -928,6 +928,31 @@ pub fn build_mapping_summary(out_dir: &Path, samples: &[String], strand_check: O
     Ok(text)
 }
 
+/// A warning when the rows of a mapping summary table (from `build_mapping_summary`) name
+/// more than one quantifier (`none` for align counts one too). The counts of different tools
+/// are not the same measure, so one matrix should not mix them. A warning, not an error.
+fn mixed_quantifier_warning(summary: &str) -> Option<String> {
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for row in summary.lines().skip(1) {
+        let mut cells = row.split('\t');
+        let (Some(sample), Some(_), Some(q)) = (cells.next(), cells.next(), cells.next()) else {
+            continue;
+        };
+        match groups.iter_mut().find(|(g, _)| *g == q) {
+            Some((_, v)) => v.push(sample),
+            None => groups.push((q, vec![sample])),
+        }
+    }
+    if groups.len() < 2 {
+        return None;
+    }
+    let list: Vec<String> = groups.iter().map(|(q, v)| format!("{q} ({})", v.join(", "))).collect();
+    Some(format!(
+        "the samples were counted with different quantifiers: {}. The matrix mixes their counts",
+        list.join("; ")
+    ))
+}
+
 /// Write a per-sample gene count table (`<out>/<sample>.genecounts.tsv.zst`).
 ///
 /// Format: tab-separated text. The first line is the header `gene\t<sample>`; its second
@@ -1662,6 +1687,8 @@ pub fn run_matrix_with_genes(
     let strand_check = strand_check.is_file().then_some(strand_check);
     let names: Vec<String> = samples.iter().map(|s| s.name.clone()).collect();
     let summary = build_mapping_summary(out_dir, &names, strand_check.as_deref())?;
+    let mut warnings = warnings;
+    warnings.extend(mixed_quantifier_warning(&summary));
     let path = out_dir.join("counts.tsv.zst");
     write_output(&path, matrix.to_tsv().as_bytes())?;
     write_output(&out_dir.join(MAPPING_SUMMARY), summary.as_bytes())?;
