@@ -488,3 +488,20 @@ fn switching_tool_removes_old_outputs() {
     // A second call on a clean directory is fine.
     remove_old_outputs(out, "S1").unwrap();
 }
+
+#[test]
+fn salmon_prepare_removes_stale_index_directory() {
+    if common::require_tool("salmon").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let (fa, t2g) = transcripts(d);
+    let out = d.join("quant");
+    let stale = out.join("salmon_index").join("stale.txt");
+    std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+    std::fs::write(&stale, b"old").unwrap();
+    prepare_quant(&fa, &t2g, &out, Scratch::new(d.join("tmp")), salmon_cfg(), None).unwrap();
+    assert!(out.join("salmon_index").is_dir(), "salmon index directory");
+    assert!(!stale.exists(), "a file of the old index survived");
+}
