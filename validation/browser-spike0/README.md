@@ -65,6 +65,14 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 - `parity.mjs` writes `<tool>.steps.tsv` per tool and engine. `compare_parity.py` writes `results/parity_results.tsv`.
   Test: `python3 -m pytest validation/browser-spike0/test_compare_parity.py`.
 - Result: kallisto, HISAT2 and featureCounts pass in Node, Chromium, Firefox and WebKit.
-  DESeq2 (Node) fails the stated tolerance (absolute 1e-12 or relative 1e-6) on one value of 6477 x 6.
-  The DESeq2 versions differ (1.50.2 native, 1.52.0 WASM). DESeq2 in browsers was not run.
+  DESeq2 (Node) fails the stated tolerance (absolute 1e-12 or relative 1e-6) on 1 of 38,203 numeric values.
+  The table has 6,477 genes x 6 columns = 38,862 cells. 659 cells are NA on both sides (same NA pattern),
+  so 38,203 numeric values were compared. DESeq2 in browsers was not run.
+- DESeq2 versions: native DESeq2 1.50.2 with R 4.5.3, WASM DESeq2 1.52.0 with R 4.6.0. No same-version native
+  reference was run. The failure cannot be attributed to WASM or to the version difference.
+- kallisto index bytes differ between all four engines and from the native index. The quant output
+  (`abundance.tsv`) is identical in all cases. The cause is UNVERIFIED.
+- Any push to the fork branch without `[skip ci]` starts 11 upstream workflows (`on: push` with no filter).
+  They were cancelled by hand after the trigger push of run 44944424373. The spike workflow is now registered
+  (ID 426260115). Dispatch of the spike workflow by ID was not tested.
 - Full outputs: `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/parity/run-44944424373/` (SAM files zstd).
