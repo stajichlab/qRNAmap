@@ -8,9 +8,10 @@
 //! `--step final` does the matrix and DESeq2 only. The SLURM scripts call those two steps and
 //! `qrnamap quant|align --task-id` in between.
 //!
-//! Files in the run directory: `transcripts.fa.zst`, `tx2gene.tsv.zst` and `transcripts.kidx`
-//! (quant); `splice_sites.txt`, `genes.saf` and `index/` (align); `<sample>/` and
-//! `<sample>.genecounts.tsv.zst`; `counts.tsv.zst`; `deseq2.*` (with a contrast); `slurm/`.
+//! Files in the run directory: `transcripts.fa.zst`, `tx2gene.tsv.zst`, and `transcripts.kidx`
+//! (kallisto) or the directory `salmon_index/` (salmon) (quant); `splice_sites.txt`,
+//! `genes.saf` and `index/` (align); `<sample>/` and `<sample>.genecounts.tsv.zst`;
+//! `counts.tsv.zst`; `deseq2.*` (with a contrast); `slurm/`.
 
 use std::fmt;
 use std::fs;
@@ -19,7 +20,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use qrnamap_core::de::{check_design, DeError, Shrink};
-use qrnamap_core::{Contrast, CountMatrix, Design, Mode, RunConfig, SampleSheet, Strandedness};
+use qrnamap_core::{
+    Contrast, CountMatrix, Design, Mode, Quantifier, RunConfig, SampleSheet, Strandedness,
+};
 use qseq_io::FastqReader;
 
 use crate::de::{run_de, DeArgs, DeRunError};
@@ -95,7 +98,8 @@ pub enum RunError {
     TaskOutOfRange { task_id: usize, per_task: usize, n_samples: usize },
     /// `--task-id` and `--step final` need a run directory prepared by
     /// `qrnamap run --step prepare` from the same inputs (ruling R27). `reason` names what
-    /// differs: a missing marker, the mode, the version, or an input's path, size or mtime.
+    /// differs: a missing marker, the mode, the quantifier, the version, or an input's path,
+    /// size or mtime.
     NotPrepared { dir: PathBuf, reason: String },
     /// A path with a newline cannot be recorded in the marker.
     UnsupportedPath(PathBuf),
@@ -251,8 +255,15 @@ fn remove_if_present(p: &Path) -> Result<(), RunError> {
     }
 }
 
-/// First line of the marker file.
-const MARKER_HEADER: &str = "qrnamap-prepared\t1";
+/// First line of the marker file. Version 2 adds the `quantifier` line.
+const MARKER_HEADER: &str = "qrnamap-prepared\t2";
+/// First line of a version-1 marker (before the `quantifier` line). Refused.
+const MARKER_HEADER_V1: &str = "qrnamap-prepared\t1";
+
+/// The marker word of a quantifier: the tool name, or `none` for align mode.
+fn quantifier_word(q: Option<Quantifier>) -> &'static str {
+    q.map_or("none", Quantifier::name)
+}
 
 /// One recorded input: role, canonical path, size in bytes, mtime (seconds, nanoseconds).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,16 +291,28 @@ fn stamp(role: &str, path: &Path) -> Result<InputStamp, String> {
 ///
 /// Format (tab-separated lines):
 /// ```text
-/// qrnamap-prepared<TAB>1
+/// qrnamap-prepared<TAB>2
 /// version<TAB><qrnamap version>
 /// mode<TAB>quant|align
+/// quantifier<TAB>kallisto|salmon|none
 /// input<TAB><role><TAB><size bytes><TAB><mtime seconds><TAB><mtime nanoseconds><TAB><canonical path>
 /// ```
 /// One `input` line per entry of `inputs`, in order. Roles: `reference`, `gff`, and in quant
 /// mode `transcripts` and `tx2gene`. The path is the last field, so it may hold a tab; a path
-/// with a newline is refused (`UnsupportedPath`).
-pub fn write_prepared_marker(out: &Path, mode: Mode, inputs: &[(&str, &Path)]) -> Result<(), RunError> {
-    let mut text = format!("{MARKER_HEADER}\nversion\t{}\nmode\t{}\n", env!("CARGO_PKG_VERSION"), mode_word(mode));
+/// with a newline is refused (`UnsupportedPath`). `quantifier` is `None` in align mode, which
+/// writes `none`.
+pub fn write_prepared_marker(
+    out: &Path,
+    mode: Mode,
+    quantifier: Option<Quantifier>,
+    inputs: &[(&str, &Path)],
+) -> Result<(), RunError> {
+    let mut text = format!(
+        "{MARKER_HEADER}\nversion\t{}\nmode\t{}\nquantifier\t{}\n",
+        env!("CARGO_PKG_VERSION"),
+        mode_word(mode),
+        quantifier_word(quantifier)
+    );
     for (role, path) in inputs {
         let st = stamp(role, path).map_err(|reason| RunError::NotPrepared { dir: out.to_path_buf(), reason })?;
         let ps = st.path.to_str().ok_or_else(|| RunError::NonUtf8Path(st.path.clone()))?;
@@ -308,17 +331,33 @@ pub fn remove_prepared_marker(out: &Path) -> Result<(), RunError> {
     remove_if_present(&out.join(PREPARED_MARKER))
 }
 
-fn parse_marker(text: &str) -> Result<(String, String, Vec<InputStamp>), String> {
+/// The fields of a marker file.
+struct Marker {
+    version: String,
+    mode: String,
+    quantifier: String,
+    inputs: Vec<InputStamp>,
+}
+
+fn parse_marker(text: &str) -> Result<Marker, String> {
     let mut lines = text.lines();
-    if lines.next() != Some(MARKER_HEADER) {
-        return Err(format!("{PREPARED_MARKER} has an unknown format"));
+    match lines.next() {
+        Some(MARKER_HEADER) => {}
+        Some(MARKER_HEADER_V1) => {
+            return Err(format!(
+                "{PREPARED_MARKER} is format version 1, written by an older qrnamap without the \
+                 quantifier line; prepare the run directory again"
+            ))
+        }
+        _ => return Err(format!("{PREPARED_MARKER} has an unknown format")),
     }
-    let (mut version, mut mode, mut inputs) = (None, None, Vec::new());
+    let (mut version, mut mode, mut quantifier, mut inputs) = (None, None, None, Vec::new());
     for l in lines {
         let f: Vec<&str> = l.splitn(6, '\t').collect();
         match f.as_slice() {
             ["version", v] => version = Some(v.to_string()),
             ["mode", m] => mode = Some(m.to_string()),
+            ["quantifier", q] => quantifier = Some(q.to_string()),
             ["input", role, size, secs, nanos, path] => {
                 let bad = || format!("{PREPARED_MARKER}: bad input line for {role}");
                 inputs.push(InputStamp {
@@ -332,16 +371,24 @@ fn parse_marker(text: &str) -> Result<(String, String, Vec<InputStamp>), String>
             _ => return Err(format!("{PREPARED_MARKER} has an unknown line")),
         }
     }
-    match (version, mode) {
-        (Some(v), Some(m)) => Ok((v, m, inputs)),
-        _ => Err(format!("{PREPARED_MARKER} lacks the version or mode line")),
+    match (version, mode, quantifier) {
+        (Some(version), Some(mode), Some(quantifier)) => {
+            Ok(Marker { version, mode, quantifier, inputs })
+        }
+        _ => Err(format!("{PREPARED_MARKER} lacks the version, mode or quantifier line")),
     }
 }
 
-/// Compare `<out>/.prepared` with this run (ruling R27): the mode, the qrnamap version, and for
-/// each input the role set, the canonical path, the current size and the current mtime. Any
-/// difference is `NotPrepared` with a reason that names the input and what changed.
-pub fn check_prepared(out: &Path, mode: Mode, inputs: &[(&str, &Path)]) -> Result<(), RunError> {
+/// Compare `<out>/.prepared` with this run (ruling R27): the mode, the quantifier (`None` in
+/// align mode), the qrnamap version, and for each input the role set, the canonical path, the
+/// current size and the current mtime. Any difference is `NotPrepared` with a reason that names
+/// the input and what changed.
+pub fn check_prepared(
+    out: &Path,
+    mode: Mode,
+    quantifier: Option<Quantifier>,
+    inputs: &[(&str, &Path)],
+) -> Result<(), RunError> {
     let not = |reason: String| RunError::NotPrepared { dir: out.to_path_buf(), reason };
     let marker = out.join(PREPARED_MARKER);
     let text = match fs::read_to_string(&marker) {
@@ -349,9 +396,14 @@ pub fn check_prepared(out: &Path, mode: Mode, inputs: &[(&str, &Path)]) -> Resul
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not(format!("marker {} is missing", marker.display()))),
         Err(e) => return Err(not(format!("marker {}: {e}", marker.display()))),
     };
-    let (version, prep_mode, recorded) = parse_marker(&text).map_err(not)?;
+    let Marker { version, mode: prep_mode, quantifier: prep_q, inputs: recorded } =
+        parse_marker(&text).map_err(not)?;
     if prep_mode != mode_word(mode) {
         return Err(not(format!("mode differs: prepared for {prep_mode}, this run is {}", mode_word(mode))));
+    }
+    let q = quantifier_word(quantifier);
+    if prep_q != q {
+        return Err(not(format!("quantifier differs: prepared for {prep_q}, this run uses {q}")));
     }
     if version != env!("CARGO_PKG_VERSION") {
         return Err(not(format!("version differs: prepared by qrnamap {version}, this is qrnamap {}", env!("CARGO_PKG_VERSION"))));
@@ -407,6 +459,16 @@ fn require_file(out: &Path, p: &Path) -> Result<(), RunError> {
     }
 }
 
+/// `require_file` for a directory, such as the salmon index.
+fn require_dir(out: &Path, p: &Path) -> Result<(), RunError> {
+    if p.is_dir() {
+        Ok(())
+    } else {
+        let reason = format!("directory {} is missing", p.display());
+        Err(RunError::NotPrepared { dir: out.to_path_buf(), reason })
+    }
+}
+
 /// The marker inputs of a run directory, in marker order.
 fn marker_inputs<'a>(mode: Mode, reference: &'a Path, gff: &'a Path, tx: Option<(&'a Path, &'a Path)>) -> Vec<(&'static str, &'a Path)> {
     let mut v = vec![("reference", reference), ("gff", gff)];
@@ -416,8 +478,9 @@ fn marker_inputs<'a>(mode: Mode, reference: &'a Path, gff: &'a Path, tx: Option<
     v
 }
 
-/// The kallisto context of a prepared run directory, without building anything. The marker
-/// must match `reference`, `gff`, `transcripts` and `tx2gene` (ruling R27).
+/// The quant context of a prepared run directory, without building anything. The marker must
+/// match `config.quantifier`, `reference`, `gff`, `transcripts` and `tx2gene` (ruling R27).
+/// The index is `transcripts.kidx` (kallisto, a file) or `salmon_index` (salmon, a directory).
 pub fn prepared_quant(
     out: &Path,
     reference: &Path,
@@ -428,9 +491,20 @@ pub fn prepared_quant(
     config: RunConfig,
 ) -> Result<QuantContext, RunError> {
     let out = std::path::absolute(out).map_err(io_err(out))?;
-    check_prepared(&out, Mode::Quant, &marker_inputs(Mode::Quant, reference, gff, Some((transcripts, tx2gene))))?;
-    let index = out.join("transcripts.kidx");
-    require_file(&out, &index)?;
+    let inputs = marker_inputs(Mode::Quant, reference, gff, Some((transcripts, tx2gene)));
+    check_prepared(&out, Mode::Quant, Some(config.quantifier), &inputs)?;
+    let index = match config.quantifier {
+        Quantifier::Kallisto => {
+            let index = out.join("transcripts.kidx");
+            require_file(&out, &index)?;
+            index
+        }
+        Quantifier::Salmon => {
+            let index = out.join("salmon_index");
+            require_dir(&out, &index)?;
+            index
+        }
+    };
     Ok(QuantContext { index, tx2gene: read_tx2gene(tx2gene)?, out_dir: out, scratch, config })
 }
 
@@ -445,7 +519,7 @@ pub fn prepared_align(
     keep_sam: bool,
 ) -> Result<AlignContext, RunError> {
     let out = std::path::absolute(out).map_err(io_err(out))?;
-    check_prepared(&out, Mode::Align, &marker_inputs(Mode::Align, reference, gff, None))?;
+    check_prepared(&out, Mode::Align, None, &marker_inputs(Mode::Align, reference, gff, None))?;
     let index_prefix = out.join("index").join("genome");
     let splice_sites = out.join("splice_sites.txt");
     let saf = out.join("genes.saf");
@@ -480,6 +554,11 @@ fn remove_old_run_outputs(out: &Path, sheet: &SampleSheet) -> Result<(), RunErro
     Ok(())
 }
 
+/// The quantifier of a run for the marker: `config.quantifier` in quant mode, `None` in align.
+fn run_quantifier(args: &RunArgs) -> Option<Quantifier> {
+    (args.mode == Mode::Quant).then_some(args.config.quantifier)
+}
+
 enum Prepared {
     Quant(QuantContext),
     Align(AlignContext),
@@ -505,7 +584,8 @@ fn prepare(args: &RunArgs, out: &Path, scratch: &Scratch, warn: &mut dyn FnMut(&
         Mode::Align => Prepared::Align(prepare_align(&args.reference, &args.gff, out, scratch.clone(), cfg, args.keep_sam, &args.mito_contigs)?),
     };
     let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
-    write_prepared_marker(out, args.mode, &marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g))))?;
+    let inputs = marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g)));
+    write_prepared_marker(out, args.mode, run_quantifier(args), &inputs)?;
     Ok((sheet, ctx))
 }
 
@@ -550,7 +630,8 @@ pub fn run_local(
         Step::Final => {
             let sheet = check_inputs(args)?;
             let (fa, t2g) = (out.join("transcripts.fa.zst"), out.join("tx2gene.tsv.zst"));
-            check_prepared(&out, args.mode, &marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g))))?;
+            let inputs = marker_inputs(args.mode, &args.reference, &args.gff, Some((&fa, &t2g)));
+            check_prepared(&out, args.mode, run_quantifier(args), &inputs)?;
             check_counts_not_stale(&out, &sheet)?;
             finish(args, &out, &sheet, warn)
         }
@@ -583,12 +664,13 @@ fn strand_word(s: Strandedness) -> &'static str {
     }
 }
 
-/// The programs the jobs start by name: kallisto (quant); hisat2-build (a Python script, so also
-/// `python`, and the `hisat2-build-s` it runs), hisat2-align-s and featureCounts (align);
-/// Rscript with a contrast. The qrnamap binary is called by its absolute path.
-pub fn required_tools(mode: Mode, with_de: bool) -> Vec<&'static str> {
+/// The programs the jobs start by name: kallisto or salmon (quant, from `quantifier`);
+/// hisat2-build (a Python script, so also `python`, and the `hisat2-build-s` it runs),
+/// hisat2-align-s and featureCounts (align); Rscript with a contrast. `quantifier` is not used
+/// in align mode. The qrnamap binary is called by its absolute path.
+pub fn required_tools(mode: Mode, quantifier: Quantifier, with_de: bool) -> Vec<&'static str> {
     let mut v = match mode {
-        Mode::Quant => vec!["kallisto"],
+        Mode::Quant => vec![quantifier.name()],
         Mode::Align => vec!["hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts"],
     };
     if with_de {
@@ -622,6 +704,11 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
         utf8(&out)?,
     ];
     run_args.extend(common.iter().cloned());
+    // Quant mode always names the quantifier, the default too, so the scripts are explicit.
+    let quantifier = run_quantifier(args);
+    if let Some(q) = quantifier {
+        run_args.extend(["--quantifier".into(), q.name().into()]);
+    }
     run_args.extend([
         "--max-intron".into(),
         c.max_intron.to_string(),
@@ -658,13 +745,16 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
     }
     task_args.extend(["--out".into(), utf8(&out)?]);
     task_args.extend(common);
+    if let Some(q) = quantifier {
+        task_args.extend(["--quantifier".into(), q.name().into()]);
+    }
     if args.mode == Mode::Align {
         task_args.extend(["--max-intron".into(), c.max_intron.to_string()]);
         if args.keep_sam {
             task_args.push("--keep-sam".into());
         }
     }
-    let tools = required_tools(args.mode, args.contrast.is_some());
+    let tools = required_tools(args.mode, c.quantifier, args.contrast.is_some());
     let tool_dirs = crate::slurm::resolve_tool_dirs(&tools, &opts.tool_paths, std::env::var_os("PATH").as_deref())
         .map_err(RunError::Slurm)?;
     Ok(Plan {
@@ -679,6 +769,7 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
         work_dir,
         qrnamap_bin: abs(&opts.qrnamap_bin)?,
         mode: args.mode,
+        quantifier,
         run_args,
         task_args,
         tool_dirs,

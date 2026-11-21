@@ -23,11 +23,12 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use qrnamap_core::Mode;
+use qrnamap_core::{Mode, Quantifier};
 
 /// Default `--time`. Placeholder, not derived from a measurement. Measured AMB rates with
 /// `--threads 1` (`validation/amb/README.md`, "Bundling"): quant 22.7 to 26.8 s and align 35.2
-/// to 52.1 s per million read pairs.
+/// to 52.1 s per million read pairs. The quant rates were measured with kallisto. Salmon rates
+/// are not measured.
 pub const DEFAULT_TIME: &str = "02:00:00";
 /// Default `--mem-gb`. Placeholder, small on purpose. Measured on the AMB data set (see
 /// `validation/amb/README.md`): HISAT2 used 41,208 KB and featureCounts used 36,144 KB resident
@@ -63,6 +64,9 @@ pub struct Plan {
     /// Absolute path of the `qrnamap` binary.
     pub qrnamap_bin: PathBuf,
     pub mode: Mode,
+    /// The quantifier in quant mode, `None` in align mode. Used for the rate note only; the
+    /// `--quantifier` flag itself is in `run_args` and `task_args`.
+    pub quantifier: Option<Quantifier>,
     /// Arguments after `qrnamap run` for the prepare and final jobs (without `--step`,
     /// `--tmpdir` and `--slurm`).
     pub run_args: Vec<String>,
@@ -270,6 +274,10 @@ impl Checked<'_> {
         h.push_str("# The --cpus-per-task, --mem and --time defaults are UNMEASURED placeholders. Set them from a measured run\n");
         h.push_str("# with --cpus, --mem-gb and --time. The --time default is a placeholder. Measured AMB rates with\n");
         h.push_str("# --threads 1 (validation/amb/README.md): quant 22.7 to 26.8 s and align 35.2 to 52.1 s per million read pairs.\n");
+        h.push_str("# The quant rates were measured with kallisto.\n");
+        if p.quantifier == Some(Quantifier::Salmon) {
+            h.push_str("# This run uses salmon. Salmon rates are not measured.\n");
+        }
         if p.mem_gb == DEFAULT_MEM_GB {
             h.push_str("# The --mem default is small: AMB data used about 40 MiB (41,208 KB) resident (not measured for large genomes).\n");
         }
@@ -482,6 +490,7 @@ mod tests {
             work_dir: "/w".into(),
             qrnamap_bin: "/b".into(),
             mode: Mode::Align,
+            quantifier: None,
             run_args: vec![],
             task_args: vec![],
             tool_dirs: vec![],

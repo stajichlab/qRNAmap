@@ -9,10 +9,14 @@ use qrnamap_cli::pipeline::{
     run_transcripts_with_genes, strand_check_sample, GenesFrom, GenesSource, SampleResult, Scratch,
     LOW_ASSIGNED_FRACTION,
 };
-use qrnamap_core::{Mode, RunConfig, Sample, SampleSheet, Strandedness};
+use qrnamap_core::{Mode, Quantifier, RunConfig, Sample, SampleSheet, Strandedness};
 
 #[derive(Parser)]
-#[command(name = "qrnamap", version, about = "Bulk RNA-seq quantification (kallisto or HISAT2 + featureCounts)")]
+#[command(
+    name = "qrnamap",
+    version,
+    about = "Bulk RNA-seq quantification (kallisto, salmon, or HISAT2 + featureCounts)"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -64,10 +68,14 @@ enum Cmd {
         #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
         mito_contig: Vec<String>,
     },
-    /// kallisto index and quant per sample; writes DIR/<sample>.genecounts.tsv.zst.
+    /// kallisto or salmon index and quant per sample; writes DIR/<sample>.genecounts.tsv.zst.
     Quant {
         #[arg(long)]
         samples: PathBuf,
+        /// Pseudo-alignment tool. Default: kallisto. With --task-id it must match the
+        /// quantifier the run directory was prepared with.
+        #[arg(long, value_enum)]
+        quantifier: Option<QuantArg>,
         #[arg(long)]
         transcripts: PathBuf,
         #[arg(long)]
@@ -127,6 +135,10 @@ enum Cmd {
         gff: PathBuf,
         #[arg(long, value_enum)]
         mode: ModeArg,
+        /// Pseudo-alignment tool (quant mode only; an error with --mode align). Default:
+        /// kallisto.
+        #[arg(long, value_enum)]
+        quantifier: Option<QuantArg>,
         /// Run directory. On a cluster it must be on shared storage (for example /bigdata).
         #[arg(long)]
         out: PathBuf,
@@ -257,6 +269,26 @@ enum ModeArg {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum QuantArg {
+    Kallisto,
+    Salmon,
+}
+
+impl QuantArg {
+    fn core(self) -> Quantifier {
+        match self {
+            QuantArg::Kallisto => Quantifier::Kallisto,
+            QuantArg::Salmon => Quantifier::Salmon,
+        }
+    }
+}
+
+/// The quantifier of `--quantifier`, or the default (kallisto) when the flag is not given.
+fn quantifier_or_default(q: Option<QuantArg>) -> Quantifier {
+    q.map_or(Quantifier::Kallisto, QuantArg::core)
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum StepArg {
     All,
     Prepare,
@@ -300,7 +332,7 @@ enum ShrinkArg {
 struct RunFlags {
     #[arg(long, value_enum, default_value = "unstranded")]
     strandedness: StrandArg,
-    /// Fragment length mean and SD for single-end kallisto, as MEAN,SD.
+    /// Fragment length mean and SD for single-end kallisto or salmon, as MEAN,SD.
     #[arg(long, value_parser = parse_fragment_length)]
     fragment_length: Option<(f64, f64)>,
     #[arg(long, default_value_t = 1)]
@@ -431,9 +463,12 @@ fn run(cli: Cli) -> Result<(), String> {
                 .map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());
         }
-        Cmd::Quant { samples, transcripts, tx2gene, out, run, task, reference, gff, mito_contig } => {
+        Cmd::Quant {
+            samples, quantifier, transcripts, tx2gene, out, run, task, reference, gff, mito_contig,
+        } => {
             let samples = load_sheet(&samples)?;
-            let cfg = run.config(Mode::Quant);
+            let mut cfg = run.config(Mode::Quant);
+            cfg.quantifier = quantifier_or_default(quantifier);
             check_samples(&samples, &cfg, Mode::Quant).map_err(e)?;
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
@@ -497,10 +532,17 @@ fn run(cli: Cli) -> Result<(), String> {
             scratch.cleanup();
         }
         Cmd::Run {
-            samples, reference, gff, mode, out, run, max_intron, design, contrast, shrink, reads_per_sample, keep_sam,
-            step, slurm, samples_per_task, cpus, mem_gb, time, partition, account, qrnamap_bin, tool_path, mito_contig,
+            samples, reference, gff, mode, quantifier, out, run, max_intron, design, contrast,
+            shrink, reads_per_sample, keep_sam, step, slurm, samples_per_task, cpus, mem_gb, time,
+            partition, account, qrnamap_bin, tool_path, mito_contig,
         } => {
             use qrnamap_cli::run::{run_local, run_slurm, scratch_out_warning, scratch_tmpdir_warning, RunArgs, SlurmOptions, Step};
+            // Spec decision 7: --quantifier with align mode is an error, not ignored.
+            if matches!(mode, ModeArg::Align) && quantifier.is_some() {
+                let m = "--quantifier cannot be used with --mode align; \
+                         it applies to --mode quant only";
+                return Err(m.into());
+            }
             let abs_out = std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
             if let Some(w) = scratch_out_warning(&abs_out, std::env::var_os("SCRATCH").as_deref()) {
                 eprintln!("warning: {w}");
@@ -518,6 +560,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 ModeArg::Align => Mode::Align,
             };
             let mut config = run.config(mode);
+            config.quantifier = quantifier_or_default(quantifier);
             config.max_intron = max_intron;
             config.reads_per_sample = reads_per_sample;
             let step = match step {

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use qrnamap_cli::slurm::{sh_quote, DEFAULT_MEM_GB, slurm_array_script, slurm_scripts, write_slurm_scripts, Plan, SlurmError};
-use qrnamap_core::Mode;
+use qrnamap_core::{Mode, Quantifier};
 
 fn plan(n: usize, k: usize, run_dir: &Path) -> Plan {
     Plan {
@@ -24,6 +24,7 @@ fn plan(n: usize, k: usize, run_dir: &Path) -> Plan {
         work_dir: PathBuf::from("/bigdata/lab/work"),
         qrnamap_bin: PathBuf::from("/opt/qrnamap/bin/qrnamap"),
         mode: Mode::Quant,
+        quantifier: Some(Quantifier::Kallisto),
         run_args: vec!["--samples".into(), "/bigdata/lab/sheet.tsv".into(), "--out".into(), run_dir.to_str().unwrap().into()],
         task_args: vec!["--samples".into(), "/bigdata/lab/sheet.tsv".into(), "--out".into(), run_dir.to_str().unwrap().into()],
         tool_dirs: vec![PathBuf::from("/opt/tools/bin")],
@@ -326,7 +327,10 @@ fn qrnamap_no_tools(args: &[&str], empty_path: &Path) -> std::process::Output {
 }
 
 /// Every tool name the generated scripts can require.
-const ALL_TOOLS: &[&str] = &["kallisto", "hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts", "Rscript"];
+const ALL_TOOLS: &[&str] = &[
+    "kallisto", "salmon", "hisat2-build", "hisat2-build-s", "hisat2-align-s", "python",
+    "featureCounts", "Rscript",
+];
 
 /// Stub executables that append `<name>` to `log` when started.
 fn stub_tools(dir: &Path, names: &[&str], log: &Path) {
@@ -925,5 +929,66 @@ fn mem_default_comment_only_with_the_default() {
     for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
         assert!(!text.contains(MEM_DEFAULT_LINE), "{name}:\n{text}");
         assert!(text.contains("#SBATCH --mem=16G\n"), "{name}:\n{text}");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Salmon: --quantifier in the scripts, tools and the rate note
+
+#[test]
+fn slurm_forwards_quantifier() {
+    use qrnamap_cli::run::required_tools;
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    let tools = d.join("tools");
+    stub_tools(&tools, &["salmon"], &d.join("log"));
+    let o = generate(d, "quant", tools.to_str().unwrap(), &["--quantifier", "salmon"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        let text = read_script(d, f);
+        assert!(text.contains("'--quantifier' 'salmon'"), "{f}:\n{text}");
+    }
+    let prep = read_script(d, "prepare.sbatch");
+    assert!(prep.contains("for tool in 'salmon'; do"), "{prep}");
+    // Salmon needs salmon on PATH, not kallisto.
+    let o = generate(d, "quant", tools.to_str().unwrap(), &[]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success() && err.contains("kallisto"), "{err}");
+    // The default is written out too, so the scripts are explicit.
+    stub_tools(&tools, &["kallisto"], &d.join("log"));
+    let o = generate(d, "quant", tools.to_str().unwrap(), &[]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        assert!(read_script(d, f).contains("'--quantifier' 'kallisto'"), "{f}");
+    }
+    // Align scripts carry no --quantifier.
+    let align_tools =
+        ["hisat2-build", "hisat2-build-s", "hisat2-align-s", "python", "featureCounts"];
+    stub_tools(&tools, &align_tools, &d.join("log"));
+    let o = generate(d, "align", tools.to_str().unwrap(), &[]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for f in ["prepare.sbatch", "samples.sbatch", "final.sbatch"] {
+        assert!(!read_script(d, f).contains("--quantifier"), "{f}");
+    }
+    assert_eq!(required_tools(Mode::Quant, Quantifier::Salmon, false), vec!["salmon"]);
+    assert_eq!(required_tools(Mode::Quant, Quantifier::Kallisto, false), vec!["kallisto"]);
+    assert_eq!(required_tools(Mode::Quant, Quantifier::Salmon, true), vec!["salmon", "Rscript"]);
+    let align = required_tools(Mode::Align, Quantifier::Salmon, false);
+    assert!(!align.contains(&"salmon") && !align.contains(&"kallisto"), "{align:?}");
+}
+
+#[test]
+fn slurm_rate_note_names_kallisto_only() {
+    let mut p = plan(7, 3, Path::new("/bigdata/lab/run1"));
+    let s = slurm_scripts(&p).unwrap();
+    for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
+        assert!(text.contains("The quant rates were measured with kallisto."), "{name}:\n{text}");
+        assert!(!text.contains("salmon"), "{name}:\n{text}");
+    }
+    p.quantifier = Some(Quantifier::Salmon);
+    let s = slurm_scripts(&p).unwrap();
+    for (name, text) in [("prepare", &s.prepare), ("samples", &s.samples), ("final", &s.final_)] {
+        assert!(text.contains("The quant rates were measured with kallisto."), "{name}:\n{text}");
+        assert!(text.contains("Salmon rates are not measured."), "{name}:\n{text}");
     }
 }

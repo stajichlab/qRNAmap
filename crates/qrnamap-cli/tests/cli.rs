@@ -157,3 +157,36 @@ fn cli_tmpdir_order_flag_then_scratch_then_tmpdir() {
     ok(&quant("q3", &["--tmpdir", s(&flag)], &[("SCRATCH", &sc), ("TMPDIR", &tm)]));
     assert!(flag.is_dir() && !sc.exists() && !tm.exists());
 }
+
+#[test]
+fn quantifier_with_align_mode_is_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = d.join("sheet.tsv");
+    std::fs::write(&sh, "sample\tfastq1\tfastq2\nA\t/x/a_1.fq\t/x/a_2.fq\n").unwrap();
+    let out = d.join("out");
+    let base = [
+        "run", "--samples", s(&sh), "--reference", "/x/g.fa", "--gff", "/x/g.gff3",
+        "--mode", "align", "--out", s(&out), "--tmpdir", s(d), "--step", "prepare",
+    ];
+    let o = qrnamap(&[&base[..], &["--quantifier", "salmon"]].concat());
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success(), "{err}");
+    assert!(err.contains("--quantifier") && err.contains("--mode align"), "{err}");
+    assert!(!out.exists(), "refused before any file is written");
+    // The default quantifier does not trigger the error: the run fails later, on the missing
+    // FASTQ files.
+    let o = qrnamap(&base);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    assert!(!err.contains("--quantifier"), "{err}");
+    // `qrnamap align` has no --quantifier flag.
+    let o2 = d.join("o2");
+    let o = qrnamap(&[
+        "align", "--samples", s(&sh), "--reference", "/x/g.fa", "--gff", "/x/g.gff3",
+        "--out", s(&o2),
+        "--quantifier", "salmon",
+    ]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success() && err.contains("--quantifier"), "{err}");
+}
