@@ -173,7 +173,8 @@ pub fn kallisto_quant(
     })
 }
 
-/// `salmon index -t <transcripts.fa> -i <index_dir> -p <threads> --keepDuplicates`. The index is a directory.
+/// `salmon index -t <transcripts.fa> -i <index_dir> -p <threads>
+/// --keepDuplicates`. The index is a directory.
 /// `--keepDuplicates` keeps transcripts with identical sequences, so each keeps its own row.
 pub fn salmon_index(
     transcripts_fasta: &str,
@@ -217,7 +218,7 @@ pub fn salmon_quant(
         (false, Strandedness::Forward) => "SF",
         (false, Strandedness::Reverse) => "SR",
     };
-    let mut args = st(&["quant", "-i", index_dir, "--validateMappings", "-l", lib]);
+    let mut args = st(&["quant", "-i", index_dir, "-l", lib]);
     let files: Vec<&String> = if paired {
         args.push("-1".into());
         args.extend(sample.fastq1.iter().cloned());

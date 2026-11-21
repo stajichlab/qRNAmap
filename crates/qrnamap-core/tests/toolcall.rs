@@ -319,6 +319,7 @@ fn salmon_quant_paired_unstranded() {
     assert_eq!(a[0], "salmon");
     let joined = a.join(" ");
     assert!(joined.contains("-l IU -1 a -2 b"), "{joined}");
+    assert!(!joined.contains("--validateMappings"), "{joined}");
     assert!(joined.contains("-p 1"), "{joined}");
     assert!(joined.ends_with("-o out"), "{joined}");
     assert_eq!(&a[1], "quant");
@@ -397,7 +398,10 @@ fn salmon_quant_rejects_bad_input() {
 #[test]
 fn salmon_index_args() {
     let c = salmon_index("t.fa", "idx", &threads_cfg(Strandedness::Unstranded, 4)).unwrap();
-    assert_eq!(argv_native(&c), s(&["salmon", "index", "-t", "t.fa", "-i", "idx", "-p", "4", "--keepDuplicates"]));
+    assert_eq!(
+        argv_native(&c),
+        s(&["salmon", "index", "-t", "t.fa", "-i", "idx", "-p", "4", "--keepDuplicates"])
+    );
     assert_eq!(c.inputs, p(&["t.fa"]));
     assert_eq!(c.outputs, p(&["idx"]));
     assert_eq!(
