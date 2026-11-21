@@ -19,7 +19,13 @@ our samples are from `validation/geo/README.md`. `$DATA` below is
 - `results_salmon/geo/*.tsv`: `validation/geo/compare_geo.R` with Salmon in the QUANT slot and kallisto in
   the ALIGN slot. In these files, "quant" is Salmon and "align" is kallisto. No row in them is HISAT2.
 - `results_salmon/mapping_summary.tsv`: the decompressed `mapping_summary.tsv.zst` of the Salmon run.
-- `results_salmon/jobs.tsv`: `sacct` output of the four jobs.
+- `results_salmon/jobs.tsv`: `sacct` output of the four jobs of the run and the compare step.
+- `collect_salmon.py` and `results_salmon/per_sample.tsv`: per-sample values from `meta_info.json`
+  (`salmon_version`, `num_processed`, `num_mapped`, `percent_mapped`) and the per-sample seconds.
+- `zero_genes_by_length.py` and `results_salmon/zero_genes_by_length.tsv`, `short_transcripts.tsv`,
+  `zero_genes_examples.tsv`: the genes that are 0 in Salmon and nonzero in kallisto, by transcript length.
+- `salmon_subset.sh` and `results_salmon/subset_Control_1.tsv`: Salmon option variants and kallisto on
+  the first 500,000 pairs of Control_1 (job 32329651).
 
 Outputs outside the repository: `$DATA/run_quant_salmon/` (run directory), `$DATA/geo/de_salmon_rerun/`,
 logs `$DATA/logs/gen_salmon.log`, `$DATA/logs/submit_salmon.log`,
@@ -33,12 +39,24 @@ D=/bigdata/stajichlab/jstajich/projects/qRNAmap_data/amb
 export PATH=$W/.pixi/envs/default/bin:$PATH
 CARGO_TARGET_DIR=/bigdata/stajichlab/jstajich/projects/qRNAmap_data/target-salmon \
   cargo build --release -p qrnamap-cli                 # commit ed9d5b6
-bash $W/validation/amb/run_amb_salmon.sh gen           # login node
-bash $W/validation/amb/run_amb_salmon.sh submit        # login node, fresh login shell
+REPO=$W bash $W/validation/amb/run_amb_salmon.sh gen      # login node
+REPO=$W bash $W/validation/amb/run_amb_salmon.sh submit   # login node, fresh login shell
 env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin bash -l -c \
   "sbatch --parsable -p short -c 1 --mem=4G --time=00:30:00 -J salmon_compare \
-   --output=$D/logs/salmon_compare-%j.out --wrap 'bash $W/validation/amb/run_amb_salmon.sh compare'"
+   --output=$D/logs/salmon_compare-%j.out --wrap 'REPO=$W bash $W/validation/amb/run_amb_salmon.sh compare'"
+# per-sample table and zero-count genes (login node, read only on $D)
+python -I $W/validation/amb/collect_salmon.py --run-dir $D/run_quant_salmon --sheet $D/samples.tsv \
+  --task-start 2026-11-20T17:13:47 --out $W/validation/amb/results_salmon/per_sample.tsv
+python -I $W/validation/amb/zero_genes_by_length.py --sheet $D/samples.tsv --salmon-dir $D/run_quant_salmon \
+  --kallisto-dir $D/run_quant --authors $D/geo/prep/authors_counts_amb.tsv --out-dir $W/validation/amb/results_salmon
+# subset diagnostic (job 32329651, node c23, 2 CPUs, 0:57, MaxRSS 460,840 KB)
+env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin bash -l -c \
+  "sbatch --parsable -p short -c 2 --mem=8G --time=00:30:00 -J salmon_subset \
+   --output=$D/logs/salmon_subset-%j.out --wrap 'REPO=$W bash $W/validation/amb/salmon_subset.sh Control_1 500000'"
 ```
+
+When the run and compare jobs ran, `run_amb_salmon.sh` gave `REPO` a default equal to `$W`. The
+script now requires `REPO`, so the commands above set it.
 
 The `gen` stage runs:
 `qrnamap run --samples $DATA/samples.tsv --reference GCF_000146045.2_R64_genomic.fna.gz --gff
@@ -51,7 +69,7 @@ same options without `--quantifier`, and gave `--mem-gb 8` explicitly.
 Versions:
 
 - qrnamap: built from commit `ed9d5b6`.
-- Salmon: 2.8.0. Every `aux_info/meta_info.json` gives this `salmon_version`.
+- Salmon: 2.8.0. Every `aux_info/meta_info.json` gives this `salmon_version` (`results_salmon/per_sample.tsv`).
 - R 4.5.3 and DESeq2 1.50.2, from `deseq2.versions.txt`.
 - DESeq2 settings: design `~ condition`, contrast `condition,AmpB,Control`, Wald test, no shrinkage.
 - kallisto side: the earlier run `$DATA/run_quant`. It used kallisto 0.52.0 and a binary from commit
@@ -73,30 +91,29 @@ For reference, the kallisto run (`validation/amb/README.md`, E2): prepare 1:44 (
 sample task 23:29 (118,460 KB, r41), final 0:29 (870,664 KB, x05). The two sample tasks ran on
 different nodes (r41 and x01) at different times. This is not a controlled speed comparison.
 
-Size on disk: `salmon_index/` 211 MB (`du -sh`); kallisto `transcripts.kidx` 6.0 MB.
+Size on disk, read from files outside the repository with `du -sb`: `$DATA/run_quant_salmon/salmon_index/`
+216,730,680 bytes (211 MB with `du -sh`); `$DATA/run_quant/transcripts.kidx` 5,835,107 bytes.
 
 ## Per sample
 
-Pairs and mapped % are from `mapping_summary.tsv` (`reads_processed`, `fraction_mapped`; Salmon
-`num_processed` and `percent_mapped` in `meta_info.json`). Seconds are derived from the mtimes of
-`SAMPLE.genecounts.tsv.zst`, as in `validation/amb/README.md`: the difference to the previous sample,
-or to the task's sacct Start for the first sample. They are not timer values. The kallisto
-pseudoaligned % is from `validation/amb/README.md`.
+Source: `results_salmon/per_sample.tsv` (`collect_salmon.py`). Pairs, `num_mapped` and mapped % come
+from `meta_info.json`. Seconds are derived from the mtimes of `SAMPLE.genecounts.tsv.zst`, as in
+`validation/amb/README.md`: the difference to the previous sample, or to the task's sacct Start for the
+first sample. They are not timer values. The kallisto pseudoaligned % is from `validation/amb/README.md`.
 
 | sample | pairs | Salmon mapped % | Salmon `num_mapped` | Salmon s | Salmon s per million pairs | kallisto pseudoaligned % |
 |---|---|---|---|---|---|---|
 | Control_1 | 9,625,471 | 87.54 | 8,425,674 | 192 | 19.9 | 93.6 |
-| Control_2 | 10,302,142 | 90.45 | 9,318,680 | 200 | 19.4 | 94.6 |
+| Control_2 | 10,302,142 | 90.45 | 9,318,680 | 201 | 19.5 | 94.6 |
 | Control_3 | 9,997,148 | 90.26 | 9,023,103 | 171 | 17.1 | 94.7 |
-| AmpB_1 | 8,405,534 | 89.34 | 7,509,631 | 136 | 16.2 | 94.0 |
+| AmpB_1 | 8,405,534 | 89.34 | 7,509,631 | 136 | 16.1 | 94.0 |
 | AmpB_2 | 9,755,935 | 88.04 | 8,588,953 | 155 | 15.9 | 93.6 |
-| AmpB_3 | 10,175,785 | 89.22 | 9,079,039 | 190 | 18.7 | 94.1 |
+| AmpB_3 | 10,175,785 | 89.22 | 9,079,039 | 191 | 18.8 | 94.1 |
 
 - Salmon `num_processed` equals the ENA pair count for all 6 samples (the qrnamap check passed).
 - Whole sample task: 1,045 s for 58,262,015 pairs = 17.9 s per million pairs (kallisto task: 24.2).
-- No line starting with `warning:` appeared in the SLURM logs.
-- The CLI log line of each sample says `pseudoaligned=` also for Salmon. The value is Salmon
-  `percent_mapped`.
+- No line starting with `warning:` appeared in the SLURM logs. Read from files outside the repository:
+  `grep -c '^warning:' $DATA/run_quant_salmon/slurm/logs/*.out` gave 0 for each of the 3 logs.
 
 ## (a) Salmon compared with kallisto
 
@@ -115,8 +132,52 @@ column names are identical and in the same order. Spearman: R `cor(method = "spe
 | pooled | 0.994919 | 0.994830 (38,134) | 0.981558 | 51,944,669 | 54,832,659 | 2,522 | 801 |
 
 Salmon has more zero-count genes than kallisto. Per sample, the ratio Salmon / kallisto is 2.8 to 3.5
-(lowest Control_3, 430/152 = 2.83; highest AmpB_3, 413/119 = 3.47). Pooled, it is 2,522 against 801, that is 3.1 times. I did not examine which genes
-they are, or why.
+(lowest Control_3, 430/152 = 2.83; highest AmpB_3, 413/119 = 3.47). Pooled, it is 2,522 against 801,
+that is 3.1 times.
+
+### Zero in Salmon, nonzero in kallisto: transcript length (measured)
+
+Source: `results_salmon/zero_genes_by_length.tsv`, `short_transcripts.tsv`, `zero_genes_examples.tsv`
+(`zero_genes_by_length.py`). The read length is 101 nt in all 6 samples (maximum over the first 10,000
+records of each mate file). A gene's length class is the length of its longest transcript.
+
+| sample | genes 0 in Salmon, >0 in kallisto | longest transcript <= 101 nt | 102-150 | 151-300 | >300 | kallisto reads in these genes |
+|---|---|---|---|---|---|---|
+| Control_1 | 305 | 278 | 7 | 3 | 17 | 41,353 |
+| Control_2 | 288 | 267 | 7 | 2 | 12 | 31,611 |
+| Control_3 | 292 | 263 | 6 | 5 | 18 | 30,113 |
+| AmpB_1 | 298 | 266 | 7 | 4 | 21 | 17,369 |
+| AmpB_2 | 305 | 279 | 3 | 5 | 18 | 27,411 |
+| AmpB_3 | 306 | 282 | 7 | 4 | 13 | 26,814 |
+
+- 263 to 282 of these genes per sample (89 to 93%) have no transcript longer than the reads.
+- Of the 6,478 transcripts, 353 are 101 nt or shorter. Salmon gives `NumReads` 0 to 316 to 324 of them
+  per sample. Of the 411 transcripts shorter than 150 nt, 326 to 333 have `NumReads` 0.
+- RPL41A (YDL184C) and RPL41B (YDL133C-A) each have one 78-nt transcript. Salmon: 0 reads in all 6
+  samples. kallisto: 7,690 to 19,722 (RPL41A) and 7,877 to 19,470 (RPL41B). Authors' table: 9,941 to
+  23,651 and 9,696 to 23,266. In Control_1: kallisto 19,722 and 19,470; authors 23,651 and 23,266.
+- YOR302W (78 nt): Salmon 0 in all 6 samples; kallisto 127 to 635; authors 92 to 512.
+
+Hypothesis (not proven): under its default selective-alignment scoring, Salmon does not assign reads
+that overhang the end of a transcript shorter than the read. A 101-nt read cannot fit inside a 78-nt
+transcript. The subset run below supports this hypothesis.
+
+Subset run (`results_salmon/subset_Control_1.tsv`, job 32329651): the first 500,000 pairs of Control_1,
+one sample only, the index of `$DATA/run_quant_salmon`, `-l IU`, `-p 2`. NumReads of RPL41A + RPL41B:
+
+| variant | RPL41A + RPL41B | YOR302W | mapped % |
+|---|---|---|---|
+| Salmon defaults (as qrnamap runs it) | 0 | 0 | 87.9636 |
+| Salmon `--useEM` | 0 | 0 | 87.9636 |
+| Salmon `--softclipOverhangs` | 163.0 | 1 | 88.1294 |
+| Salmon `--softclip` | 169.0 | 1 | 88.9424 |
+| Salmon `--softclipOverhangs --minScoreFraction 0.5` | 742.0 | 1 | 89.7554 |
+| kallisto 0.52.0 (unstranded) | 2,101.0 | 8 | 93.8 (pseudoaligned) |
+
+The split between RPL41A and RPL41B differs between the variants; the table gives the sum. No Salmon
+variant reached the kallisto count on this subset. qrnamap passes none of these tuning flags. Changing
+the Salmon flags is an open user decision (see README, "Not in this version"); the Salmon spec lists flag
+tuning as a non-goal. I did not test `--noLengthCorrection` or other flags.
 
 DESeq2, `padj < 0.05`, NA padj excluded (`results_salmon/de_overlap.tsv`):
 
@@ -149,7 +210,8 @@ Check: two kallisto rows of this run were compared field by field with the earli
 
 Check of the DESeq2 step: `qrnamap de` from `ed9d5b6` on the Salmon counts, against the
 `deseq2.results.csv` of the SLURM final job: 6,477 genes; max |log2FC difference| 2.6e-10; NA padj in the
-same genes; max |padj difference| 5.1e-08.
+same genes; max |padj difference| 5.1e-08. Read from a file outside the repository:
+`$DATA/logs/salmon_compare-32328937.out`, line 131 ("rerun check").
 
 ### Counts (`results_salmon/geo/counts_agreement.tsv`, pooled rows, 36,048 values)
 
@@ -192,8 +254,9 @@ Salmon log2FC, 1,814 have the same sign.
 - Salmon mapped 87.54 to 90.45% of pairs; kallisto pseudoaligned 93.6 to 94.7% on the same samples.
 - Gene counts, Salmon vs kallisto: pooled Spearman 0.994919; Salmon totals are 0.947 of kallisto totals
   (pooled over the 6,477 genes: 51,944,669 / 54,832,659).
-- Zero-count gene values: Salmon 2,522 and kallisto 801, pooled over the 6 samples. I did not examine
-  which genes or why.
+- Zero-count gene values: Salmon 2,522 and kallisto 801, pooled over the 6 samples. Per sample, 263 to
+  282 of the genes that are 0 in Salmon and nonzero in kallisto have no transcript longer than the
+  101-nt reads. RPL41A and RPL41B (78 nt) get 0 reads in Salmon and 7,690 to 19,722 in kallisto.
 - DE, Salmon vs kallisto: Jaccard 0.941007 (1,962 genes in both, 43 Salmon only, 80 kallisto only).
 - Against the authors' counts: Spearman 0.941675 (Salmon) and 0.946995 (kallisto); median count ratio
   ours/authors 1.016 (Salmon) and 1.058 (kallisto).
@@ -204,8 +267,9 @@ Salmon log2FC, 1,814 have the same sign.
 ## Not measured
 
 - Salmon with genome decoys, bootstrap or Gibbs sampling, or bias correction (not supported).
-- Salmon with more than 1 thread.
+- Salmon with more than 1 thread inside qrnamap (the subset diagnostic used `-p 2`).
 - Salmon on the yeast PRJNA674653 data of `validation/README.md`.
-- Which genes are zero in Salmon and nonzero in kallisto, and why.
+- Whether Salmon flags such as `--softclipOverhangs` or `--minScoreFraction` change the whole-run results.
+  Only the 500,000-pair subset of one sample was run with them.
 - Salmon memory at `--mem-gb` below 8; the sample task MaxRSS was 84,344 KB.
 - Run time of Salmon and kallisto on the same node.
