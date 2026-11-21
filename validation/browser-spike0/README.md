@@ -25,3 +25,20 @@ Spike 0 tests whether kallisto, HISAT2, featureCounts and DESeq2 builds from `co
 - featureCounts (rna-analysis.yml): passed. The package zip hash differs from the release asset. Only release.json, SHA256SUMS and the validation reports differ. The WASM file is identical.
 - DESeq2 (deseq2.yml): failed. An upstream source URL now returns HTTP 404. The run uploaded only `deseq2-validation-node`. DESeq2 is not rebuilt. The release `deseq2-package.zip` is the fallback.
 - Browser validation results (Node, Chromium, Firefox, WebKit) are upstream data, not ours.
+
+## Fixtures and native references (Task 2, measured 2026-11-21)
+
+Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/` (not in git). `manifest.tsv` here is a copy of
+`fixtures/manifest.tsv` (file, bytes, SHA-256, how made). Check a fixture directory with
+`check_manifest.sh /absolute/path/to/fixtures`. It exits 1 on a missing file or a mismatch.
+
+- Reads: 200,000 pairs from SRR3396381 (AmpB_1, ENA read_count 8,405,534, both mates checked). Seed 20261121 (`subset_reads.py`).
+- Genomes: S. cerevisiae R64 (GCF_000146045.2) and A. fumigatus Af293 (GCF_000002655.1) from NCBI through `qrnamap fetch`.
+- Native tools (pixi env): kallisto 0.52.0, HISAT2 2.2.2, featureCounts 2.1.1, DESeq2 1.50.2 with R 4.5.3.
+  The WASM comparison for DESeq2 uses R 4.6.0 upstream (CI), so the R versions differ.
+- The Af293 HISAT2 run uses the yeast reads. Only 0.10% of reads align. It measures index build cost, not alignment quality.
+- featureCounts uses a SAF file made by `qrnamap transcripts` (6,477 yeast genes), `-p --countReadPairs -s 0`.
+- DESeq2 input: the six kallisto gene-count tables of the AMB run (6,477 genes), design `~ condition`, AmpB vs Control, no shrinkage.
+- Times and peak RSS: `native/native_times.tsv` in the fixture directory. Run-to-run repeatability of HISAT2 SAM output was not tested.
+- Scripts: `fixtures.sh` (stages `fetch`, `build`), `native_refs.sh`, `subset_reads.py`, `merge_counts.py`, `deseq2_ref.R`,
+  `make_manifest.sh`, `how_made.tsv`, `check_manifest.sh`.

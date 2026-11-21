@@ -1,0 +1,13 @@
+reads/yeast_sub_*	subset_reads.py: 200000 pairs of SRR3396381 (AmpB_1), random.Random(20261121).sample, file order, gzip mtime 0
+reads/ena_*	ENA filereport of SRR3396381 (read_count)
+genomes/yeast/*	qrnamap fetch --source ncbi --id GCF_000146045.2 (NCBI FTP, catalog URL)
+genomes/afum/*	qrnamap fetch --source ncbi --id GCF_000002655.1 (NCBI FTP, catalog URL)
+transcripts/*	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+counts/amb_gene_counts.tsv	merge_counts.py of amb/run_quant/*.genecounts.tsv.zst (kallisto gene counts of the AMB run, 6 samples)
+native/kallisto/*	native kallisto 0.52.0 (index, quant -t 1 --plaintext), native_refs.sh
+native/hisat2/*	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/featurecounts/*	native featureCounts 2.1.1 (-T 1 -F SAF -p --countReadPairs -s 0) on native/hisat2/yeast.sam.zst, native_refs.sh
+native/deseq2/*	native DESeq2 (see native/versions.txt) deseq2_ref.R on counts/amb_gene_counts.tsv
+native/native_times.tsv	/usr/bin/time -v wall seconds and peak RSS per step, native_refs.sh
+native/versions.txt	tool versions printed in the native job
+native/*	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
