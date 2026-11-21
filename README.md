@@ -76,6 +76,10 @@ qrnamap matrix --out run/ --samples samples.tsv --genes-from tx2gene tx2gene.tsv
 # DESeq2
 qrnamap de --counts run/counts.tsv.zst --samples samples.tsv --contrast condition,ko,wild_type --out run/deseq2
 
+# DESeq2 with shrunk log2 fold changes (writes run/deseq2.results.shrunk.csv)
+qrnamap de --counts run/counts.tsv.zst --samples samples.tsv --contrast condition,ko,wild_type \
+  --shrink apeglm --out run/deseq2
+
 # Strandedness from the first 100,000 pairs of each sample
 qrnamap strand-check --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz --out strand/
 
@@ -97,6 +101,25 @@ bash /bigdata/lab/run/slurm/submit.sh
 only. The default is `kallisto`, so a command without the option behaves as before.
 `run --mode align --quantifier ...` is an error.
 
+Two Salmon options are available on `quant` and `run`. Both are off by default. With neither option,
+the `salmon quant` command line is the same as in earlier versions.
+
+| qrnamap option | Salmon option | Rule |
+|---|---|---|
+| `--salmon-softclip-overhangs` | `--softclipOverhangs` | switch |
+| `--salmon-min-score-fraction F` | `--minScoreFraction F` | `F` is a finite number with 0 < F <= 1 |
+
+- Each option needs `--quantifier salmon`. With kallisto, with the default quantifier, or with
+  `run --mode align`, the option is an error that names the option.
+- An invalid `F` (0, a number above 1, a negative number, `NaN`, `inf` or text) is an error before qrnamap
+  writes any file. This includes `run --slurm`.
+- `run --slurm` writes the options that are set into the scripts. Scripts for a run without the options
+  are the same as before.
+- The index and the `.prepared` marker do not depend on the options.
+- Salmon 2.8.0 does not write these two options to `cmd_info.json` or to any other output file of a run
+  (checked on the large test fixture and on the AMB runs). qrnamap does not record them either. Keep the
+  command line. With `run --slurm`, the generated `slurm/samples.sbatch` also holds the options.
+
 | | kallisto | Salmon |
 |---|---|---|
 | version (pixi) | 0.52.0 | 2.8.0 |
@@ -108,7 +131,7 @@ only. The default is `kallisto`, so a command without the option behaves as befo
 | single-end | `--fragment-length MEAN,SD` | `--fragment-length MEAN,SD` (`--fldMean`, `--fldSD`) |
 
 - The Salmon index holds the transcripts only. It has no genome decoys.
-- Salmon runs with its defaults. qrnamap does not add `--validateMappings`, bootstrap, Gibbs
+- Salmon runs with its defaults unless you set one of the two options above. qrnamap does not add `--validateMappings`, bootstrap, Gibbs
   sampling or bias correction.
 - Salmon reads `.gz` FASTQ directly. qrnamap decompresses `.zst` FASTQ into the temporary directory
   first, as it does for kallisto.
@@ -123,7 +146,9 @@ only. The default is `kallisto`, so a command without the option behaves as befo
   Salmon index was 211 MB (`validation/amb/salmon.md`).
 - Transcripts shorter than the reads can get 0 reads under Salmon defaults, also for highly expressed
   genes. On the AMB data (101-nt reads), RPL41A and RPL41B (78-nt transcripts) got 0 reads in Salmon and
-  7,690 to 19,722 reads in kallisto per sample (`validation/amb/salmon.md`).
+  7,690 to 19,722 reads in kallisto per sample (`validation/amb/salmon.md`). With
+  `--salmon-softclip-overhangs --salmon-min-score-fraction 0.5`, RPL41A got 2,271 to 5,717 reads; the
+  measured effect of both options is in `validation/amb/salmon.md`, section "Overhang options".
 - The SLURM scripts check for `salmon` instead of `kallisto` when the quantifier is Salmon. The rates
   per million read pairs in this README and in the scripts were measured with kallisto only. Salmon
   rates on the AMB data are in `validation/amb/salmon.md`.
@@ -283,16 +308,33 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
 - Salmon limits: no genome decoys (transcripts-only index), no bootstrap or Gibbs sampling, no
   Salmon in align mode, no Salmon in the browser build.
 - Salmon and transcripts shorter than the reads: with Salmon defaults, such transcripts can get 0 reads,
-  also for highly expressed genes (RPL41A and RPL41B on the AMB data). OPEN USER DECISION: whether
-  qrnamap passes `--softclipOverhangs` or `--minScoreFraction` to `salmon quant`. qrnamap passes no
-  tuning flag now, and flag changes are a non-goal of the Salmon spec. On a 500,000-pair subset of one
-  sample, these flags raised the RPL41A + RPL41B count from 0 to 163 to 742; kallisto gave 2,101
-  (`validation/amb/salmon.md`).
+  also for highly expressed genes (RPL41A and RPL41B on the AMB data). The options
+  `--salmon-softclip-overhangs` and `--salmon-min-score-fraction` are available and off by default.
+  Measured on all 6 AMB samples (`validation/amb/salmon.md`, section "Overhang options"; A =
+  `--salmon-softclip-overhangs`, B = A plus `--salmon-min-score-fraction 0.5`):
+  - RPL41A + RPL41B per sample: 0 (default), 1,229 to 3,612 (A), 5,322 to 13,889 (B); kallisto 15,567
+    to 39,192.
+  - Zero-count gene values, pooled: 2,522 (default), 2,435 (A), 2,168 (B); kallisto 801. Per sample,
+    208 to 237 genes with no transcript longer than the reads are still 0 in Salmon (B) and nonzero in
+    kallisto.
+  - Mapped, pooled: 89.16% (default), 89.35% (A), 90.67% (B); kallisto 94.11%.
+  - Gene-count Spearman, pooled: with kallisto 0.994919, 0.995998, 0.996545; with the authors' counts
+    0.941675, 0.943136, 0.943655.
+  - DE Jaccard with the authors' published DE: 0.780000, 0.776504, 0.780152. With kallisto: 0.941007,
+    0.936538, 0.943992.
+  - OPEN USER DECISION: whether to change the default or to recommend A or B. The numbers above are
+    the input. No criterion for a preferred setting was set, and there is no ground truth.
 - A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run
   `run --step prepare` (or `run`) on such a directory again.
 - No plots.
-- `--shrink apeglm` and `--shrink ashr` need the R packages apeglm and ashr. `pixi.toml` does not
-  install them, so these options have never run to success here. Only `--shrink normal` was run.
+- `--shrink` writes `PREFIX.results.shrunk.csv` next to the unshrunk results. `normal` needs no extra
+  package. The pixi environment has `apeglm` 1.32.0 and `ashr` 2.2.63 for `--shrink apeglm` and
+  `--shrink ashr`. On the align-mode (HISAT2 + featureCounts) AMB counts `run_align/counts.tsv.zst`
+  (6,477 genes, 6,295 with a finite unshrunk log2 fold change),
+  the Pearson correlations of the log2 fold changes were 0.9879 (normal and apeglm), 0.9861 (normal
+  and ashr) and 0.9974 (apeglm and ashr). `ashr` returned a finite value for all 6,477 genes. See
+  `validation/amb/results_shrink/`. The output directory name `shrink_overhang` has no link to the Salmon
+  overhang runs.
 - The SLURM `--time` is not computed from `reads_per_sample`.
 
 ## Validation
@@ -318,6 +360,7 @@ Two validation records are in the repository. Both ran on the UCR HPCC cluster.
   - DESeq2 genes with padj < 0.05: 2,005 (Salmon), 2,042 (kallisto), 1,962 in both (Jaccard 0.941007).
   - Against the authors' counts (6,008 common genes, pooled): Spearman 0.941675 (Salmon), 0.946995 (kallisto).
   - Zero-count gene values, pooled over the 6 samples: 2,522 (Salmon) and 801 (kallisto) (`validation/amb/results_salmon/mode_agreement.tsv`). Per sample, 263 to 282 of the genes that are 0 in Salmon and nonzero in kallisto have no transcript longer than the 101-nt reads (`validation/amb/results_salmon/zero_genes_by_length.tsv`).
+  - Salmon overhang options (section "Overhang options", commit `4b8487f`): with `--salmon-softclip-overhangs --salmon-min-score-fraction 0.5`, zero-count gene values pooled 2,168, RPL41A 2,271 to 5,717 reads per sample, Spearman with the authors' counts 0.943655, DE Jaccard with the authors' published DE 0.780152 (`validation/amb/results_salmon_overhang/summary.tsv`).
 - No ground-truth comparison was made. The authors' tables are another pipeline's output, not a truth. The
   numbers show agreement between methods, not accuracy.
 

@@ -340,6 +340,56 @@ fn quant_salmon_stdout_says_mapped() {
 }
 
 #[test]
+fn quant_salmon_with_overhang_flags_runs() {
+    if !common::require_tools(&["salmon"]) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = sheet(d, Strandedness::Unstranded);
+    let fx = common::mini_fixture();
+    let (genome, gff) = (fx.join("genome.fa"), fx.join("genes.gff3"));
+    let (fa, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
+    ok(&qrnamap(&[
+        "transcripts",
+        "--reference",
+        s(&genome),
+        "--gff",
+        s(&gff),
+        "--out",
+        s(&fa),
+        "--tx2gene",
+        s(&t2g),
+    ]));
+    let q = d.join("q");
+    let (out, _) = ok(&qrnamap(&[
+        "quant",
+        "--quantifier",
+        "salmon",
+        "--samples",
+        s(&sh),
+        "--transcripts",
+        s(&fa),
+        "--tx2gene",
+        s(&t2g),
+        "--out",
+        s(&q),
+        "--tmpdir",
+        s(&d.join("tmp")),
+        "--threads",
+        "1",
+        "--salmon-softclip-overhangs",
+        "--salmon-min-score-fraction",
+        "0.5",
+    ]));
+    assert!(
+        out.starts_with("S1\treads_processed=10000\tmapped="),
+        "{out}"
+    );
+    assert!(!out.contains("pseudoaligned"), "{out}");
+}
+
+#[test]
 fn quantifier_with_align_mode_is_error() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
@@ -398,4 +448,214 @@ fn quantifier_with_align_mode_is_error() {
     ]);
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(!o.status.success() && err.contains("--quantifier"), "{err}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Salmon overhang flags
+
+/// Arguments of `quant` for a sheet and an output directory that need no tool: the checks under
+/// test run before any file is read or written.
+fn quant_args<'a>(sh: &'a str, out: &'a str) -> Vec<&'a str> {
+    vec![
+        "quant",
+        "--samples",
+        sh,
+        "--transcripts",
+        "/x/tx.fa.zst",
+        "--tx2gene",
+        "/x/t2g.tsv.zst",
+        "--out",
+        out,
+    ]
+}
+
+fn write_small_sheet(d: &Path) -> std::path::PathBuf {
+    let sh = d.join("sheet.tsv");
+    std::fs::write(&sh, "sample\tfastq1\tfastq2\nA\t/x/a_1.fq\t/x/a_2.fq\n").unwrap();
+    sh
+}
+
+#[test]
+fn salmon_flags_rejected_with_kallisto() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = write_small_sheet(d);
+    let out = d.join("out");
+    let base = quant_args(s(&sh), s(&out));
+    for flag in [
+        &["--salmon-softclip-overhangs"][..],
+        &["--salmon-min-score-fraction", "0.5"][..],
+    ] {
+        let o = qrnamap(&[&base[..], &["--quantifier", "kallisto"], flag].concat());
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(!o.status.success(), "{flag:?}: {err}");
+        assert!(
+            err.contains(flag[0]) && err.contains("--quantifier salmon"),
+            "{flag:?}: {err}"
+        );
+        assert!(!out.exists(), "refused before any file is written");
+    }
+    // `run` as well.
+    let o = qrnamap(&[
+        "run",
+        "--samples",
+        s(&sh),
+        "--reference",
+        "/x/g.fa",
+        "--gff",
+        "/x/g.gff3",
+        "--mode",
+        "quant",
+        "--quantifier",
+        "kallisto",
+        "--salmon-softclip-overhangs",
+        "--out",
+        s(&out),
+    ]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success(), "{err}");
+    assert!(
+        err.contains("--salmon-softclip-overhangs") && err.contains("--quantifier salmon"),
+        "{err}"
+    );
+    assert!(!out.exists());
+}
+
+#[test]
+fn salmon_flags_rejected_with_default_quantifier() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = write_small_sheet(d);
+    let out = d.join("out");
+    let base = quant_args(s(&sh), s(&out));
+    let o = qrnamap(&[&base[..], &["--salmon-min-score-fraction", "0.5"]].concat());
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success(), "{err}");
+    assert!(
+        err.contains("--salmon-min-score-fraction") && err.contains("--quantifier salmon"),
+        "{err}"
+    );
+    assert!(!out.exists());
+    // Both flags: both are named.
+    let o = qrnamap(
+        &[
+            &base[..],
+            &[
+                "--salmon-softclip-overhangs",
+                "--salmon-min-score-fraction",
+                "0.5",
+            ],
+        ]
+        .concat(),
+    );
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    assert!(
+        err.contains("--salmon-softclip-overhangs") && err.contains("--salmon-min-score-fraction"),
+        "{err}"
+    );
+}
+
+#[test]
+fn salmon_flags_rejected_with_align_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = write_small_sheet(d);
+    let out = d.join("out");
+    let base = [
+        "run",
+        "--samples",
+        s(&sh),
+        "--reference",
+        "/x/g.fa",
+        "--gff",
+        "/x/g.gff3",
+        "--mode",
+        "align",
+        "--out",
+        s(&out),
+        "--tmpdir",
+        s(d),
+        "--step",
+        "prepare",
+    ];
+    for flag in [
+        &["--salmon-softclip-overhangs"][..],
+        &["--salmon-min-score-fraction", "0.5"][..],
+    ] {
+        for q in [&[][..], &["--quantifier", "salmon"][..]] {
+            let o = qrnamap(&[&base[..], flag, q].concat());
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert!(!o.status.success(), "{err}");
+            assert!(err.contains("--mode align"), "{flag:?} {q:?}: {err}");
+            // With --quantifier salmon, the older --quantifier check fires first and names
+            // that option. Without it, the Salmon flag error names the flag.
+            let named = if q.is_empty() {
+                flag[0]
+            } else {
+                "--quantifier"
+            };
+            assert!(err.contains(named), "{flag:?} {q:?}: {err}");
+            assert!(!out.exists(), "refused before any file is written");
+        }
+    }
+    // Without the flags, align mode passes the check: the run fails later on the missing FASTQ.
+    let o = qrnamap(&base);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    assert!(
+        !err.contains("--salmon-") && !err.contains("--mode align"),
+        "{err}"
+    );
+    assert!(
+        err.contains("error: sample 'A': input error: /x/a_1.fq"),
+        "{err}"
+    );
+}
+
+#[test]
+fn salmon_min_score_fraction_invalid_value_is_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let sh = write_small_sheet(d);
+    let out = d.join("out");
+    for v in ["0", "1.5", "abc", "-0.1", "NaN", "inf"] {
+        let mut a = quant_args(s(&sh), s(&out));
+        a.extend(["--quantifier", "salmon", "--salmon-min-score-fraction", v]);
+        let o = qrnamap(&a);
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(!o.status.success(), "{v}: {err}");
+        assert!(err.contains("--salmon-min-score-fraction"), "{v}: {err}");
+        assert!(!out.exists(), "{v}: a file was written");
+        // `run --slurm` plans nothing for an invalid value.
+        let o = qrnamap(&[
+            "run",
+            "--samples",
+            s(&sh),
+            "--reference",
+            "/x/g.fa",
+            "--gff",
+            "/x/g.gff3",
+            "--mode",
+            "quant",
+            "--quantifier",
+            "salmon",
+            "--salmon-min-score-fraction",
+            v,
+            "--slurm",
+            "--out",
+            s(&out),
+        ]);
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(!o.status.success(), "{v}: {err}");
+        assert!(err.contains("--salmon-min-score-fraction"), "{v}: {err}");
+        assert!(!out.exists(), "{v}: --slurm wrote files");
+    }
+    // 1 is the upper bound and is valid: the run fails later, on the missing files.
+    let mut a = quant_args(s(&sh), s(&out));
+    a.extend(["--quantifier", "salmon", "--salmon-min-score-fraction", "1"]);
+    let o = qrnamap(&a);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!o.status.success());
+    assert!(!err.contains("--salmon-min-score-fraction"), "{err}");
 }

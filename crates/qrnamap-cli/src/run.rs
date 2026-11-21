@@ -858,6 +858,22 @@ pub fn required_tools(mode: Mode, quantifier: Quantifier, with_de: bool) -> Vec<
     v
 }
 
+/// The Salmon option flags for the scripts: only the flags that are set, and only for Salmon.
+/// With no flag set the scripts stay as they were before the flags existed.
+fn salmon_flag_args(c: &RunConfig, q: Quantifier) -> Vec<String> {
+    let mut v = Vec::new();
+    if q != Quantifier::Salmon {
+        return v;
+    }
+    if c.salmon_softclip_overhangs {
+        v.push("--salmon-softclip-overhangs".into());
+    }
+    if let Some(f) = c.salmon_min_score_fraction {
+        v.extend(["--salmon-min-score-fraction".into(), f.to_string()]);
+    }
+    v
+}
+
 /// The SLURM plan for `args`. Paths become absolute. Sample names and FASTQ paths are not in it.
 pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Result<Plan, RunError> {
     let abs = |p: &Path| std::path::absolute(p).map_err(io_err(p));
@@ -895,6 +911,7 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
     let quantifier = run_quantifier(args);
     if let Some(q) = quantifier {
         run_args.extend(["--quantifier".into(), q.name().into()]);
+        run_args.extend(salmon_flag_args(c, q));
     }
     run_args.extend([
         "--max-intron".into(),
@@ -944,6 +961,7 @@ pub fn slurm_plan(args: &RunArgs, opts: &SlurmOptions, n_samples: usize) -> Resu
     task_args.extend(common);
     if let Some(q) = quantifier {
         task_args.extend(["--quantifier".into(), q.name().into()]);
+        task_args.extend(salmon_flag_args(c, q));
     }
     if args.mode == Mode::Align {
         task_args.extend(["--max-intron".into(), c.max_intron.to_string()]);

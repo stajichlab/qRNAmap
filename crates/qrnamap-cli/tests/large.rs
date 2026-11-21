@@ -436,18 +436,28 @@ fn run_salmon(
     fragment_len: Option<(f64, f64)>,
     samples: &[qrnamap_core::Sample],
 ) -> Vec<Result<SampleResult, PipelineError>> {
-    let (fa, gff) = write_reference(d);
-    let (tx, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
-    run_transcripts(&fa, &gff, &tx, &t2g, None, None).unwrap();
     let cfg = RunConfig {
         strandedness: flag,
         quantifier: Quantifier::Salmon,
         fragment_len,
         ..RunConfig::default()
     };
-    let out = d.join(format!("salmon_{flag:?}"));
+    run_salmon_cfg(d, cfg, samples).0
+}
+
+/// As `run_salmon` with a full config. Also returns the run directory.
+fn run_salmon_cfg(
+    d: &Path,
+    cfg: RunConfig,
+    samples: &[qrnamap_core::Sample],
+) -> (Vec<Result<SampleResult, PipelineError>>, std::path::PathBuf) {
+    let (fa, gff) = write_reference(d);
+    let (tx, t2g) = (d.join("tx.fa.zst"), d.join("tx2gene.tsv.zst"));
+    run_transcripts(&fa, &gff, &tx, &t2g, None, None).unwrap();
+    let out = d.join(format!("salmon_{:?}", cfg.strandedness));
     let ctx = prepare_quant(&tx, &t2g, &out, Scratch::new(d.join("tmp")), cfg, None).unwrap();
-    samples.iter().map(|s| quant_sample(s, &ctx)).collect()
+    let res = samples.iter().map(|s| quant_sample(s, &ctx)).collect();
+    (res, out)
 }
 
 #[test]
@@ -565,4 +575,36 @@ fn salmon_single_end_run() {
     assert_eq!(res.summary.reads_processed, 40_000);
     let w = max_error("salmon single-end", &res.counts);
     assert!(w <= QUANT_TOL, "max relative error {w}");
+}
+
+/// Salmon 2.8.0 does not record `--softclipOverhangs` or `--minScoreFraction` in any output file
+/// of a run: `cmd_info.json` has only `salmon_version`, `index`, `libType`, `output`, `mates1`,
+/// `mates2`, `unmatedReads`, `threads` and `sketch` (checked with a real run, 2026-11-21; a
+/// search of the whole sample directory for `softclip` and `minScore` found nothing). The test
+/// shows that Salmon accepts both flags (it exits with an error for an unknown option) and that
+/// the counts on the fixture stay exact. The exact argv is tested in `qrnamap-core`
+/// (`salmon_quant_*` in `tests/toolcall.rs`).
+#[test]
+fn salmon_overhang_flags_accepted_counts_within_tol() {
+    if !common::require_tools(&SALMON_TOOLS) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = pairs(Strandedness::Unstranded, 101);
+    let (r1, r2) = (d.join("s_1.fq"), d.join("s_2.fq"));
+    sim::write_fastq(&p, &r1, &r2);
+    let s = sample_of("S1", &[r1], &[r2]);
+    let cfg = RunConfig {
+        quantifier: Quantifier::Salmon,
+        salmon_softclip_overhangs: true,
+        salmon_min_score_fraction: Some(0.5),
+        ..RunConfig::default()
+    };
+    let (mut res, _out) = run_salmon_cfg(d, cfg, &[s]);
+    let res = res.remove(0).unwrap();
+    eprintln!("MEASURED salmon overhang summary {:?}", res.summary);
+    let worst = max_error("salmon overhang", &res.counts);
+    assert!(worst <= QUANT_TOL, "max relative error {worst}");
+    assert_eq!(res.summary.reads_processed, 40_000);
 }

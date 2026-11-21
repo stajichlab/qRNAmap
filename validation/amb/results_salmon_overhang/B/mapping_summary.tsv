@@ -1,0 +1,7 @@
+sample	mode	quantifier	reads_processed	fraction_mapped	fraction_assigned	strandedness	qrnamap_version	strand_check_suggestion
+Control_1	quant	salmon	9625471	0.8948062905181472	0.8948062905181472	unstranded	0.1.0	
+Control_2	quant	salmon	10302142	0.916295174343355	0.916295174343355	unstranded	0.1.0	
+Control_3	quant	salmon	9997148	0.916455873215041	0.916455873215041	unstranded	0.1.0	
+AmpB_1	quant	salmon	8405534	0.9064924370063818	0.9064924370063818	unstranded	0.1.0	
+AmpB_2	quant	salmon	9755935	0.8978700657599706	0.8978700657599706	unstranded	0.1.0	
+AmpB_3	quant	salmon	10175785	0.9072438146049666	0.9072438146049666	unstranded	0.1.0	

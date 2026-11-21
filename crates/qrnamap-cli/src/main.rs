@@ -76,6 +76,13 @@ enum Cmd {
         /// quantifier the run directory was prepared with.
         #[arg(long, value_enum)]
         quantifier: Option<QuantArg>,
+        /// Salmon only: pass --softclipOverhangs to salmon quant. Needs --quantifier salmon.
+        #[arg(long)]
+        salmon_softclip_overhangs: bool,
+        /// Salmon only: pass --minScoreFraction F to salmon quant. F is greater than 0 and at
+        /// most 1. Needs --quantifier salmon.
+        #[arg(long, value_name = "F", value_parser = parse_min_score_fraction, allow_hyphen_values = true)]
+        salmon_min_score_fraction: Option<f64>,
         #[arg(long)]
         transcripts: PathBuf,
         #[arg(long)]
@@ -139,6 +146,14 @@ enum Cmd {
         /// kallisto.
         #[arg(long, value_enum)]
         quantifier: Option<QuantArg>,
+        /// Salmon only: pass --softclipOverhangs to salmon quant. Needs --quantifier salmon.
+        /// Not with --mode align.
+        #[arg(long)]
+        salmon_softclip_overhangs: bool,
+        /// Salmon only: pass --minScoreFraction F to salmon quant. F is greater than 0 and at
+        /// most 1. Needs --quantifier salmon. Not with --mode align.
+        #[arg(long, value_name = "F", value_parser = parse_min_score_fraction, allow_hyphen_values = true)]
+        salmon_min_score_fraction: Option<f64>,
         /// Run directory. On a cluster it must be on shared storage (for example /bigdata).
         #[arg(long)]
         out: PathBuf,
@@ -153,8 +168,9 @@ enum Cmd {
         /// FACTOR,LEVEL,REFERENCE. Runs DESeq2 after the matrix; writes OUT/deseq2.*.
         #[arg(long)]
         contrast: Option<String>,
-        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink. apeglm and ashr need the R
-        /// packages apeglm and ashr, which pixi.toml does not install; only normal was run.
+        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink. normal needs no extra
+        /// package. apeglm and ashr need the R packages apeglm and ashr, which the pixi
+        /// environment installs.
         #[arg(long, value_enum, requires = "contrast")]
         shrink: Option<ShrinkArg>,
         /// Read pairs per sample above which a warning is printed (spec 11a: a warning in the CLI).
@@ -220,6 +236,9 @@ enum Cmd {
         /// counts.tsv from `qrnamap matrix` (plain, .gz or .zst).
         #[arg(long)]
         counts: PathBuf,
+        /// Sample sheet (TSV with a header row). Its covariate columns are the variables for
+        /// --design and --contrast. Factor values use only [A-Za-z0-9_.-]. A header `name:numeric`
+        /// makes a numeric column.
         #[arg(long)]
         samples: PathBuf,
         /// Design formula over sample sheet columns.
@@ -228,8 +247,9 @@ enum Cmd {
         /// FACTOR,LEVEL,REFERENCE.
         #[arg(long)]
         contrast: String,
-        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none. apeglm and ashr
-        /// need the R packages apeglm and ashr, which pixi.toml does not install; only normal was run.
+        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none. normal needs no
+        /// extra package. apeglm and ashr need the R packages apeglm and ashr, which the pixi
+        /// environment installs.
         #[arg(long, value_enum)]
         shrink: Option<ShrinkArg>,
         /// Output prefix: PREFIX.results.csv, .normalized.csv, .vst.csv, .versions.txt.
@@ -286,6 +306,56 @@ impl QuantArg {
 /// The quantifier of `--quantifier`, or the default (kallisto) when the flag is not given.
 fn quantifier_or_default(q: Option<QuantArg>) -> Quantifier {
     q.map_or(Quantifier::Kallisto, QuantArg::core)
+}
+
+/// Parse `--salmon-min-score-fraction`: finite and in (0, 1]. This runs before any command
+/// work, so an invalid value is refused before any file is written (R20).
+fn parse_min_score_fraction(x: &str) -> Result<f64, String> {
+    let v: f64 = x
+        .trim()
+        .parse()
+        .map_err(|_| format!("--salmon-min-score-fraction: {x:?} is not a number"))?;
+    if v.is_finite() && v > 0.0 && v <= 1.0 {
+        Ok(v)
+    } else {
+        Err(format!(
+            "--salmon-min-score-fraction must be finite and in (0, 1], got {x}"
+        ))
+    }
+}
+
+/// Set the Salmon options on `cfg`. A Salmon option needs `--quantifier salmon` (quant mode).
+/// `align_mode` is true for `run --mode align`.
+fn apply_salmon_opts(
+    cfg: &mut RunConfig,
+    quantifier: Option<QuantArg>,
+    softclip: bool,
+    min_score_fraction: Option<f64>,
+    align_mode: bool,
+) -> Result<(), String> {
+    let mut given = Vec::new();
+    if softclip {
+        given.push("--salmon-softclip-overhangs");
+    }
+    if min_score_fraction.is_some() {
+        given.push("--salmon-min-score-fraction");
+    }
+    if given.is_empty() {
+        return Ok(());
+    }
+    let names = given.join(" and ");
+    if align_mode {
+        return Err(format!(
+            "{names} cannot be used with --mode align; it applies to --mode quant \
+             with --quantifier salmon"
+        ));
+    }
+    if quantifier_or_default(quantifier) != Quantifier::Salmon {
+        return Err(format!("{names} needs --quantifier salmon"));
+    }
+    cfg.salmon_softclip_overhangs = softclip;
+    cfg.salmon_min_score_fraction = min_score_fraction;
+    Ok(())
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -516,6 +586,8 @@ fn run(cli: Cli) -> Result<(), String> {
         Cmd::Quant {
             samples,
             quantifier,
+            salmon_softclip_overhangs,
+            salmon_min_score_fraction,
             transcripts,
             tx2gene,
             out,
@@ -528,6 +600,13 @@ fn run(cli: Cli) -> Result<(), String> {
             let samples = load_sheet(&samples)?;
             let mut cfg = run.config(Mode::Quant);
             cfg.quantifier = quantifier_or_default(quantifier);
+            apply_salmon_opts(
+                &mut cfg,
+                quantifier,
+                salmon_softclip_overhangs,
+                salmon_min_score_fraction,
+                false,
+            )?;
             check_samples(&samples, &cfg, Mode::Quant).map_err(e)?;
             let range = task.range(samples.len())?;
             let scratch = Scratch::from_flag_or_env(run.tmpdir.clone());
@@ -643,6 +722,8 @@ fn run(cli: Cli) -> Result<(), String> {
             gff,
             mode,
             quantifier,
+            salmon_softclip_overhangs,
+            salmon_min_score_fraction,
             out,
             run,
             max_intron,
@@ -673,6 +754,7 @@ fn run(cli: Cli) -> Result<(), String> {
                          it applies to --mode quant only";
                 return Err(m.into());
             }
+            let align_mode = matches!(mode, ModeArg::Align);
             let abs_out =
                 std::path::absolute(&out).map_err(|x| format!("{}: {x}", out.display()))?;
             if let Some(w) = scratch_out_warning(&abs_out, std::env::var_os("SCRATCH").as_deref()) {
@@ -695,6 +777,13 @@ fn run(cli: Cli) -> Result<(), String> {
             };
             let mut config = run.config(mode);
             config.quantifier = quantifier_or_default(quantifier);
+            apply_salmon_opts(
+                &mut config,
+                quantifier,
+                salmon_softclip_overhangs,
+                salmon_min_score_fraction,
+                align_mode,
+            )?;
             config.max_intron = max_intron;
             config.reads_per_sample = reads_per_sample;
             let step = match step {
