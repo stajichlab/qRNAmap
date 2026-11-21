@@ -1,0 +1,7 @@
+sample	read_length	salmon_zero_kallisto_nonzero	all_transcripts_le_read_length	kallisto_reads_in_these_genes	longest_tx_<=101	longest_tx_102-150	longest_tx_151-300	longest_tx_>300
+Control_1	101	293	269	2985	269	2	3	19
+Control_2	101	273	255	1215	255	3	2	13
+Control_3	101	287	253	1912	253	5	5	24
+AmpB_1	101	286	253	2605	253	6	4	23
+AmpB_2	101	298	269	1599	269	3	5	21
+AmpB_3	101	296	270	2320	270	3	4	19

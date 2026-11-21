@@ -1,0 +1,12 @@
+check	value
+DE table: rows with NA in LF_only_logFC	93
+CPM table: rows with NA in LF_only	93
+DE table: Pearson AMB_only_logFC vs LF_only_logFC (complete rows)	0.997552457719009
+DE table: Pearson AMB_only_logFC vs AMB_and_LF_logFC	0.421090064105191
+DE table: median |AMB_only_logFC - LF_only_logFC| (complete rows)	0.015486624
+DE table: max |AMB_only_logFC - LF_only_logFC| (complete rows)	1.212875037
+CPM table: max |AMB_only - LF_only| (complete rows)	0.00800000000000001
+CPM table: max |control_for_AMB_only - control_for_LF_only| (complete rows)	0.00699999999999967
+CPM table: max |AMB_only - AMB_LF|	2.12
+DE table genes also in counts table	5456
+counts table genes in DE table	5456
