@@ -3,7 +3,8 @@
 # comparison with the earlier kallisto run ($DATA/run_quant) and the authors' GSE80357 tables.
 # Adapted from run_amb.sh (stages slurm and submit-login) and validation/geo/geo_job.sh.
 #
-# Usage: bash /ABS/PATH/validation/amb/run_amb_salmon.sh STAGE [ARGS]
+# Usage: REPO=/ABS/PATH bash /ABS/PATH/validation/amb/run_amb_salmon.sh STAGE [ARGS]
+# REPO is required: the absolute path of the qRNAmap checkout.
 # All paths are absolute and come from the variables below (override them in the environment).
 # This script never uses BASH_SOURCE (the compare stage runs inside a SLURM job) and never
 # hardcodes /scratch: the jobs use "${SCRATCH:?}".
@@ -16,7 +17,7 @@
 #              counts (check), compare_geo.R (authors vs Salmon vs kallisto)
 set -euo pipefail
 
-REPO="${REPO:-/bigdata/stajichlab/jstajich/projects/qRNAmap/.claude/worktrees/salmon}"
+REPO="${REPO:?set REPO to the absolute path of the qRNAmap checkout (scripts, pixi env, results)}"
 DATA="${DATA:-/bigdata/stajichlab/jstajich/projects/qRNAmap_data/amb}"
 PIXI_BIN="${PIXI_BIN:-$REPO/.pixi/envs/default/bin}"
 QRNAMAP="${QRNAMAP:-/bigdata/stajichlab/jstajich/projects/qRNAmap_data/target-salmon/release/qrnamap}"
