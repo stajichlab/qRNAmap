@@ -76,6 +76,10 @@ qrnamap matrix --out run/ --samples samples.tsv --genes-from tx2gene tx2gene.tsv
 # DESeq2
 qrnamap de --counts run/counts.tsv.zst --samples samples.tsv --contrast condition,ko,wild_type --out run/deseq2
 
+# DESeq2 with shrunk log2 fold changes (writes run/deseq2.results.shrunk.csv)
+qrnamap de --counts run/counts.tsv.zst --samples samples.tsv --contrast condition,ko,wild_type \
+  --shrink apeglm --out run/deseq2
+
 # Strandedness from the first 100,000 pairs of each sample
 qrnamap strand-check --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz --out strand/
 
@@ -291,8 +295,12 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
 - A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run
   `run --step prepare` (or `run`) on such a directory again.
 - No plots.
-- `--shrink apeglm` and `--shrink ashr` need the R packages apeglm and ashr. `pixi.toml` does not
-  install them, so these options have never run to success here. Only `--shrink normal` was run.
+- `--shrink` writes `PREFIX.results.shrunk.csv` next to the unshrunk results. `normal` needs no extra
+  package. The pixi environment has `apeglm` 1.32.0 and `ashr` 2.2.63 for `--shrink apeglm` and
+  `--shrink ashr`. On the AMB counts (6,477 genes, 6,295 with a finite unshrunk log2 fold change),
+  the Pearson correlations of the log2 fold changes were 0.9879 (normal and apeglm), 0.9861 (normal
+  and ashr) and 0.9974 (apeglm and ashr). `ashr` returned a finite value for all 6,477 genes. See
+  `validation/amb/results_shrink/`.
 - The SLURM `--time` is not computed from `reads_per_sample`.
 
 ## Validation

@@ -153,8 +153,9 @@ enum Cmd {
         /// FACTOR,LEVEL,REFERENCE. Runs DESeq2 after the matrix; writes OUT/deseq2.*.
         #[arg(long)]
         contrast: Option<String>,
-        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink. apeglm and ashr need the R
-        /// packages apeglm and ashr, which pixi.toml does not install; only normal was run.
+        /// Also write OUT/deseq2.results.shrunk.csv with lfcShrink. normal needs no extra
+        /// package. apeglm and ashr need the R packages apeglm and ashr, which the pixi
+        /// environment installs.
         #[arg(long, value_enum, requires = "contrast")]
         shrink: Option<ShrinkArg>,
         /// Read pairs per sample above which a warning is printed (spec 11a: a warning in the CLI).
@@ -220,6 +221,9 @@ enum Cmd {
         /// counts.tsv from `qrnamap matrix` (plain, .gz or .zst).
         #[arg(long)]
         counts: PathBuf,
+        /// Sample sheet (TSV with a header row). Its covariate columns are the variables for
+        /// --design and --contrast. Factor values use only [A-Za-z0-9_.-]. A header `name:numeric`
+        /// makes a numeric column.
         #[arg(long)]
         samples: PathBuf,
         /// Design formula over sample sheet columns.
@@ -228,8 +232,9 @@ enum Cmd {
         /// FACTOR,LEVEL,REFERENCE.
         #[arg(long)]
         contrast: String,
-        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none. apeglm and ashr
-        /// need the R packages apeglm and ashr, which pixi.toml does not install; only normal was run.
+        /// Also write PREFIX.results.shrunk.csv with lfcShrink. Default: none. normal needs no
+        /// extra package. apeglm and ashr need the R packages apeglm and ashr, which the pixi
+        /// environment installs.
         #[arg(long, value_enum)]
         shrink: Option<ShrinkArg>,
         /// Output prefix: PREFIX.results.csv, .normalized.csv, .vst.csv, .versions.txt.

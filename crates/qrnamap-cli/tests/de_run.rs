@@ -329,6 +329,79 @@ fn shrink_apeglm_missing_package_is_named_error_or_runs() {
     }
 }
 
+/// True when the R package is installed. A missing package fails under `QRNAMAP_REQUIRE_TOOLS=1`,
+/// else skips.
+fn r_pkg_ready(pkg: &str) -> bool {
+    let ok = Command::new("Rscript")
+        .args([
+            "--vanilla",
+            "-e",
+            &format!("quit(status = if (requireNamespace('{pkg}', quietly = TRUE)) 0 else 1)"),
+        ])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !ok {
+        if std::env::var("QRNAMAP_REQUIRE_TOOLS")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            panic!("the R package {pkg} is not installed and QRNAMAP_REQUIRE_TOOLS=1");
+        }
+        eprintln!("SKIP: the R package {pkg} is not installed");
+    }
+    ok
+}
+
+/// Run `de --shrink METHOD` on the synthetic case and check the shrunk file.
+fn check_shrunk(method: Shrink, label: &str) {
+    if !r_ready() || !r_pkg_ready(label) {
+        return;
+    }
+    let c = case(&NAMES, &[]);
+    let mut a = c.args("~ condition");
+    a.shrink = Some(method);
+    run_de(&a).unwrap();
+    let (cols, rows) = read_csv(&c.dir.path().join("out/de.results.shrunk.csv"));
+    for need in ["baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"] {
+        assert!(cols.iter().any(|x| x == need), "missing {need}: {cols:?}");
+    }
+    assert_eq!(rows.len(), 200);
+    let finite = rows
+        .iter()
+        .filter(|r| {
+            r["log2FoldChange"]
+                .parse::<f64>()
+                .map(|v| v.is_finite())
+                .unwrap_or(false)
+        })
+        .count();
+    assert!(finite * 10 >= rows.len() * 9, "finite rows: {finite}");
+    let versions = std::fs::read_to_string(c.dir.path().join("out/de.versions.txt")).unwrap();
+    assert!(versions.contains(&format!("shrink: {label}")), "{versions}");
+}
+
+#[test]
+fn shrink_apeglm_writes_shrunk_results() {
+    check_shrunk(Shrink::Apeglm, "apeglm");
+}
+
+#[test]
+fn shrink_ashr_writes_shrunk_results() {
+    check_shrunk(Shrink::Ashr, "ashr");
+}
+
+#[test]
+fn de_version_line_unchanged_by_shrink_packages() {
+    if !r_ready() {
+        return;
+    }
+    let c = case(&NAMES, &[]);
+    run_de(&c.args("~ condition")).unwrap();
+    let versions = std::fs::read_to_string(c.dir.path().join("out/de.versions.txt")).unwrap();
+    assert!(versions.contains("DESeq2 1.50.2"), "{versions}");
+}
+
 #[test]
 fn shrink_normal_writes_extra_file_and_keeps_unshrunk() {
     if !r_ready() {

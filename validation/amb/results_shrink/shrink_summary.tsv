@@ -1,0 +1,5 @@
+method	rows	finite_log2FoldChange	sum_abs_log2FoldChange
+unshrunk	6477	6295	2084.0
+normal	6477	6295	1686.8
+apeglm	6477	6295	1514.4
+ashr	6477	6477	1399.1

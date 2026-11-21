@@ -17,6 +17,8 @@ python = ">=3.11"
 pytest = "*"
 r-base = "*"
 bioconductor-deseq2 = "==1.50.2"
+bioconductor-apeglm = "*"
+r-ashr = "*"
 
 [tasks]
 # QRNAMAP_REQUIRE_TOOLS=1 makes tool-dependent tests fail instead of skip.
