@@ -117,7 +117,8 @@ the `salmon quant` command line is the same as in earlier versions.
   are the same as before.
 - The index and the `.prepared` marker do not depend on the options.
 - Salmon 2.8.0 does not write these two options to `cmd_info.json` or to any other output file of a run
-  (checked on the large test fixture). qrnamap does not record them either. Keep the command line.
+  (checked on the large test fixture and on the AMB runs). qrnamap does not record them either. Keep the
+  command line. With `run --slurm`, the generated `slurm/samples.sbatch` also holds the options.
 
 | | kallisto | Salmon |
 |---|---|---|
@@ -145,7 +146,9 @@ the `salmon quant` command line is the same as in earlier versions.
   Salmon index was 211 MB (`validation/amb/salmon.md`).
 - Transcripts shorter than the reads can get 0 reads under Salmon defaults, also for highly expressed
   genes. On the AMB data (101-nt reads), RPL41A and RPL41B (78-nt transcripts) got 0 reads in Salmon and
-  7,690 to 19,722 reads in kallisto per sample (`validation/amb/salmon.md`).
+  7,690 to 19,722 reads in kallisto per sample (`validation/amb/salmon.md`). With
+  `--salmon-softclip-overhangs --salmon-min-score-fraction 0.5`, RPL41A got 2,271 to 5,717 reads; the
+  measured effect of both options is in `validation/amb/salmon.md`, section "Overhang options".
 - The SLURM scripts check for `salmon` instead of `kallisto` when the quantifier is Salmon. The rates
   per million read pairs in this README and in the scripts were measured with kallisto only. Salmon
   rates on the AMB data are in `validation/amb/salmon.md`.
@@ -307,9 +310,20 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
 - Salmon and transcripts shorter than the reads: with Salmon defaults, such transcripts can get 0 reads,
   also for highly expressed genes (RPL41A and RPL41B on the AMB data). The options
   `--salmon-softclip-overhangs` and `--salmon-min-score-fraction` are available and off by default.
-  On a 500,000-pair subset of one
-  sample, these flags raised the RPL41A + RPL41B count from 0 to 163 to 742; kallisto gave 2,101
-  (`validation/amb/salmon.md`).
+  Measured on all 6 AMB samples (`validation/amb/salmon.md`, section "Overhang options"; A =
+  `--salmon-softclip-overhangs`, B = A plus `--salmon-min-score-fraction 0.5`):
+  - RPL41A + RPL41B per sample: 0 (default), 1,229 to 3,612 (A), 5,322 to 13,889 (B); kallisto 15,567
+    to 39,192.
+  - Zero-count gene values, pooled: 2,522 (default), 2,435 (A), 2,168 (B); kallisto 801. Per sample,
+    208 to 237 genes with no transcript longer than the reads are still 0 in Salmon (B) and nonzero in
+    kallisto.
+  - Mapped, pooled: 89.16% (default), 89.35% (A), 90.67% (B); kallisto 94.11%.
+  - Gene-count Spearman, pooled: with kallisto 0.994919, 0.995998, 0.996545; with the authors' counts
+    0.941675, 0.943136, 0.943655.
+  - DE Jaccard with the authors' published DE: 0.780000, 0.776504, 0.780152. With kallisto: 0.941007,
+    0.936538, 0.943992.
+  - OPEN USER DECISION: whether to change the default or to recommend A or B. The numbers above are
+    the input. No criterion for "better" was set, and there is no ground truth.
 - A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run
   `run --step prepare` (or `run`) on such a directory again.
 - No plots.
@@ -344,6 +358,7 @@ Two validation records are in the repository. Both ran on the UCR HPCC cluster.
   - DESeq2 genes with padj < 0.05: 2,005 (Salmon), 2,042 (kallisto), 1,962 in both (Jaccard 0.941007).
   - Against the authors' counts (6,008 common genes, pooled): Spearman 0.941675 (Salmon), 0.946995 (kallisto).
   - Zero-count gene values, pooled over the 6 samples: 2,522 (Salmon) and 801 (kallisto) (`validation/amb/results_salmon/mode_agreement.tsv`). Per sample, 263 to 282 of the genes that are 0 in Salmon and nonzero in kallisto have no transcript longer than the 101-nt reads (`validation/amb/results_salmon/zero_genes_by_length.tsv`).
+  - Salmon overhang options (section "Overhang options", commit `4b8487f`): with `--salmon-softclip-overhangs --salmon-min-score-fraction 0.5`, zero-count gene values pooled 2,168, RPL41A 2,271 to 5,717 reads per sample, Spearman with the authors' counts 0.943655, DE Jaccard with the authors' published DE 0.780152 (`validation/amb/results_salmon_overhang/summary.tsv`).
 - No ground-truth comparison was made. The authors' tables are another pipeline's output, not a truth. The
   numbers show agreement between methods, not accuracy.
 

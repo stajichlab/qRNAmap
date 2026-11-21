@@ -175,9 +175,11 @@ one sample only, the index of `$DATA/run_quant_salmon`, `-l IU`, `-p 2`. NumRead
 | kallisto 0.52.0 (unstranded) | 2,101.0 | 8 | 93.8 (pseudoaligned) |
 
 The split between RPL41A and RPL41B differs between the variants; the table gives the sum. No Salmon
-variant reached the kallisto count on this subset. qrnamap passes none of these tuning flags. Changing
-the Salmon flags is an open user decision (see README, "Not in this version"); the Salmon spec lists flag
-tuning as a non-goal. I did not test `--noLengthCorrection` or other flags.
+variant reached the kallisto count on this subset. When this run was made, qrnamap passed none of these
+tuning flags. Later versions have `--salmon-softclip-overhangs` and `--salmon-min-score-fraction`, off by
+default. The whole-run results with these options are in the section "Overhang options" below. Whether
+to change the default is an open user decision (see README, "Not in this version"). I did not test
+`--noLengthCorrection` or other flags.
 
 DESeq2, `padj < 0.05`, NA padj excluded (`results_salmon/de_overlap.tsv`):
 
@@ -264,12 +266,239 @@ Salmon log2FC, 1,814 have the same sign.
 - Sample task time: 17.9 s per million pairs (Salmon, node x01) and 24.2 (kallisto, node r41). Different
   nodes and times.
 
+## Overhang options
+
+Run on 2026-11-20 (US Pacific time) on the UCR HPCC cluster, in the worktree `overhang` (branch
+`overhang`). The binary was built from commit `4b8487f`. All other inputs are the same as in the
+sections above: same sample sheet, genome, GFF, strandedness (`unstranded`), contrast and kallisto run.
+Salmon 2.8.0 (`salmon_version` in every `meta_info.json`).
+
+Settings:
+
+| setting | qrnamap options | Salmon options added to `salmon quant` | run directory |
+|---|---|---|---|
+| default | none | none | `$DATA/run_quant_salmon` (the run above) |
+| A | `--salmon-softclip-overhangs` | `--softclipOverhangs` | `$DATA/run_quant_salmon_overhang_A` |
+| B | `--salmon-softclip-overhangs --salmon-min-score-fraction 0.5` | `--softclipOverhangs --minScoreFraction 0.5` | `$DATA/run_quant_salmon_overhang_B` |
+
+Record of the settings: Salmon 2.8.0 does not write these options to `cmd_info.json` or to any other
+output file. The `cmd_info.json` of setting B (Control_1) has only `salmon_version`, `index`,
+`libType`, `output`, `mates1`, `mates2`, `unmatedReads`, `threads` and `sketch`. None of the 12
+`cmd_info.json` files of A and B contains `softclip` or `minScore` (`grep -il`, case-insensitive). No
+file in `$DATA/run_quant_salmon_overhang_A/Control_1/` contains them (`grep -ril`). The record is:
+
+- the `gen` logs `$DATA/logs/gen_salmon_overhang_A.log` and `..._B.log`. Each prints the full qrnamap
+  argv and the line of `samples.sbatch` with the options;
+- the generated scripts `$DATA/run_quant_salmon_overhang_{A,B}/slurm/samples.sbatch`. Line 25 of each
+  has `'--quantifier' 'salmon' '--salmon-softclip-overhangs'` (A) or
+  `'--quantifier' 'salmon' '--salmon-softclip-overhangs' '--salmon-min-score-fraction' '0.5'` (B).
+
+### Files
+
+- `run_amb_salmon_overhang.sh`: the driver. `SETTING=A|B`. Stages `gen`, `submit`, `compare`, `collect`.
+- `summarize_overhang.py` and `results_salmon_overhang/summary.tsv`: default, A and B in one long table
+  (setting, metric, value), read from the small TSVs below. It computes only the pooled mapped
+  percentage (sum of `num_mapped` / sum of `num_processed`).
+- `results_salmon_overhang/{A,B}/`: the same files as `results_salmon/` (`mode_agreement.tsv`,
+  `de_overlap.tsv`, `geo/*.tsv`, `per_sample.tsv`, `mapping_summary.tsv`, `zero_genes_by_length.tsv`,
+  `short_transcripts.tsv`, `zero_genes_examples.tsv`). In these files "quant" is the setting and "align"
+  is kallisto.
+- `results_salmon_overhang/{A,B}/vs_salmon_default/`: `compare_modes.R` with the setting in the QUANT slot
+  and the default Salmon run in the ALIGN slot.
+- `results_salmon_overhang/jobs.tsv`: `sacct` output of all jobs below.
+
+### Commands
+
+```bash
+W=/bigdata/stajichlab/jstajich/projects/qRNAmap/.claude/worktrees/overhang
+D=/bigdata/stajichlab/jstajich/projects/qRNAmap_data/amb
+export PATH=$W/.pixi/envs/default/bin:$PATH
+CARGO_TARGET_DIR=/bigdata/stajichlab/jstajich/projects/qRNAmap_data/target-overhang \
+  cargo build --release -p qrnamap-cli                 # commit 4b8487f
+for s in A B; do
+  REPO=$W SETTING=$s bash $W/validation/amb/run_amb_salmon_overhang.sh gen > $D/logs/gen_salmon_overhang_$s.log 2>&1
+  REPO=$W SETTING=$s bash $W/validation/amb/run_amb_salmon_overhang.sh submit > $D/logs/submit_salmon_overhang_$s.log 2>&1
+done
+# after the final jobs
+for s in A B; do
+  env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin bash -l -c \
+    "sbatch --parsable -p short -c 1 --mem=4G --time=00:30:00 -J salmon_ovh_cmp_$s \
+     --output=$D/logs/salmon_overhang_compare_$s-%j.out \
+     --wrap 'REPO=$W SETTING=$s bash $W/validation/amb/run_amb_salmon_overhang.sh compare'"
+  REPO=$W SETTING=$s TASK_START=2026-11-20T20:47:18 \
+    bash $W/validation/amb/run_amb_salmon_overhang.sh collect > $D/logs/collect_salmon_overhang_$s.log 2>&1
+done
+python -I $W/validation/amb/summarize_overhang.py $W/validation/amb $W/validation/amb/results_salmon_overhang/summary.tsv
+```
+
+The `gen` stage runs the `gen` command of the default run (see "Commands" above) with `--out
+$DATA/run_quant_salmon_overhang_<setting>` and the options of the setting. Default `--mem-gb 8`, no
+`--tmpdir`; the jobs used node-local `$SCRATCH`.
+
+### Jobs
+
+Elapsed and MaxRSS are from `sacct` (the `.batch` step). All jobs ended `COMPLETED 0:0`. Every qrnamap
+job asked for 1 CPU and `--mem=8G`. The compare jobs asked for `--mem=4G`.
+
+| job | setting | step | node | AllocCPUS | elapsed | MaxRSS |
+|---|---|---|---|---|---|---|
+| 32339558 | A | prepare | x03 | 2 | 1:27 | 474,124 KB |
+| 32339559_0 | A | sample array, task 0 (6 samples) | x01 | 2 | 11:19 | 88,964 KB |
+| 32339560 | A | final | r39 | 2 | 0:21 | 854,760 KB |
+| 32340106 | A | compare | x01 | 2 | 0:18 | 847,564 KB |
+| 32339561 | B | prepare | x03 | 2 | 1:25 | 469,524 KB |
+| 32339562_0 | B | sample array, task 0 (6 samples) | x01 | 2 | 11:19 | 86,440 KB |
+| 32339563 | B | final | r39 | 2 | 0:22 | 845,640 KB |
+| 32340107 | B | compare | x01 | 2 | 0:18 | 837,412 KB |
+
+- The A and B sample tasks ran at the same time on the same node (x01) and read the same FASTQ files.
+  Each per-sample count file of B has an mtime 0.07 to 0.31 s before the matching file of A. So the two
+  tasks did not run independently in time. Their times are not a measure of the cost of the options.
+  The default run (17:25, node x01, at another time) is also not a controlled comparison.
+- No line starting with `warning:` in the 6 SLURM logs of the two runs (`grep -c`).
+- Check of the DESeq2 step (`qrnamap de` from `4b8487f` on the setting counts, against the final job):
+  6,477 genes, NA padj in the same genes; max |log2FC difference| 5.2e-10 (A) and 3.1e-11 (B); max |padj
+  difference| 3.2e-07 (A) and 2.5e-13 (B). Read from `$DATA/logs/salmon_overhang_compare_A-32340106.out`
+  and `..._B-32340107.out`, line 172 ("rerun check").
+
+### Mapped fraction (`per_sample.tsv`, `meta_info.json`)
+
+`num_processed` is the same in all three settings and equals the ENA pair count. kallisto: `n_pseudoaligned`
+/ `n_processed` from `$DATA/run_quant/<sample>/run_info.json`. Pooled: sum of mapped / sum of pairs
+(58,262,015 pairs).
+
+| sample | default % | A % | B % | kallisto % |
+|---|---|---|---|---|
+| Control_1 | 87.54 | 87.77 | 89.48 | 93.56 |
+| Control_2 | 90.45 | 90.62 | 91.63 | 94.58 |
+| Control_3 | 90.26 | 90.43 | 91.65 | 94.65 |
+| AmpB_1 | 89.34 | 89.51 | 90.65 | 94.05 |
+| AmpB_2 | 88.04 | 88.24 | 89.79 | 93.63 |
+| AmpB_3 | 89.22 | 89.41 | 90.72 | 94.15 |
+| pooled | 89.16 | 89.35 | 90.67 | 94.11 |
+
+### Zero-count genes and short transcripts
+
+Sources: `mode_agreement.tsv` (zero genes, Spearman), `zero_genes_by_length.tsv`, `short_transcripts.tsv`.
+"0 in Salmon, >0 in kallisto" and "longest transcript <= 101 nt" are defined as in the section
+"Zero in Salmon, nonzero in kallisto" above. Values are default / A / B.
+
+| sample | zero-count genes (kallisto) | zero-count genes, Salmon | 0 in Salmon, >0 in kallisto | of these, longest transcript <= 101 nt | kallisto reads in these genes |
+|---|---|---|---|---|---|
+| Control_1 | 124 | 411 / 397 / 328 | 305 / 293 / 226 | 278 / 269 / 208 | 41,353 / 2,985 / 2,442 |
+| Control_2 | 136 | 416 / 398 / 360 | 288 / 273 / 237 | 267 / 255 / 221 | 31,611 / 1,215 / 997 |
+| Control_3 | 152 | 430 / 419 / 395 | 292 / 287 / 264 | 263 / 253 / 233 | 30,113 / 1,912 / 1,734 |
+| AmpB_1 | 144 | 432 / 414 / 390 | 298 / 286 / 263 | 266 / 253 / 237 | 17,369 / 2,605 / 1,164 |
+| AmpB_2 | 126 | 420 / 408 / 346 | 305 / 298 / 243 | 279 / 269 / 218 | 27,411 / 1,599 / 2,024 |
+| AmpB_3 | 119 | 413 / 399 / 349 | 306 / 296 / 250 | 282 / 270 / 225 | 26,814 / 2,320 / 1,902 |
+| pooled | 801 | 2,522 / 2,435 / 2,168 | | | |
+
+Transcripts of 101 nt or shorter (353 of 6,478) with `NumReads` 0, per sample: default 316 to 324,
+A 239 to 303, B 150 to 181.
+
+The column "kallisto reads in these genes" drops from 17,369 to 41,353 (default) to 1,215 to 2,985 (A)
+and 997 to 2,442 (B). Most of the drop comes from genes that leave the list (for example RPL41A and
+RPL41B). The number of genes in the list drops less: by 5 to 15 per sample (A) and by 28 to 79 (B).
+
+### RPL41A, RPL41B, YOR302W (`zero_genes_examples.tsv`)
+
+All three genes have one 78-nt transcript. Counts are default / A / B, then kallisto and the authors.
+
+| sample | RPL41A | RPL41B | YOR302W | RPL41A kallisto, authors | RPL41B kallisto, authors | YOR302W kallisto, authors |
+|---|---|---|---|---|---|---|
+| Control_1 | 0 / 1,295 / 5,717 | 0 / 2,317 / 8,172 | 0 / 2 / 10 | 19,722, 23,651 | 19,470, 23,266 | 148, 105 |
+| Control_2 | 0 / 844 / 4,296 | 0 / 1,114 / 6,121 | 0 / 1 / 7 | 16,424, 20,018 | 13,996, 17,850 | 138, 92 |
+| Control_3 | 0 / 777 / 4,110 | 0 / 1,353 / 6,087 | 0 / 2 / 9 | 15,202, 17,032 | 13,236, 16,497 | 127, 105 |
+| AmpB_1 | 0 / 523 / 2,271 | 0 / 706 / 3,051 | 0 / 7 / 34 | 7,690, 9,941 | 7,877, 9,696 | 594, 467 |
+| AmpB_2 | 0 / 828 / 3,806 | 0 / 1,471 / 5,580 | 0 / 9 / 42 | 12,683, 14,851 | 12,778, 15,243 | 607, 485 |
+| AmpB_3 | 0 / 800 / 3,775 | 0 / 1,369 / 5,224 | 0 / 15 / 42 | 12,419, 14,024 | 12,365, 15,428 | 635, 512 |
+
+In B, RPL41A is 26.2 to 30.4% of the kallisto count and RPL41B is 38.7 to 46.0%. YOR302W in B is 5.1 to
+7.1% of the kallisto count.
+
+### Gene counts compared with kallisto and with the authors' table
+
+Sources: `mode_agreement.tsv` (6,477 genes) and `geo/counts_agreement.tsv` (6,008 common genes; ratio
+columns over the 34,094 values with an authors' count of at least 10). Same definitions as above.
+
+| measure | default | A | B | kallisto |
+|---|---|---|---|---|
+| Spearman vs kallisto, pooled (38,862 values) | 0.994919 | 0.995998 | 0.996545 | |
+| Spearman vs kallisto, per sample | 0.994519 to 0.995464 | 0.995350 to 0.996579 | 0.995864 to 0.997042 | |
+| total counts, pooled (6,477 genes) | 51,944,669 | 52,055,654 | 52,825,249 | 54,832,659 |
+| total / kallisto total | 0.9473 | 0.9494 | 0.9634 | 1 |
+| Spearman vs authors, pooled (36,048 values) | 0.941675 | 0.943136 | 0.943655 | 0.946995 |
+| Spearman vs authors, per sample | 0.939495 to 0.943530 | 0.940914 to 0.944915 | 0.941361 to 0.945500 | 0.944480 to 0.949078 |
+| Pearson log2(x+1) vs authors, pooled | 0.876650 | 0.885178 | 0.886068 | 0.890594 |
+| total ratio ours / authors | 1.105188 | 1.107581 | 1.124027 | 1.166956 |
+| median ratio (ours+1)/(authors+1) | 1.016304 | 1.017308 | 1.028970 | 1.058282 |
+| IQR of that ratio | 0.069083 | 0.068278 | 0.061965 | 0.036250 |
+
+Setting vs default Salmon (`vs_salmon_default/mode_agreement.tsv`): pooled Spearman 0.998063 (A) and
+0.997203 (B).
+
+### DE agreement (`de_overlap.tsv`, `geo/de_agreement.tsv`)
+
+DESeq2, `padj` or FDR < 0.05, NA excluded. Same definitions as above.
+
+| measure | default | A | B |
+|---|---|---|---|
+| padj NA (of 6,477) | 370 | 351 | 288 |
+| padj < 0.05 | 2,005 | 1,986 | 2,019 |
+| vs kallisto (2,042): both / Salmon only / kallisto only | 1,962 / 43 / 80 | 1,948 / 38 / 94 | 1,972 / 47 / 70 |
+| Jaccard vs kallisto | 0.941007 | 0.936538 | 0.943992 |
+| vs authors' published DE (5,407 common genes, 1,816 authors' sig.): sig. ours / both | 1,922 / 1,638 | 1,904 / 1,626 | 1,933 / 1,643 |
+| authors only / ours only | 178 / 284 | 190 / 278 | 173 / 290 |
+| Jaccard vs authors' published DE | 0.780000 | 0.776504 | 0.780152 |
+| Spearman log2FC vs authors' published DE | 0.986613 | 0.986690 | 0.986955 |
+| Jaccard vs DESeq2 on the authors' counts (6,008 genes) | 0.889639 | 0.887760 | 0.889635 |
+| Jaccard vs DESeq2 on the authors' counts, authors' DE genes only (5,407) | 0.912849 | 0.909590 | 0.914513 |
+| Jaccard setting vs default Salmon (`vs_salmon_default/de_overlap.tsv`) | 1 | 0.981629 | 0.969652 |
+
+For reference, kallisto vs the authors' published DE: Jaccard 0.783822.
+
+In the row "DESeq2 on the authors' counts (6,008 genes)", all genes significant in both have the same
+log2FC sign for default and B. For A, 1,834 of 1,835 have the same sign.
+
+### What changed and what did not (measured)
+
+Improved with A and with B. For each item, the change is larger with B than with A:
+
+- Short transcripts get reads. RPL41A + RPL41B per sample: 0 (default), 1,229 to 3,612 (A),
+  5,322 to 13,889 (B). kallisto: 15,567 to 39,192.
+- Fewer zero-count genes: pooled 2,522 (default), 2,435 (A), 2,168 (B). kallisto: 801.
+- Fewer genes 0 in Salmon and >0 in kallisto: 288 to 306 (default), 273 to 298 (A), 226 to 264 (B) per
+  sample.
+- Mapped fraction, pooled: 89.16% (default), 89.35% (A), 90.67% (B). kallisto: 94.11%.
+- Gene-count Spearman with kallisto, pooled: 0.994919, 0.995998, 0.996545.
+- Gene-count Spearman with the authors' counts, pooled: 0.941675, 0.943136, 0.943655 (kallisto
+  0.946995).
+
+Not improved, or changed in the other direction:
+
+- Most short genes stay at 0. Per sample, 208 to 237 genes with no transcript longer than the reads are
+  0 in Salmon and >0 in kallisto with B (default: 263 to 282). B gives RPL41A 26.2 to 30.4% of the
+  kallisto count.
+- DE agreement with the authors' published DE: Jaccard 0.780000 (default), 0.776504 (A), 0.780152 (B).
+  A is lower than default by 0.0035. B is higher than default by 0.0002.
+- DE agreement with kallisto: Jaccard 0.941007 (default), 0.936538 (A), 0.943992 (B). A is lower than
+  default.
+- Count ratio to the authors' counts moves up: median 1.016304 (default), 1.017308 (A), 1.028970 (B).
+  The total ratio ours/authors is 1.105188, 1.107581, 1.124027.
+- Setting B changes the DE list against default Salmon more than A: Jaccard 0.969652 (B) and
+  0.981629 (A).
+
+No criterion for "better" was set before the run. There is no ground truth: kallisto, Salmon and the
+authors' table are pipeline outputs. The default stays off. Whether to change the default, or to
+recommend A or B in the documentation, is the user's decision.
+
 ## Not measured
 
 - Salmon with genome decoys, bootstrap or Gibbs sampling, or bias correction (not supported).
 - Salmon with more than 1 thread inside qrnamap (the subset diagnostic used `-p 2`).
 - Salmon on the yeast PRJNA674653 data of `validation/README.md`.
-- Whether Salmon flags such as `--softclipOverhangs` or `--minScoreFraction` change the whole-run results.
-  Only the 500,000-pair subset of one sample was run with them.
+- `--salmon-min-score-fraction` values other than 0.5, and `--minScoreFraction` without
+  `--softclipOverhangs`. Salmon `--softclip` and other flags on the whole run.
+- The run time cost of the overhang options (the A and B sample tasks ran together on one node).
 - Salmon memory at `--mem-gb` below 8; the sample task MaxRSS was 84,344 KB.
 - Run time of Salmon and kallisto on the same node.
