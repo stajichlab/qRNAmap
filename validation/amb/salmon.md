@@ -79,6 +79,7 @@ Versions:
 
 Elapsed and MaxRSS are from `sacct` (the `.batch` step). All jobs ended `COMPLETED 0:0`. Every
 qrnamap job asked for 1 CPU and `--mem=8G`.
+AllocCPUS is 2 in the tables. The cause was not checked. SLURM may allocate whole cores.
 
 | job | step | node | AllocCPUS | elapsed | MaxRSS |
 |---|---|---|---|---|---|
@@ -339,6 +340,7 @@ $DATA/run_quant_salmon_overhang_<setting>` and the options of the setting. Defau
 
 Elapsed and MaxRSS are from `sacct` (the `.batch` step). All jobs ended `COMPLETED 0:0`. Every qrnamap
 job asked for 1 CPU and `--mem=8G`. The compare jobs asked for `--mem=4G`.
+AllocCPUS is 2 in the table. The cause was not checked. SLURM may allocate whole cores.
 
 | job | setting | step | node | AllocCPUS | elapsed | MaxRSS |
 |---|---|---|---|---|---|---|
@@ -463,34 +465,38 @@ sign (`results_salmon_overhang/{A,B}/geo/de_agreement.tsv`).
 
 ### What changed and what did not (measured)
 
-No noise estimate was made (no replicate runs and no bootstrap). Differences of about 0.001 to 0.004 in
-Spearman or Jaccard values cannot be called real from these data.
+No noise estimate was made, so it is not known whether differences of this size are real.
 
-Improved with A and with B. For each item, the change is larger with B than with A:
+Moved toward kallisto or the authors' table. For each item, the change is larger with B than with A:
 
 - Short transcripts get reads. RPL41A + RPL41B per sample: 0 (default), 1,229 to 3,612 (A),
   5,322 to 13,889 (B). kallisto: 15,567 to 39,192.
-- Fewer zero-count genes: pooled 2,522 (default), 2,435 (A), 2,168 (B). kallisto: 801.
-- Fewer genes 0 in Salmon and >0 in kallisto: 288 to 306 (default), 273 to 298 (A), 226 to 264 (B) per
+- Zero-count genes: pooled 2,522 (default), 2,435 (A), 2,168 (B). kallisto: 801.
+- Genes 0 in Salmon and >0 in kallisto: 288 to 306 (default), 273 to 298 (A), 226 to 264 (B) per
   sample.
 - Mapped fraction, pooled: 89.16% (default), 89.35% (A), 90.67% (B). kallisto: 94.11%.
-- Gene-count Spearman with kallisto, pooled: 0.994919, 0.995998, 0.996545.
-- Gene-count Spearman with the authors' counts, pooled: 0.941675, 0.943136, 0.943655 (kallisto
-  0.946995).
 
-Not improved, or changed in the other direction:
+Moved away from kallisto or the authors' table:
 
 - Most short genes stay at 0. Per sample, 208 to 237 genes with no transcript longer than the reads are
   0 in Salmon and >0 in kallisto with B (default: 263 to 282). B gives RPL41A 26.2 to 30.4% of the
   kallisto count.
-- DE agreement with the authors' published DE: Jaccard 0.780000 (default), 0.776504 (A), 0.780152 (B).
-  A is lower than default by 0.0035. B is higher than default by 0.0002.
-- DE agreement with kallisto: Jaccard 0.941007 (default), 0.936538 (A), 0.943992 (B). A is lower than
-  default.
 - Count ratio to the authors' counts moves up: median 1.016304 (default), 1.017308 (A), 1.028970 (B).
   The total ratio ours/authors is 1.105188, 1.107581, 1.124027.
 - Setting B changes the DE list against default Salmon more than A: Jaccard 0.969652 (B) and
   0.981629 (A).
+
+Differences too small to interpret without a noise estimate (absolute size 0.004 or less):
+
+- Gene-count Spearman with kallisto, pooled: 0.994919 (default), 0.995998 (A), 0.996545 (B).
+- Gene-count Spearman with the authors' counts, pooled: 0.941675, 0.943136, 0.943655 (kallisto
+  0.946995).
+- DE Jaccard with the authors' published DE: 0.780000 (default), 0.776504 (A), 0.780152 (B). A minus
+  default is -0.0035. B minus default is +0.0002.
+
+DE Jaccard with kallisto (0.941007 default, 0.936538 A, 0.943992 B) differs from default by -0.0045 (A)
+and +0.0030 (B). The A difference is above 0.004 and is in the direction away from kallisto. The B
+difference is 0.004 or less.
 
 No criterion for "better" was set before the run. There is no ground truth: kallisto, Salmon and the
 authors' table are pipeline outputs. The default stays off. Whether to change the default, or to

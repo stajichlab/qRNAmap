@@ -585,7 +585,7 @@ fn salmon_single_end_run() {
 /// the counts on the fixture stay exact. The exact argv is tested in `qrnamap-core`
 /// (`salmon_quant_*` in `tests/toolcall.rs`).
 #[test]
-fn salmon_overhang_flags_run_and_recover_counts() {
+fn salmon_overhang_flags_accepted_counts_within_tol() {
     if !common::require_tools(&SALMON_TOOLS) {
         return;
     }

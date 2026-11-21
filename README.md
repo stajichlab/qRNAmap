@@ -323,16 +323,17 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
   - DE Jaccard with the authors' published DE: 0.780000, 0.776504, 0.780152. With kallisto: 0.941007,
     0.936538, 0.943992.
   - OPEN USER DECISION: whether to change the default or to recommend A or B. The numbers above are
-    the input. No criterion for "better" was set, and there is no ground truth.
+    the input. No criterion for a preferred setting was set, and there is no ground truth.
 - A `.prepared` marker of format version 1 (written before the Salmon change) is refused. Run
   `run --step prepare` (or `run`) on such a directory again.
 - No plots.
 - `--shrink` writes `PREFIX.results.shrunk.csv` next to the unshrunk results. `normal` needs no extra
   package. The pixi environment has `apeglm` 1.32.0 and `ashr` 2.2.63 for `--shrink apeglm` and
-  `--shrink ashr`. On the AMB counts (6,477 genes, 6,295 with a finite unshrunk log2 fold change),
+  `--shrink ashr`. On the align-mode (HISAT2 + featureCounts) AMB counts `run_align/counts.tsv.zst` (6,477 genes, 6,295 with a finite unshrunk log2 fold change),
   the Pearson correlations of the log2 fold changes were 0.9879 (normal and apeglm), 0.9861 (normal
   and ashr) and 0.9974 (apeglm and ashr). `ashr` returned a finite value for all 6,477 genes. See
-  `validation/amb/results_shrink/`.
+  `validation/amb/results_shrink/`. The output directory name `shrink_overhang` has no link to the Salmon
+  overhang runs.
 - The SLURM `--time` is not computed from `reads_per_sample`.
 
 ## Validation

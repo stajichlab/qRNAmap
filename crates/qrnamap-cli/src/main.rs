@@ -146,11 +146,11 @@ enum Cmd {
         /// kallisto.
         #[arg(long, value_enum)]
         quantifier: Option<QuantArg>,
-        /// Salmon only: pass --softclipOverhangs to salmon quant. Needs --quantifier salmon.
+        /// Salmon only: pass --softclipOverhangs to salmon quant. Needs --quantifier salmon. Not with --mode align.
         #[arg(long)]
         salmon_softclip_overhangs: bool,
         /// Salmon only: pass --minScoreFraction F to salmon quant. F is greater than 0 and at
-        /// most 1. Needs --quantifier salmon.
+        /// most 1. Needs --quantifier salmon. Not with --mode align.
         #[arg(long, value_name = "F", value_parser = parse_min_score_fraction, allow_hyphen_values = true)]
         salmon_min_score_fraction: Option<f64>,
         /// Run directory. On a cluster it must be on shared storage (for example /bigdata).
