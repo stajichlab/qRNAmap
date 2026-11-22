@@ -359,8 +359,17 @@ pub fn kallisto_args_native(request_json: &str) -> Result<String, String> {
                 fastq2: str_list(s.get("fastq2"))?,
                 covariates: BTreeMap::new(),
             };
+            // The vendored kallisto WASM requires `-t 1` when a thread count is supplied (upstream
+            // README), so the browser export accepts only 1 and refuses any other value.
+            let threads = u32::try_from(v.get("threads").and_then(Value::as_u64).unwrap_or(1))
+                .map_err(|_| "'threads' is too large".to_string())?;
+            if threads != 1 {
+                return Err(format!(
+                    "threads must be 1 in the browser build (kallisto WASM requires -t 1), not {threads}"
+                ));
+            }
             let mut cfg = RunConfig {
-                threads: v.get("threads").and_then(Value::as_u64).unwrap_or(1) as u32,
+                threads,
                 strandedness: strandedness(
                     v.get("strandedness").and_then(Value::as_str).unwrap_or(""),
                 )?,

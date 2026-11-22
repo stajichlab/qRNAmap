@@ -20,8 +20,8 @@ use qrnamap_core::{
     gene_counts_from_salmon, gene_table, gene_table_tsv, genes_from_tx2gene, hisat2_align,
     hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts, parse_featurecounts_summary,
     parse_tx2gene, saf, salmon_index, salmon_quant, splice_sites, tx2gene_tsv, write_fasta,
-    BuildError, ConfigError, CountError, CountMatrix, MatrixError, Mode, Quantifier, RunConfig,
-    Sample, StrandReport, Strandedness, ToolCall,
+    zero_warning, BuildError, ConfigError, CountError, CountMatrix, MatrixError, Mode, Quantifier,
+    RunConfig, Sample, StrandReport, Strandedness, ToolCall,
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
@@ -1550,16 +1550,6 @@ fn salmon_run(
             }
         })?;
     Ok((counts, n, pct / 100.0))
-}
-
-fn zero_warning(sample: &str, counts: &BTreeMap<String, u64>) -> Option<String> {
-    if counts.values().all(|&c| c == 0) {
-        Some(format!(
-            "sample '{sample}': all-zero sample (no counts in any gene)"
-        ))
-    } else {
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------------------------

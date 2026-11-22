@@ -166,6 +166,10 @@ pub fn pca(m: &CountMatrix, top_genes: usize) -> Result<Pca, QcError> {
 }
 
 /// Eigenvalues and eigenvectors (as columns) of a symmetric matrix, by cyclic Jacobi rotations.
+///
+/// The iteration stops when the off-diagonal sum is negligible or after 100 sweeps. Non-convergence
+/// after 100 sweeps is not reported: Jacobi converges in far fewer sweeps for the sample counts
+/// expected here (up to about 48 samples).
 fn jacobi_eigen(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
     let n = a.len();
     let mut v = vec![vec![0.0; n]; n];

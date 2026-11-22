@@ -165,3 +165,86 @@ fn pca_zero_library_names_the_sample() {
         QcError::ZeroLibrary("dead".into())
     );
 }
+
+/// Genes g1 and g2 with the given counts, plus a filler gene so every library is 1e6.
+/// A count of 7 is cpm 7, log2(8) = 3; a count of 0 is log 0. The filler has near-zero variance.
+fn rank1(g1: [u64; 3], g2: [u64; 3]) -> CountMatrix {
+    let filler: Vec<u64> = (0..3).map(|i| 1_000_000 - g1[i] - g2[i]).collect();
+    matrix(
+        &["a", "b", "c"],
+        &[("g1", &g1), ("g2", &g2), ("g3", &filler)],
+    )
+}
+
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
+}
+
+#[test]
+fn pca_hand_computed_rank_one() {
+    // g1 = g2 = log2 values (0, 0, 3). Centred: (-1, -1, 2). Gram = 2 v v^T, eigenvalues 12, 0, 0.
+    // PC1 score = v * sqrt(12) / |v| = v * sqrt(2) = (-sqrt 2, -sqrt 2, 2 sqrt 2).
+    let p = pca(&rank1([0, 0, 7], [0, 0, 7]), 2).unwrap();
+    let r2 = 2f64.sqrt();
+    let want = [-r2, -r2, 2.0 * r2];
+    for (s, w) in p.scores.iter().zip(want) {
+        assert!(near(s[0], w), "{:?}", p.scores);
+        assert!(near(s[1], 0.0), "{:?}", p.scores);
+    }
+    assert!(
+        near(p.variance_explained[0], 1.0),
+        "{:?}",
+        p.variance_explained
+    );
+    assert!(
+        near(p.variance_explained[1], 0.0),
+        "{:?}",
+        p.variance_explained
+    );
+}
+
+#[test]
+fn pca_sign_rule_largest_loading_is_positive() {
+    // Mirror image: c is low and a, b are high, so the raw eigenvector could point either way.
+    // The rule makes the component with the largest magnitude (sample c, |2|) positive.
+    let p = pca(&rank1([7, 7, 0], [7, 7, 0]), 2).unwrap();
+    let r2 = 2f64.sqrt();
+    assert!(near(p.scores[0][0], -r2) && near(p.scores[1][0], -r2));
+    assert!(near(p.scores[2][0], 2.0 * r2), "{:?}", p.scores);
+    assert!(p.scores[2][0] > 0.0);
+}
+
+#[test]
+fn pca_top_genes_tie_is_broken_by_matrix_order() {
+    // g1 and g2 have the same variance (log2 values (0,0,3) and (0,3,0)). With one gene kept,
+    // the first one in matrix order is used. Its centred values are the scores: (-1,-1,2).
+    let p = pca(&rank1([0, 0, 7], [0, 7, 0]), 1).unwrap();
+    for (s, w) in p.scores.iter().zip([-1.0, -1.0, 2.0]) {
+        assert!(near(s[0], w), "{:?}", p.scores);
+    }
+    // Swapped order: the gene with pattern (0,3,0) is first, scores (-1,2,-1).
+    let p = pca(&rank1([0, 7, 0], [0, 0, 7]), 1).unwrap();
+    for (s, w) in p.scores.iter().zip([-1.0, 2.0, -1.0]) {
+        assert!(near(s[0], w), "{:?}", p.scores);
+    }
+}
+
+#[test]
+fn correlation_of_a_constant_sample_is_nan_in_its_row_and_column() {
+    // Sample c has the same count in every gene: no variance over the genes.
+    let m = matrix(
+        &["a", "b", "c"],
+        &[
+            ("g1", &[10, 200, 5]),
+            ("g2", &[500, 20, 5]),
+            ("g3", &[40, 40, 5]),
+        ],
+    );
+    let c = sample_correlation(&m).unwrap();
+    for k in 0..3 {
+        assert!(c[2][k].is_nan(), "row c, col {k}");
+        assert!(c[k][2].is_nan(), "row {k}, col c");
+    }
+    assert!(close(c[0][0], 1.0) && close(c[1][1], 1.0));
+    assert!(c[0][1].is_finite());
+}

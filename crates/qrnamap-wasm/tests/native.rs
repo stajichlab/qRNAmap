@@ -52,13 +52,13 @@ fn kallisto_quant_args_equal_toolcall() {
         covariates: BTreeMap::new(),
     };
     let cfg = RunConfig {
-        threads: 2,
+        threads: 1,
         strandedness: Strandedness::Reverse,
         ..RunConfig::default()
     };
     let want = kallisto_quant(&sample, "t.idx", "out", &cfg).unwrap().args;
     let req = r#"{"kind":"quant","sample":{"name":"S1","fastq1":["a_1.fq","b_1.fq"],"fastq2":["a_2.fq","b_2.fq"]},
-        "index":"t.idx","out":"out","threads":2,"strandedness":"reverse"}"#;
+        "index":"t.idx","out":"out","threads":1,"strandedness":"reverse"}"#;
     assert_eq!(args(&json(&kallisto_args_native(req).unwrap())), want);
 
     // Single-end needs a fragment length, as in toolcall.
@@ -187,4 +187,29 @@ fn transcriptome_builds_and_reports_bad_input() {
     assert!(build_transcriptome_native(FASTA.as_bytes(), "")
         .unwrap_err()
         .contains("empty"));
+}
+
+#[test]
+fn kallisto_quant_args_refuse_other_thread_counts() {
+    for t in ["2", "0", "4294967297"] {
+        let req = format!(
+            r#"{{"kind":"quant","sample":{{"name":"S","fastq1":["a_1.fq"],"fastq2":["a_2.fq"]}},"index":"i","out":"o","threads":{t}}}"#
+        );
+        let e = kallisto_args_native(&req).unwrap_err();
+        assert!(e.contains("threads"), "{e}");
+    }
+}
+
+#[test]
+fn qc_nan_correlation_becomes_null() {
+    // Sample C has the same count in every gene, so it has no variance.
+    let q =
+        json(&qc_native("gene\tA\tB\tC\ng1\t10\t200\t5\ng2\t500\t20\t5\ng3\t40\t40\t5\n").unwrap());
+    let c = &q["correlation"];
+    for k in 0..3 {
+        assert!(c[2][k].is_null(), "row C, col {k}");
+        assert!(c[k][2].is_null(), "row {k}, col C");
+    }
+    assert!(c[0][1].is_number());
+    assert!(c[0][0].is_number());
 }

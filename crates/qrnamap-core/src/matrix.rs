@@ -114,7 +114,8 @@ pub fn parse_tx2gene(text: &str) -> Result<HashMap<String, String>, Tx2GeneError
     Ok(m)
 }
 
-fn zero_warning(sample: &str, counts: &BTreeMap<String, u64>) -> Option<String> {
+/// The warning for a sample whose counts are all zero or empty, else `None`.
+pub fn zero_warning(sample: &str, counts: &BTreeMap<String, u64>) -> Option<String> {
     if counts.values().all(|&c| c == 0) {
         Some(format!(
             "sample '{sample}': all-zero sample (no counts in any gene)"
