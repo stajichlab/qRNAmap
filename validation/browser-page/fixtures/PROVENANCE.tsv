@@ -1,0 +1,7 @@
+file	bytes	sha256	what
+GCF_000146045.2_R64_genomic.fna.gz	3843460	1ec41f951b35f2752d5065edeafe6972455609d4383fb36dae12519a60b27a73	source FASTA (GCF_000146045.2, NCBI catalog URL)
+GCF_000146045.2_R64_genomic.gff.gz	2203839	bbcb56dec2d2a00101fb85be4752fbda9895e27023e0c5e08340fc30d0ad5510	source GFF3 (GCF_000146045.2, NCBI catalog URL)
+mito.fna	86927	2343596351640af336c0dea900cd957783ff90ace343a5bae20f8c4f37963103	made by make_fixtures.py (NC_001224.1 only)
+mito.gff3	85487	66a10c2d671b392fd43ffc1b9b1b5cc0ec389e1d13b8a4c4c2b1ddb0d3cd0afb	made by make_fixtures.py (NC_001224.1 only)
+mito.fna.gz	21230	31fe2fdac7d70d41b58b826053d722e3d9e39dfaefa03d620e7924176646bd2f	made by make_fixtures.py (NC_001224.1 only)
+mito.gff3.gz	8888	9f1a91e5ec20407945118f3e6b414ad9c5c9b0b3451b1d2c5152f1cb68c98ce0	made by make_fixtures.py (NC_001224.1 only)

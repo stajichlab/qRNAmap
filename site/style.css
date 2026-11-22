@@ -47,3 +47,15 @@ footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem;
 .step .reason { color: var(--muted); margin: 0 0 .5rem; }
 .step fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .preview-label { font-weight: 600; }
+
+/* Step 1: genome */
+.choice { display: flex; flex-direction: column; gap: .2rem; margin: .5rem 0 .75rem; }
+#genome-panel label { display: block; margin-top: .5rem; }
+#genome-panel .choice label { margin-top: 0; }
+#genome-filter, #genome-menu { width: 100%; font: inherit; margin: .25rem 0; }
+#genome-panel input[type="file"] { max-width: 100%; }
+#genome-panel button:not(.button) { font: inherit; padding: .35rem .9rem; border-radius: 6px; border: 1px solid var(--line); background: var(--note); color: var(--fg); cursor: pointer; }
+#genome-panel .button { margin-top: .5rem; cursor: pointer; }
+#genome-progress { width: 100%; }
+.small { font-size: .9rem; color: var(--muted); }
+.error { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); border-radius: 6px; padding: .6rem 1rem; white-space: pre-wrap; }

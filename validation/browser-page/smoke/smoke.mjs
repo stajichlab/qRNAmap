@@ -36,7 +36,7 @@ for (const name of engines) {
     page.on('response', (r) => { if (r.status() >= 400) errors.push(`HTTP ${r.status()}: ${r.url()}`); });
 
     await page.goto(`${base}/`, { waitUntil: 'load' });
-    if (!(await page.textContent('body')).includes('Status: the analysis tool is not built yet')) errors.push('landing status line missing');
+    if (!(await page.textContent('body')).includes('Status: only the genome step of the analysis tool works')) errors.push('landing status line missing');
     const href = await page.getAttribute('a.button', 'href');
     if (href !== 'analyze/') errors.push(`button href is ${href}`);
     // no horizontal scroll at phone width
@@ -44,13 +44,14 @@ for (const name of engines) {
     if (wide) errors.push('/ scrolls horizontally at 390 px');
     await Promise.all([page.waitForURL(`${base}/analyze/`), page.click('a.button')]);
     await page.waitForLoadState('load');
+    await page.waitForSelector('#step-genome[data-ready="menu"]', { timeout: 30000 }); // the genome menu has loaded (wasm catalog)
     // the three steps and their enable order
     const states = await page.$$eval('.step', (els) => els.map((e) => `${e.dataset.step}:${e.dataset.state}:${e.querySelector('fieldset').disabled}`));
     if (states.join(',') !== 'genome:active:false,samples:locked:true,results:locked:true') errors.push(`step states: ${states.join(',')}`);
     await page.evaluate(() => window.qrnamapShell.completeStep('genome'));
     const after = await page.$$eval('.step', (els) => els.map((e) => `${e.dataset.state}:${e.querySelector('fieldset').disabled}`));
     if (after.join(',') !== 'done:false,active:false,locked:true') errors.push(`step states after genome done: ${after.join(',')}`);
-    if (!(await page.textContent('#construction-notice')).includes('Under construction: the analysis tool is not available yet. This page shows the planned three steps.')) errors.push('construction notice missing');
+    if (!(await page.textContent('#construction-notice')).includes('Under construction: genome step works; samples and results are not built yet.')) errors.push('construction notice missing');
     if (await page.$('#preview-label')) errors.push('preview label present before a tool state exists');
     if (await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) errors.push('/analyze/ scrolls horizontally at 390 px');
     console.log(`${name}: ${errors.length ? 'FAIL' : 'ok'} (${await browser.version()})`);

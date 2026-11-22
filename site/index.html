@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: RNA-seq counts in your browser</title>
-<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The command-line tool exists. A web page that runs kallisto in your browser is planned (version 1, not built yet).">
+<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The command-line tool exists. A web page that runs kallisto in your browser is under construction (version 1: the genome step works).">
 <script>
 // Apply a saved theme choice before the page is drawn. Without a choice, the system setting (prefers-color-scheme) applies.
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
@@ -21,15 +21,15 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead">Map bulk RNA-seq reads, count them per gene, and test for differential expression.</p>
 
-<p class="warn"><strong>Status:</strong> the analysis tool is not built yet. This is the plan for version 1 of the web page.</p>
-<p><a class="button" id="analyze-link" href="analyze/">Preview the planned tool</a></p>
-<p class="lead">The button leads to a preview of the three planned steps. It does not analyze reads yet.</p>
+<p class="warn"><strong>Status:</strong> only the genome step of the analysis tool works. It downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. The samples and results steps are not built yet, so the page cannot count reads yet.</p>
+<p><a class="button" id="analyze-link" href="analyze/">Open the tool (genome step only)</a></p>
+<p class="lead">The button leads to the three steps of the tool. Step 1 (genome) works. Steps 2 and 3 are locked until they are built.</p>
 
 <h2>What qRNAmap is</h2>
 <ul>
   <li>The command-line tool exists today. It wraps kallisto or Salmon (transcript quantification), or HISAT2 with featureCounts (alignment), and then DESeq2.</li>
   <li>It runs on a laptop or as SLURM jobs on a cluster.</li>
-  <li>The web page (version 1, planned) will run the quantification step only, for a small preview of your data. It will need no server and no install. Your reads will not leave your computer.</li>
+  <li>The web page (version 1, under construction) will run the quantification step only, for a small preview of your data. It will need no server and no install. Your reads will not leave your computer.</li>
 </ul>
 
 <h2>What version 1 of the web page will not do</h2>

@@ -18,5 +18,5 @@ Each copied file has a first line with the commit. That line is the only change 
 Measurements (docs/browser/page-v1-measurements.md) show that the gzip repack in `reads.js` does not meet the memory rule at the chosen preview size, so the page may not use `reads.js`. It is copied because the plan names it.
 
 Open items:
-- `reference-panel.js` still reads `genomes/genomes.json` by default. That file is not in `dist-site`. A later task decides where the genome list comes from.
+- `reference-panel.js` still reads `genomes/genomes.json` by default. That file is not in `dist-site`. The genome step (`analyze/genome.js`) does not use the panel: it imports only `checkUrl` and `mb` from `reference-panel.js`, and its genome list comes from `catalog()` of qrnamap-wasm.
 - The landing page links to `docs/browser/page-v1-measurements.md` on the `main` branch. That link returns 404 until branch `page-v1` is merged into `main`.

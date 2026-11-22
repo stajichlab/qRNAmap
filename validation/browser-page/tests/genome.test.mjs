@@ -1,0 +1,316 @@
+// Browser tests of step 1 (genome) of /analyze/.
+//   DIST=<absolute path of dist-site> ENGINE=chromium|firefox|webkit node --test validation/browser-page/tests/genome.test.mjs
+// A local static server serves dist-site. NCBI is never contacted: page.route answers the catalog URLs of
+// S. cerevisiae S288C (GCF_000146045.2) with the small fixtures in ../fixtures (the yeast mitochondrial genome).
+// The expected gene and transcript counts come from ../fixtures/expected.tsv (made with `qrnamap transcripts`).
+// REAL_NCBI=1 adds one test that downloads S288C from NCBI through the page (not for CI).
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { join, resolve, extname, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, firefox, webkit } from 'playwright';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const FIX = resolve(here, '../fixtures');
+const root = resolve(process.env.DIST || resolve(here, '../../../dist-site'));
+const ENGINE = process.env.ENGINE || 'chromium';
+const YEAST = 'GCF_000146045.2';
+const NCBI_DIR = 'https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/';
+const FNA_URL = `${NCBI_DIR}GCF_000146045.2_R64_genomic.fna.gz`;
+const GFF_URL = `${NCBI_DIR}GCF_000146045.2_R64_genomic.gff.gz`;
+const READY_MS = 120_000;
+
+const fixture = (name) => readFileSync(join(FIX, name));
+const [, expectedRow] = readFileSync(join(FIX, 'expected.tsv'), 'utf8').trim().split('\n');
+const [, expGenes, expTranscripts] = expectedRow.split('\t');
+const EXPECTED = { genes: Number(expGenes), transcripts: Number(expTranscripts) };
+
+// ------------------------------------------------------------------ static server, with two test switches for kallisto.mjs
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json' };
+const hooks = { kallisto: 'serve', release: null };
+const server = http.createServer(async (req, res) => {
+  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  const headers = (type) => ({ 'content-type': type, 'cache-control': 'no-store' });
+  if (path === '/vendor/kallisto/kallisto.mjs' && hooks.kallisto === 'oom') {
+    // A kallisto module that fails as an out-of-memory WebAssembly build fails.
+    res.writeHead(200, headers('text/javascript'))
+      .end("export default async function () { throw new RangeError('WebAssembly.Memory(): could not allocate memory'); }\n");
+    return;
+  }
+  if (path === '/vendor/kallisto/kallisto.mjs' && hooks.kallisto === 'hold') await new Promise((r) => { hooks.release = r; });
+  let file = resolve(join(root, path));
+  if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
+  if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
+  if (!existsSync(file)) { res.writeHead(404).end('not found'); return; }
+  res.writeHead(200, headers(TYPES[extname(file)] ?? 'application/octet-stream')).end(readFileSync(file));
+});
+
+let browser;
+let base;
+before(async () => {
+  assert.ok(existsSync(join(root, 'analyze/index.html')), `no dist-site at ${root}: run scripts/build-site.sh`);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+  browser = await { chromium, firefox, webkit }[ENGINE].launch();
+});
+after(async () => {
+  await browser?.close();
+  server.close();
+});
+
+/** A new context and page. `ncbi(route, url)` answers NCBI requests (default: the fixtures for the S288C URLs, 404 otherwise). */
+async function open(t, { query = '', ncbi, context } = {}) {
+  context = context || await browser.newContext();
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const ncbiRequests = [];
+  await page.route('https://ftp.ncbi.nlm.nih.gov/**', async (route) => {
+    const url = route.request().url();
+    ncbiRequests.push(url);
+    if (ncbi) return ncbi(route, url);
+    if (url === FNA_URL) return route.fulfill({ status: 200, body: fixture('mito.fna.gz'), headers: { 'access-control-allow-origin': '*' } });
+    if (url === GFF_URL) return route.fulfill({ status: 200, body: fixture('mito.gff3.gz'), headers: { 'access-control-allow-origin': '*' } });
+    return route.fulfill({ status: 404, body: 'not found', headers: { 'access-control-allow-origin': '*' } });
+  });
+  await page.goto(`${base}/analyze/${query}`);
+  await page.waitForSelector('#step-genome[data-ready="menu"]', { timeout: 30_000 });
+  t.after(async () => {
+    hooks.kallisto = 'serve';
+    hooks.release?.();
+    hooks.release = null;
+    await context.close();
+  });
+  return { page, errors, ncbiRequests, context };
+}
+
+async function chooseYeast(page) {
+  await page.fill('#genome-filter', YEAST);
+  await page.selectOption('#genome-menu', YEAST);
+  await page.click('#genome-load');
+}
+
+async function upload(page, fasta, gff) {
+  await page.check('input[name="genome-source"][value="upload"]');
+  await page.setInputFiles('#upload-fasta', fasta);
+  await page.setInputFiles('#upload-gff', gff);
+  await page.click('#upload-load');
+}
+
+const phase = (page) => page.getAttribute('#step-genome', 'data-phase');
+const waitPhase = (page, p, timeout = READY_MS) => page.waitForSelector(`#step-genome[data-phase="${p}"]`, { timeout });
+const appState = (page) => page.evaluate(() => {
+  const { genome, nTranscripts, nGenes, indexReady, phase } = window.qrnamapApp.state;
+  return { genome, nTranscripts, nGenes, indexReady, phase };
+});
+
+/** Wait until the step is back at "choose genome" with an error, and return the error text. */
+async function errorText(page) {
+  await page.waitForSelector('#genome-error:not([hidden])', { timeout: READY_MS });
+  assert.equal(await phase(page), 'choose');
+  const s = await appState(page);
+  assert.equal(s.indexReady, false);
+  assert.equal(s.genome, null);
+  assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'locked');
+  return page.textContent('#genome-error');
+}
+
+const fileArg = (name, buffer) => ({ name, mimeType: 'application/octet-stream', buffer });
+
+// ------------------------------------------------------------------ tests
+test('the menu lists the catalog, RefSeq first, and the search filters it', async (t) => {
+  const { page, errors } = await open(t);
+  const groups = await page.$$eval('#genome-menu optgroup', (gs) => gs.map((g) => `${g.label}:${g.children.length}`));
+  assert.deepEqual(groups, ['NCBI RefSeq:153', 'NCBI GenBank:1']);
+  await page.fill('#genome-filter', 'cerevisiae');
+  const options = await page.$$eval('#genome-menu option', (os) => os.map((o) => o.textContent));
+  assert.deepEqual(options, ['Saccharomyces cerevisiae S288C | GCF_000146045.2 | 12.1 Mb | 6,477 genes']);
+  assert.match(await page.textContent('#construction-notice'), /genome step works; samples and results are not built yet/);
+  assert.deepEqual(errors, []);
+});
+
+test('catalog genome: download, transcripts and index reach "index ready" with the CLI counts', async (t) => {
+  const { page, errors, context } = await open(t);
+  await chooseYeast(page);
+  await waitPhase(page, 'ready');
+  assert.equal(await page.textContent('#ready-label'), 'Saccharomyces cerevisiae S288C');
+  assert.equal(await page.textContent('#ready-accession'), YEAST);
+  assert.equal(await page.textContent('#ready-genes'), String(EXPECTED.genes));
+  assert.equal(await page.textContent('#ready-transcripts'), String(EXPECTED.transcripts));
+  const s = await appState(page);
+  assert.equal(s.indexReady, true);
+  assert.equal(s.nTranscripts, EXPECTED.transcripts);
+  assert.equal(s.nGenes, EXPECTED.genes);
+  assert.equal(s.genome.accession, YEAST);
+  // Steps 2 and 3 are not built: they stay locked.
+  assert.equal(await page.getAttribute('#step-genome', 'data-state'), 'done');
+  assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'locked');
+  assert.match(await page.textContent('#reason-samples'), /not built yet/);
+  assert.deepEqual(errors, []);
+  // The last genome is remembered (persist.js) and selected again after a reload; it is not downloaded again by itself.
+  await page.waitForTimeout(300);
+  const again = await open(t, { context });
+  assert.equal(await again.page.inputValue('#genome-menu'), YEAST);
+  assert.match(await again.page.textContent('#genome-note'), /Last genome: Saccharomyces cerevisiae S288C \(GCF_000146045\.2\)/);
+  assert.equal(await phase(again.page), 'choose');
+  assert.deepEqual(again.ncbiRequests, []);
+});
+
+test('upload FASTA (gzip) and GFF3 (plain) reach "index ready"', async (t) => {
+  const { page, errors } = await open(t);
+  await upload(page, join(FIX, 'mito.fna.gz'), join(FIX, 'mito.gff3'));
+  await waitPhase(page, 'ready');
+  assert.equal(await page.textContent('#ready-transcripts'), String(EXPECTED.transcripts));
+  assert.equal(await page.textContent('#ready-genes'), String(EXPECTED.genes));
+  assert.equal(await page.textContent('#ready-accession'), 'uploaded files');
+  assert.deepEqual(errors, []);
+});
+
+test('FASTA names that do not match the GFF3 give the build_transcriptome message', async (t) => {
+  const { page } = await open(t);
+  const gff = fixture('mito.gff3').toString().replaceAll('NC_001224.1\t', 'chrM\t');
+  await upload(page, join(FIX, 'mito.fna'), fileArg('renamed.gff3', Buffer.from(gff)));
+  const text = await errorText(page);
+  assert.match(text, /The transcripts could not be built: gene '.+' is on contig 'chrM', which is not in the genome FASTA\. Check that the FASTA sequence names match the first column of the GFF3\./);
+});
+
+test('a GFF3 with no usable transcripts gives a clear message', async (t) => {
+  const { page } = await open(t);
+  const gff = fixture('mito.gff3').toString().split('\n').filter((l) => l.startsWith('#') || l.split('\t')[2] === 'region').join('\n') + '\n';
+  await upload(page, join(FIX, 'mito.fna'), fileArg('regions.gff3', Buffer.from(gff)));
+  assert.match(await errorText(page), /the GFF3 gives no usable transcripts \(no gene has an exon, CDS or UTR interval\)/);
+});
+
+test('a truncated gzip download gives the gzip message', async (t) => {
+  const gz = fixture('mito.fna.gz');
+  const { page } = await open(t, {
+    ncbi: (route, url) => route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' },
+      body: url === FNA_URL ? gz.subarray(0, Math.floor(gz.length / 2)) : fixture('mito.gff3.gz') }),
+  });
+  await chooseYeast(page);
+  assert.match(await errorText(page), /The genome FASTA \(GCF_000146045\.2_R64_genomic\.fna\.gz\) is not a complete gzip file \(unexpected EOF\)\. The file is damaged or cut short\. Download it again\./);
+});
+
+test('an empty file gives a clear message', async (t) => {
+  const { page } = await open(t);
+  await upload(page, fileArg('empty.fna', Buffer.alloc(0)), join(FIX, 'mito.gff3'));
+  assert.match(await errorText(page), /The genome FASTA \(empty\.fna\) is empty \(0 bytes\)\./);
+});
+
+test('a catalog genome above the size limit is refused before download and names the command-line route', async (t) => {
+  const { page, ncbiRequests } = await open(t, { query: '?genome_limit_bases=1000000' });
+  await chooseYeast(page);
+  const text = await errorText(page);
+  assert.match(text, /has 12,071,326 bases, more than the page limit of 1,000,000 bases/);
+  assert.match(text, /The largest genome tested in a browser is Fulvia fulva Race5_Kim \(GCF_020509005\.1, 67,169,167 bases/);
+  assert.match(text, /Use the command-line tool instead .*qrnamap fetch --source ncbi --id GCF_000146045\.2 --out genome\//);
+  assert.deepEqual(ncbiRequests, []);
+});
+
+test('an uploaded genome above the size limit is refused and names the command-line route', async (t) => {
+  const { page } = await open(t, { query: '?genome_limit_bases=50000' });
+  await upload(page, join(FIX, 'mito.fna.gz'), join(FIX, 'mito.gff3'));
+  const text = await errorText(page);
+  assert.match(text, /has more than 50,000 bases/);
+  assert.match(text, /Use the command-line tool instead .*qrnamap transcripts --reference <your FASTA> --gff <your GFF3>/);
+});
+
+test('cancel during the download returns to "choose genome", and a new run works', async (t) => {
+  let held = null;
+  const { page, errors } = await open(t, {
+    ncbi: (route, url) => {
+      if (url === FNA_URL && !held) { held = route; return undefined; } // never answered
+      return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, body: fixture(url === FNA_URL ? 'mito.fna.gz' : 'mito.gff3.gz') });
+    },
+  });
+  await chooseYeast(page);
+  await waitPhase(page, 'download', 10_000);
+  await page.click('#genome-cancel');
+  assert.equal(await phase(page), 'choose');
+  assert.equal(await page.isHidden('#genome-busy'), true);
+  assert.equal(await page.isHidden('#genome-error'), true);
+  assert.match(await page.textContent('#genome-note'), /Cancelled/);
+  assert.equal((await appState(page)).indexReady, false);
+  await held?.fulfill({ status: 200, body: fixture('mito.fna.gz') }).catch(() => {}); // a late answer must change nothing
+  await page.waitForTimeout(500);
+  assert.equal(await phase(page), 'choose');
+  await chooseYeast(page);
+  await waitPhase(page, 'ready');
+  assert.equal(await page.textContent('#ready-transcripts'), String(EXPECTED.transcripts));
+  assert.deepEqual(errors, []);
+});
+
+test('cancel during the index terminates the worker, returns to "choose genome", and a new run works', async (t) => {
+  const { page, errors } = await open(t);
+  hooks.kallisto = 'hold'; // the kallisto module does not arrive until it is released
+  await chooseYeast(page);
+  await waitPhase(page, 'index', 30_000);
+  const workersBefore = page.workers().length;
+  const pageWorkers = page.workers().filter((w) => w.url().includes('/analyze/worker.js'));
+  assert.equal(pageWorkers.length, 1, `page workers: ${page.workers().map((w) => w.url()).join(', ')}`);
+  const closed = new Promise((r) => pageWorkers[0].once('close', r));
+  await page.click('#genome-cancel');
+  await Promise.race([closed, new Promise((_, no) => setTimeout(() => no(new Error('the page worker was not terminated')), 5000))]);
+  assert.equal(await phase(page), 'choose');
+  assert.equal((await appState(page)).indexReady, false);
+  hooks.kallisto = 'serve';
+  hooks.release?.(); // the old run gets its kallisto now; it must not come back to life
+  hooks.release = null;
+  await page.waitForTimeout(1500);
+  assert.equal(await phase(page), 'choose');
+  assert.equal((await appState(page)).indexReady, false);
+  assert.ok(page.workers().length <= workersBefore, `workers after cancel: ${page.workers().length}, before: ${workersBefore}`);
+  assert.equal(page.workers().filter((w) => w.url().includes('/analyze/worker.js')).length, 1, 'one new page worker');
+  await chooseYeast(page);
+  await waitPhase(page, 'ready');
+  assert.equal(await page.textContent('#ready-transcripts'), String(EXPECTED.transcripts));
+  assert.deepEqual(errors, []);
+});
+
+test('offline, 404 and 5xx downloads give a message, not a blank page', async (t) => {
+  for (const [how, pattern] of [
+    ['offline', /the genome FASTA: the download from ftp\.ncbi\.nlm\.nih\.gov failed \(.+\)\. Check the network connection and try again\./],
+    ['404', /the genome FASTA: the server ftp\.ncbi\.nlm\.nih\.gov answered HTTP 404 \(file not found\)\./],
+    ['503', /the genome FASTA: the server ftp\.ncbi\.nlm\.nih\.gov answered HTTP 503 \(a server error; try again later\)\./],
+  ]) {
+    const { page } = await open(t, {
+      ncbi: (route) => (how === 'offline' ? route.abort('internetdisconnected')
+        : route.fulfill({ status: Number(how), body: 'x', headers: { 'access-control-allow-origin': '*' } })),
+    });
+    await chooseYeast(page);
+    assert.match(await errorText(page), pattern, how);
+  }
+});
+
+test('a kallisto out-of-memory failure gives a message that names the command-line route', async (t) => {
+  const { page, errors } = await open(t);
+  hooks.kallisto = 'oom';
+  await chooseYeast(page);
+  const text = await errorText(page);
+  assert.match(text, /kallisto index stopped \(RangeError: WebAssembly\.Memory\(\): could not allocate memory\)\./);
+  assert.match(text, /Use the command-line tool instead .*qrnamap fetch --source ncbi --id GCF_000146045\.2/);
+  hooks.kallisto = 'serve';
+  await chooseYeast(page); // the page worker still works
+  await waitPhase(page, 'ready');
+  assert.deepEqual(errors, []);
+});
+
+test('real NCBI download of S. cerevisiae S288C (REAL_NCBI=1 only)', { skip: process.env.REAL_NCBI !== '1' }, async (t) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  t.after(() => context.close());
+  await page.goto(`${base}/analyze/`);
+  await page.waitForSelector('#step-genome[data-ready="menu"]', { timeout: 30_000 });
+  const started = Date.now();
+  await chooseYeast(page);
+  await page.waitForSelector('#step-genome[data-phase="ready"], #genome-error:not([hidden])', { timeout: 600_000 });
+  const seconds = (Date.now() - started) / 1000;
+  const s = await appState(page);
+  console.log(`real NCBI S288C in ${ENGINE}: ${seconds.toFixed(1)} s; phase ${s.phase}; genes ${s.nGenes}; transcripts ${s.nTranscripts}; ` +
+    `error: ${await page.isHidden('#genome-error') ? 'none' : await page.textContent('#genome-error')}; index time: ${await page.textContent('#ready-time')}`);
+  assert.equal(s.phase, 'ready');
+  assert.equal(s.nTranscripts, 6478); // docs/browser/page-v1-measurements.md, "Genomes"
+  assert.equal(s.nGenes, 6477);
+});

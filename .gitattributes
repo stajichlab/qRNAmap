@@ -1,1 +1,2 @@
 site/vendor/** -text
+validation/browser-page/fixtures/** -text

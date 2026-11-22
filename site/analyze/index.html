@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: analyze reads</title>
-<meta name="description" content="Under construction. This page shows the planned three steps of the qRNAmap browser tool (genome, samples, results).">
+<meta name="description" content="Under construction. The genome step of the qRNAmap browser tool works; the samples and results steps are not built yet.">
 <script>
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
 </script>
@@ -18,15 +18,50 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
     <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
   </nav>
 </div>
-<p class="lead"><a href="../">qRNAmap</a> web page, version 1 (planned).</p>
+<p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
 
-<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> the analysis tool is not available yet. This page shows the planned three steps.</p>
+<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> genome step works; samples and results are not built yet. Step 1 builds the kallisto index of a genome in this browser. Steps 2 and 3 stay locked.</p>
 
 <section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
   <h2 id="h-genome">1. Genome</h2>
   <p class="reason" id="reason-genome">Choose the genome first. The tool builds the transcript index from it.</p>
   <fieldset id="fs-genome">
-    <div id="genome-panel"><p>Genome choice comes in a later release of this page.</p></div>
+    <div id="genome-panel">
+      <div id="genome-choose">
+        <div class="choice" role="radiogroup" aria-label="Where the genome comes from">
+          <label><input type="radio" name="genome-source" value="catalog" checked> A genome from the catalog (NCBI)</label>
+          <label><input type="radio" name="genome-source" value="upload"> My own FASTA and GFF3 files</label>
+        </div>
+        <div id="genome-catalog">
+          <p id="genome-count" class="small"></p>
+          <label for="genome-filter">Search the catalog</label>
+          <input id="genome-filter" type="search" placeholder="species, strain or accession" autocomplete="off">
+          <select id="genome-menu" size="8" aria-label="Catalog genomes"></select>
+          <p id="genome-info" class="small"></p>
+          <button id="genome-load" type="button" class="button">Download and build the index</button>
+        </div>
+        <div id="genome-upload" hidden>
+          <p class="small">The files stay in this browser. Plain text or gzip (.gz) files are accepted. The FASTA sequence names must match the first column of the GFF3.</p>
+          <label for="upload-fasta">Genome FASTA</label>
+          <input id="upload-fasta" type="file">
+          <label for="upload-gff">GFF3 gene models</label>
+          <input id="upload-gff" type="file">
+          <button id="upload-load" type="button" class="button">Build the index</button>
+        </div>
+        <p id="genome-note" class="small" role="status"></p>
+      </div>
+      <div id="genome-busy" hidden>
+        <progress id="genome-progress"></progress>
+        <p id="genome-status" role="status" aria-live="polite"></p>
+        <button id="genome-cancel" type="button">Cancel</button>
+      </div>
+      <p id="genome-error" class="error" role="alert" hidden></p>
+      <div id="genome-ready" class="note" hidden>
+        <p><strong>Index ready:</strong> <span id="ready-label"></span> (<span id="ready-accession"></span>).
+          <span id="ready-genes"></span> genes, <span id="ready-transcripts"></span> transcripts. kallisto index built in <span id="ready-time"></span>.</p>
+        <button id="genome-change" type="button">Choose another genome</button>
+      </div>
+    </div>
   </fieldset>
 </section>
 

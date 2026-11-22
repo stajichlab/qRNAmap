@@ -1,4 +1,5 @@
 # Site smoke test: build dist-site, check its links, and load / and /analyze/ in headless Chromium, Firefox and WebKit.
+# Job genome-step: the browser tests of step 1 of /analyze/ (validation/browser-page/tests/), one job per engine, on the same dist-site.
 # Separate from page.yml so that a site change does not start the measurement jobs. No secrets.
 name: Site smoke
 on:
@@ -9,6 +10,8 @@ on:
       - 'scripts/build-site.sh'
       - 'crates/qrnamap-wasm/**'
       - 'validation/browser-page/smoke/**'
+      - 'validation/browser-page/tests/**'
+      - 'validation/browser-page/fixtures/**'
       - '.github/workflows/page-smoke.yml'
   workflow_dispatch:
 permissions:
@@ -32,6 +35,13 @@ jobs:
       - run: bash scripts/build-site.sh
         env:
           SITE_CNAME: qrnamap.fungalgenomes.org
+      # Uploaded before the smoke test, so a smoke failure in one engine does not stop the genome-step jobs.
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dist-site
+          path: dist-site
+          include-hidden-files: true
+          retention-days: 3
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '22.23.5'
@@ -48,3 +58,34 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Browser smoke test
         run: node validation/browser-page/smoke/smoke.mjs "$PWD/dist-site"
+
+  genome-step:
+    needs: smoke
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: dist-site
+          path: dist-site
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22.23.5'
+          cache: npm
+          cache-dependency-path: validation/browser-page/tests/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: validation/browser-page/tests
+      - name: Install the Playwright browser
+        working-directory: validation/browser-page/tests
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Genome step tests (${{ matrix.engine }})
+        run: node --test validation/browser-page/tests/genome.test.mjs
+        env:
+          DIST: ${{ github.workspace }}/dist-site
+          ENGINE: ${{ matrix.engine }}
