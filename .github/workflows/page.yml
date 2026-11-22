@@ -7,7 +7,7 @@ on:
   push:
     branches: [page-v1]
     paths:
-      - 'validation/browser-page/**'
+      - 'validation/browser-page/measure/**'
       - '!validation/browser-page/measure/results/**'
       - '.github/workflows/page.yml'
   workflow_dispatch:
