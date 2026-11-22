@@ -13,28 +13,33 @@ export class ReadError extends Error {}
 const NL = 10;
 
 /**
- * Keep the first `maxRecords` records (4 lines each) of `file` (a File or Blob). `label` names the file in messages.
- * Returns `{ bytes, records, wholeFile }`: `wholeFile` is true when the file ended before `maxRecords` records
- * (then every record of the file is kept). `signal` (AbortSignal) stops the read. `onRecords(n)` gets the records kept so far.
+ * One pass over the first `maxRecords` records of `file`. `sink(bytes)` gets every kept chunk (plain bytes) in order.
+ * Returns `{ total, lines, cut, addNewline }`. Checks the gzip end (when the whole file was read) and blank lines.
  */
-export async function firstRecords(file, maxRecords, label, { signal, onRecords = () => {} } = {}) {
-  if (file.size === 0) throw new ReadError(`${label} is empty (0 bytes).`);
+async function scan(file, maxRecords, label, signal, onRecords, sink) {
   const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
   const gz = head[0] === 0x1f && head[1] === 0x8b;
   const target = maxRecords * 4;
-  const parts = [];
   let total = 0;
   let lines = 0;
   let cut = false;
   let reported = 0;
+  let lineLength = 0; // bytes of the current line, without a carriage return
+  let blank = 0; // the number of the first blank line (0: none)
+  let last = -1; // the last kept byte
   const feed = (bytes) => {
     if (cut) return;
     let seen = 0;
     for (let i = 0; i < bytes.length; i++) {
-      if (bytes[i] === NL && ++seen + lines === target) { bytes = bytes.subarray(0, i + 1); cut = true; break; }
+      const b = bytes[i];
+      if (b === NL) {
+        if (lineLength === 0 && !blank) blank = lines + seen + 1;
+        lineLength = 0;
+        if (++seen + lines === target) { bytes = bytes.subarray(0, i + 1); cut = true; break; }
+      } else if (b !== 13) lineLength++;
     }
     lines += seen;
-    parts.push(bytes);
+    if (bytes.length) { last = bytes[bytes.length - 1]; sink(bytes); }
     total += bytes.length;
   };
   const gunzip = gz ? new VerifyingGunzip(feed) : null;
@@ -64,22 +69,45 @@ export async function firstRecords(file, maxRecords, label, { signal, onRecords 
     reader.cancel().catch(() => {});
   }
   // A file whose last line has no newline: the line still counts.
-  const last = parts.length ? parts[parts.length - 1] : null;
-  if (!cut && last && last.length && last[last.length - 1] !== NL) {
-    parts.push(new Uint8Array([NL]));
-    total += 1;
-    lines += 1;
-  }
+  const addNewline = !cut && total > 0 && last !== NL;
+  if (addNewline) lines += 1;
   if (total === 0) throw new ReadError(`${label} is empty after gunzip.`);
+  if (blank) throw new ReadError(`${label} has a blank line (line ${blank.toLocaleString('en-US')}). A FASTQ file has no blank lines. Remove it, or check that the file is FASTQ.`);
   if (lines % 4 !== 0) {
     throw new ReadError(`${label} ends inside a record: it has ${lines} lines, which is not a multiple of 4. A FASTQ record has 4 lines. The file may be cut short.`);
   }
-  const bytes = new Uint8Array(total);
+  return { total, lines, cut, addNewline };
+}
+
+/**
+ * Keep the first `maxRecords` records (4 lines each) of `file` (a File or Blob). `label` names the file in messages.
+ * Returns `{ bytes, records, wholeFile }`: `wholeFile` is true when the file ended before `maxRecords` records
+ * (then every record of the file is kept). `signal` (AbortSignal) stops the read. `onRecords(n)` gets the records kept so far.
+ * Memory: the file is read twice. Pass 1 only counts the bytes to keep. Pass 2 copies them into one array of that exact size.
+ * So the kept bytes exist once (plus one chunk), not as a list of chunks and a joined copy at the same time. Cost: the reading
+ * and gunzip time is about twice that of one pass (reasoning, not a measurement).
+ */
+export async function firstRecords(file, maxRecords, label, { signal, onRecords = () => {} } = {}) {
+  if (file.size === 0) throw new ReadError(`${label} is empty (0 bytes).`);
+  const first = await scan(file, maxRecords, label, signal, onRecords, () => {});
+  const bytes = new Uint8Array(first.total + (first.addNewline ? 1 : 0));
   let offset = 0;
-  for (const p of parts) { bytes.set(p, offset); offset += p.length; }
-  parts.length = 0;
-  onRecords(lines / 4);
-  return { bytes, records: lines / 4, wholeFile: !cut };
+  const second = await scan(file, maxRecords, label, signal, () => {}, (chunk) => {
+    if (offset + chunk.length > first.total) throw new ReadError(`${label} changed while it was read. Pick it again.`);
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  });
+  if (second.total !== first.total || second.lines !== first.lines) throw new ReadError(`${label} changed while it was read. Pick it again.`);
+  if (first.addNewline) bytes[first.total] = NL;
+  onRecords(first.lines / 4);
+  return { bytes, records: first.lines / 4, wholeFile: !first.cut };
+}
+
+/** The first word of the first line of FASTQ bytes, without `@` and without a `/1` or `/2` end (for the mate name check). */
+export function firstNameStem(bytes) {
+  let end = 0;
+  while (end < bytes.length && end < 4096 && bytes[end] !== NL && bytes[end] !== 13 && bytes[end] !== 32 && bytes[end] !== 9) end++;
+  return new TextDecoder().decode(bytes.subarray(1, end)).replace(/\/[12]$/, '');
 }
 
 /**

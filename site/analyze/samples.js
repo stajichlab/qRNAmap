@@ -115,8 +115,15 @@ export function createSamplesStep({ $, app, shell }) {
   $('sheet-file').addEventListener('change', async ({ target }) => {
     const file = target.files[0];
     if (!file) return;
-    const text = await file.text();
-    target.value = '';
+    let text;
+    try {
+      text = await file.text();
+    } catch (error) {
+      sheetError([`The sample sheet ${file.name} could not be read (${error?.message || error}). Pick it again.`]);
+      return;
+    } finally {
+      target.value = '';
+    }
     const result = JSON.parse(validate_sheet(text));
     if (!result.ok) { sheetError([`The sample sheet ${file.name} was not loaded:`, ...result.errors]); return; }
     const rules = pageRules(result.rows);
@@ -154,6 +161,12 @@ export function createSamplesStep({ $, app, shell }) {
         if (row.files[mate]) continue;
         if (row.expect[mate]) fail(row, `${who}: the sheet names "${row.expect[mate]}" for mate ${mate}, but no picked file has that name. Pick the file.`);
         else if (mate === 1) fail(row, `${who}: pick the mate 1 file.`);
+      }
+      for (const mate of [1, 2]) {
+        const f = row.files[mate];
+        if (f && /[,\t\r\n]/.test(f.name)) {
+          fail(row, `${who}: the mate ${mate} file name "${f.name}" has a comma (or a tab or line break). The sample sheet uses commas to separate lanes, so rename the file first.`);
+        }
       }
     });
     model.columns.forEach((col) => {
@@ -198,7 +211,8 @@ export function createSamplesStep({ $, app, shell }) {
       case 'running': return 'Running.';
       case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
         `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(app.state.preview.n).replace(/^p/, 'P')}.`}` +
-        `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}`;
+        `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}` +
+        `${s.warning ? ` Warning: ${s.warning}` : ''}`;
       case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
       case 'cancelled': return 'Cancelled.';
       default: return 'Not run.';

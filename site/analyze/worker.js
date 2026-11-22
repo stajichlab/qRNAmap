@@ -6,7 +6,7 @@
 import init, { build_transcriptome, kallisto_args } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
 import { ToolRunner } from '../vendor/kallisto/runtime/index.mjs?v=__BUILD__';
-import { firstRecords, checkFastq, ReadError } from './fastq.js?v=__BUILD__';
+import { firstRecords, checkFastq, firstNameStem, ReadError } from './fastq.js?v=__BUILD__';
 import { checkAbundance } from './abundance-check.js?v=__BUILD__';
 
 const ready = init({ module_or_path: new URL('../pkg-web/qrnamap_wasm_bg.wasm?v=__BUILD__', import.meta.url) });
@@ -173,12 +173,17 @@ async function buildGenome(message) {
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
-/** One kallisto quant run. Gives { abundance (text), info (run_info.json numbers) }. `signal` stops it. */
+/**
+ * One kallisto quant run. Gives { abundance (text), info (run_info.json numbers, or null when the file cannot be read),
+ * infoError }. `files` is emptied as soon as ToolRunner has the run, so only ToolRunner refers to the reads. `signal` stops it.
+ */
 async function kallistoQuant(args, files, signal) {
   const runner = new ToolRunner({ moduleUrl: KALLISTO, workerUrl: RUNTIME_WORKER, waitForExit: false });
   let run;
   try {
-    run = await runner.run(args, { files, outputs: ['kq/abundance.tsv', 'kq/run_info.json'], signal });
+    const running = runner.run(args, { files: [...files], outputs: ['kq/abundance.tsv', 'kq/run_info.json'], signal });
+    files.length = 0; // ToolRunner has posted (copied) the files; it keeps its own reference until the run returns
+    run = await running;
   } catch (error) {
     if (error?.name === 'AbortError') throw error;
     const text = `${error?.name || 'Error'}: ${error?.message || error}`;
@@ -190,22 +195,35 @@ async function kallistoQuant(args, files, signal) {
     throw new StepError(memoryLike(stderr) ? 'memory' : 'kallisto', `kallisto quant failed (exit ${run.exitCode}${run.missingOutputs.length ? ', an output file is missing' : ''}). ${tail}`);
   }
   const text = (path) => new TextDecoder().decode(run.files.find((f) => f.path === `/work/${path}`).data);
-  let info;
+  let info = null;
+  let infoError = '';
   try {
-    info = JSON.parse(text('kq/run_info.json'));
+    const raw = JSON.parse(text('kq/run_info.json'));
+    info = { n_processed: raw.n_processed, n_pseudoaligned: raw.n_pseudoaligned, p_pseudoaligned: raw.p_pseudoaligned };
   } catch (error) {
-    throw new StepError('output', `kallisto wrote a run_info.json that cannot be read (${error.message}).`);
+    infoError = `run_info.json cannot be read (${error.message})`;
   }
-  return { abundance: text('kq/abundance.tsv'), info: { n_processed: info.n_processed, n_pseudoaligned: info.n_pseudoaligned, p_pseudoaligned: info.p_pseudoaligned } };
+  return { abundance: text('kq/abundance.tsv'), info, infoError };
+}
+
+/** Problems of one kallisto output: run_info.json, n_processed, and the abundance.tsv check. Empty when the output can be used. */
+function outputProblems(result, nPairs, nTranscripts, unit) {
+  if (!result.info) return [result.infoError];
+  const problems = [];
+  if (result.info.n_processed !== nPairs) problems.push(`kallisto processed ${fmt(result.info.n_processed)} ${unit}, but the page gave it ${fmt(nPairs)}`);
+  return problems.concat(checkAbundance(result.abundance, { nTranscripts, nPseudoaligned: result.info.n_pseudoaligned }));
 }
 
 /**
  * Read the first `pairs` records of each mate, check them, run kallisto quant with the index of the genome, check the
- * output (abundance-check.js; one more run when the check fails), and answer `quant-done`. Nothing of the sample is kept.
+ * output (outputProblems; one more run when it fails), and answer `quant-done`. For the second run the files are read again
+ * instead of keeping the arrays. Reasoning, not a measurement: the vendored ToolRunner keeps its input until the run returns,
+ * so the peak during a run is the same either way; re-reading only means that no reads are held between the two runs.
+ * Nothing of the sample is kept after the answer.
  */
 async function quantSample(message, signal) {
   const { id, name, pairs, fragment, nTranscripts } = message;
-  let { mate1, mate2 } = message;
+  const { mate1, mate2 } = message;
   message.mate1 = null; // the request must not keep the files
   message.mate2 = null;
   if (!genome) throw new StepError('no-index', 'The kallisto index is not in the page worker any more. Build the genome index again (step 1).');
@@ -217,44 +235,54 @@ async function quantSample(message, signal) {
     checkFastq(r.bytes, label);
     return r;
   };
-  const r1 = await read(mate1, 1);
-  const r2 = mate2 ? await read(mate2, 2) : null;
-  if (r2 && r1.records !== r2.records) {
-    const count = (r) => `${fmt(r.records)} records${r.wholeFile ? '' : ` in its first ${fmt(pairs)}`}`;
-    throw new StepError('input', `The mates of sample ${name} have different record counts: mate 1 (${mate1.name}) has ${count(r1)}, ` +
-      `mate 2 (${mate2.name}) has ${count(r2)}. kallisto pairs the records by position and stops at the shorter file without an error, so the page stops here. ` +
-      'Check that the two files belong together and are complete.');
-  }
-  mate1 = null;
-  mate2 = null;
-  const nPairs = r1.records;
-  const wholeFile = r1.wholeFile && (!r2 || r2.wholeFile);
+  /** The kallisto input files of this sample, read from the File objects. */
+  const prepare = async () => {
+    const r1 = await read(mate1, 1);
+    const r2 = mate2 ? await read(mate2, 2) : null;
+    if (r2 && r1.records !== r2.records) {
+      const count = (r) => `${fmt(r.records)} records${r.wholeFile ? '' : ` in its first ${fmt(pairs)}`}`;
+      throw new StepError('input', `The mates of sample ${name} have different record counts: mate 1 (${mate1.name}) has ${count(r1)}, ` +
+        `mate 2 (${mate2.name}) has ${count(r2)}. kallisto pairs the records by position and stops at the shorter file without an error, so the page stops here. ` +
+        'Check that the two files belong together and are complete.');
+    }
+    let warning = '';
+    if (r2) {
+      const a = firstNameStem(r1.bytes);
+      const b = firstNameStem(r2.bytes);
+      if (a !== b) warning = `the first read names of the two mates differ ("${a}" and "${b}"). Check that the two files belong together.`;
+    }
+    const files = [{ path: 'transcripts.idx', data: genome.index }, { path: 'r1.fastq', data: r1.bytes }];
+    if (r2) files.push({ path: 'r2.fastq', data: r2.bytes });
+    return { files, nPairs: r1.records, wholeFile: r1.wholeFile && (!r2 || r2.wholeFile), warning };
+  };
+  let prepared = await prepare();
+  const { nPairs, wholeFile, warning } = prepared;
+  const unit = mate2 ? 'pairs' : 'reads';
   await ready;
   const args = JSON.parse(kallisto_args(JSON.stringify({
-    kind: 'quant', sample: { name, fastq1: ['r1.fastq'], fastq2: r2 ? ['r2.fastq'] : [] },
-    index: 'transcripts.idx', out: 'kq', threads: 1, ...(r2 ? {} : { fragment_len: fragment }),
+    kind: 'quant', sample: { name, fastq1: ['r1.fastq'], fastq2: mate2 ? ['r2.fastq'] : [] },
+    index: 'transcripts.idx', out: 'kq', threads: 1, ...(mate2 ? {} : { fragment_len: fragment }),
   })));
-  const files = [{ path: 'transcripts.idx', data: genome.index }, { path: 'r1.fastq', data: r1.bytes }];
-  if (r2) files.push({ path: 'r2.fastq', data: r2.bytes });
   let result;
   let firstProblems = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
-    progress('quant', attempt === 1
-      ? `Running kallisto quant on ${fmt(nPairs)} ${r2 ? 'pairs' : 'reads'}`
-      : `The kallisto output failed the check (${firstProblems.join('; ')}). Running kallisto once more.`);
-    result = await kallistoQuant(args, files, signal);
-    if (result.info.n_processed !== nPairs) {
-      throw new StepError('kallisto', `kallisto processed ${fmt(result.info.n_processed)} ${r2 ? 'pairs' : 'reads'}, but the page gave it ${fmt(nPairs)}.`);
+    if (attempt === 2) {
+      progress('prep', `The kallisto output failed the check (${firstProblems.join('; ')}). Reading the files again for one more run.`);
+      prepared = await prepare();
     }
-    const problems = checkAbundance(result.abundance, { nTranscripts, nPseudoaligned: result.info.n_pseudoaligned });
+    progress('quant', `Running kallisto quant on ${fmt(nPairs)} ${unit}${attempt === 2 ? ' (second run)' : ''}`);
+    const files = prepared.files;
+    prepared = null; // the reads are referenced only by `files`, which kallistoQuant empties
+    result = await kallistoQuant(args, files, signal);
+    const problems = outputProblems(result, nPairs, nTranscripts, unit);
     if (!problems.length) break;
     if (attempt === 2) {
-      throw new StepError('output', `kallisto wrote a damaged abundance.tsv twice for sample ${name} (first run: ${firstProblems.join('; ')}; second run: ${problems.join('; ')}). ` +
-        'The page does not use it. This was seen in Firefox in the measurements (docs/browser/page-v1-measurements.md). Try again, or use another browser or the command-line tool.');
+      throw new StepError('output', `kallisto wrote a damaged output twice for sample ${name} (first run: ${firstProblems.join('; ')}; second run: ${problems.join('; ')}). ` +
+        'The page does not use it. A damaged abundance.tsv was seen in Firefox in the measurements (docs/browser/page-v1-measurements.md). Try again, or use another browser or the command-line tool.');
     }
     firstProblems = problems;
   }
-  post({ type: 'quant-done', id, name, nPairs, wholeFile, paired: Boolean(r2), args, reruns: firstProblems ? 1 : 0, rerunReason: firstProblems,
+  post({ type: 'quant-done', id, name, nPairs, wholeFile, args, reruns: firstProblems ? 1 : 0, warning,
     abundance: result.abundance, runInfo: result.info });
 }
 

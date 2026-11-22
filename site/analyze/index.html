@@ -20,7 +20,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
 
-<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> the genome step and the quantification work; the results view is not built yet. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner (small fixture genome); the quantification in headless Chromium so far (small fixture reads). Step 1 builds the kallisto index of a genome in this browser. Step 2 counts a preview of the reads of each sample. Step 3 stays locked.</p>
+<p class="warn" id="construction-notice" role="note"><strong>Under construction.</strong> Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet. Step 1 builds the kallisto index of a genome in this browser. Step 2 counts a preview of the reads of each sample. Step 3 stays locked.</p>
 
 <section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
   <h2 id="h-genome">1. Genome</h2>

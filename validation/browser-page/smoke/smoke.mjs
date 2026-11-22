@@ -36,7 +36,7 @@ for (const name of engines) {
     page.on('response', (r) => { if (r.status() >= 400) errors.push(`HTTP ${r.status()}: ${r.url()}`); });
 
     await page.goto(`${base}/`, { waitUntil: 'load' });
-    if (!(await page.textContent('body')).includes('Status: under construction: the genome step and the quantification of a read preview work; the results view is not built yet. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner (small fixture genome); the quantification in headless Chromium so far (small fixture reads).')) errors.push('landing status line missing');
+    if (!(await page.textContent('body')).includes('Status: under construction. Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet.')) errors.push('landing status line missing');
     const href = await page.getAttribute('a.button', 'href');
     if (href !== 'analyze/') errors.push(`button href is ${href}`);
     // no horizontal scroll at phone width
@@ -51,7 +51,7 @@ for (const name of engines) {
     await page.evaluate(() => window.qrnamapShell.completeStep('genome'));
     const after = await page.$$eval('.step', (els) => els.map((e) => `${e.dataset.state}:${e.querySelector('fieldset').disabled}`));
     if (after.join(',') !== 'done:false,active:false,locked:true') errors.push(`step states after genome done: ${after.join(',')}`);
-    if (!(await page.textContent('#construction-notice')).includes('Under construction: the genome step and the quantification work; the results view is not built yet. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner (small fixture genome); the quantification in headless Chromium so far (small fixture reads).')) errors.push('construction notice missing');
+    if (!(await page.textContent('#construction-notice')).includes('Under construction. Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet.')) errors.push('construction notice missing');
     if (await page.$('#preview-label')) errors.push('preview label present before a tool state exists');
     if (await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) errors.push('/analyze/ scrolls horizontally at 390 px');
     console.log(`${name}: ${errors.length ? 'FAIL' : 'ok'} (${await browser.version()})`);

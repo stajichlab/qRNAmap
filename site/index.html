@@ -21,7 +21,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead">Map bulk RNA-seq reads, count them per gene, and test for differential expression.</p>
 
-<p class="warn"><strong>Status:</strong> under construction: the genome step and the quantification of a read preview work; the results view is not built yet. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner (small fixture genome); the quantification in headless Chromium so far (small fixture reads). Step 1 downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. Step 2 counts the first read pairs of each sample with kallisto and shows the mapping numbers per sample. There is no count table, plot or download yet.</p>
+<p class="warn"><strong>Status:</strong> under construction. Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet. Step 1 downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. Step 2 counts the first read pairs of each sample with kallisto and shows the mapping numbers per sample. There is no count table, plot or download yet.</p>
 <p><a class="button" id="analyze-link" href="analyze/">Open the tool (genome and samples steps)</a></p>
 <p class="lead">The button leads to the three steps of the tool. Steps 1 (genome) and 2 (samples) work. Step 3 (results) is locked until it is built.</p>
 

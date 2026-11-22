@@ -56,7 +56,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
     const state = app.state;
     state.preview = { n: pairs, label: previewLabel(pairs) };
     state.samples = jobs.map((j) => ({ name: j.name, covariates: { ...j.covariates }, status: 'waiting', nPairs: 0, processed: 0, pseudoaligned: 0,
-      fraction: 0, allPairs: false, geneCounts: null, error: '', reruns: 0 }));
+      fraction: 0, allPairs: false, geneCounts: null, error: '', warning: '', reruns: 0 }));
     state.samplesPhase = 'running';
     state.samples.forEach(onChange);
     for (const [i, job] of jobs.entries()) {
@@ -69,7 +69,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
         Object.assign(sample, {
           status: 'done', nPairs: done.nPairs, processed: done.runInfo.n_processed, pseudoaligned: done.runInfo.n_pseudoaligned,
           fraction: done.nPairs ? done.runInfo.n_pseudoaligned / done.nPairs : 0, allPairs: done.wholeFile, geneCounts: counts.counts,
-          reruns: done.reruns, args: done.args,
+          reruns: done.reruns, args: done.args, warning: done.warning || '',
         });
       } catch (error) {
         if (mine !== runNumber) return; // a newer run took over

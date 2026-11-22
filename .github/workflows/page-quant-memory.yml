@@ -1,0 +1,79 @@
+# Peak memory and time of the quantification path of /analyze/ (Task 6): the real page in headless Chromium, Firefox and WebKit.
+# Per run: the catalog genome from NCBI through the menu (index built in the page), then ONE sample added through the file chooser
+# (local files downloaded on the runner; the page does not fetch reads) and counted at N = 200,000 pairs. 3 runs per engine and case.
+# Cases: yeast SRR3396381 (2 x 101 bases) as gzip and as plain FASTQ with S. cerevisiae S288C (GCF_000146045.2);
+# C. neoformans H99 SRR23037513 (read length written by the reads script) as plain FASTQ with H99 (GCF_000149245.1).
+# Start: workflow_dispatch (only after this file is on the default branch), or push branch page-v1 with a change to
+# validation/browser-page/memory-run.trigger or to this file. No secrets.
+# Result: artifact quant-memory-<engine> (TSV and reads_check.tsv). See docs/browser/page-v1-measurements.md,
+# "Page quantification path: peak memory".
+name: Page quant memory
+on:
+  workflow_dispatch:
+  push:
+    branches: [page-v1]
+    paths:
+      - 'validation/browser-page/memory-run.trigger'
+      - '.github/workflows/page-quant-memory.yml'
+permissions:
+  contents: read
+concurrency:
+  group: page-quant-memory-${{ github.ref }}
+  cancel-in-progress: false
+
+# Action versions are pinned to exact tags (the same tags as page-smoke.yml).
+jobs:
+  quant-memory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          locked: true
+          cache: true
+      - run: pixi run build-wasm-web
+      - run: bash scripts/build-site.sh
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22.23.5'
+          cache: npm
+          cache-dependency-path: validation/browser-page/tests/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: validation/browser-page/tests
+      - name: Install the Playwright browser
+        working-directory: validation/browser-page/tests
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Record the runner
+        run: |
+          nproc
+          grep -E 'MemTotal|SwapTotal' /proc/meminfo
+      - name: Yeast reads (release asset, SHA-256 checked)
+        timeout-minutes: 20
+        run: bash validation/browser-page/tests/quant-memory-reads.sh "$RUNNER_TEMP/reads" yeast
+      # NCBI SRA can fail from a runner; the H99 case is then left out (the TSV has no H99 rows) and the job goes on.
+      - name: H99 reads (NCBI SRA, fastq-dump -X 200000)
+        id: h99
+        continue-on-error: true
+        timeout-minutes: 20
+        run: bash validation/browser-page/tests/quant-memory-reads.sh "$RUNNER_TEMP/reads" h99
+      - name: Quantification path memory (${{ matrix.engine }}, 3 runs per case)
+        timeout-minutes: 100
+        run: |
+          r="$RUNNER_TEMP/reads"
+          cases=("yeast_gz:GCF_000146045.2:$r/yeast_1.fastq.gz:$r/yeast_2.fastq.gz" "yeast_plain:GCF_000146045.2:$r/yeast_1.fastq:$r/yeast_2.fastq")
+          if [ "${{ steps.h99.outcome }}" = success ]; then cases+=("h99_plain:GCF_000149245.1:$r/h99_1.fastq:$r/h99_2.fastq"); fi
+          node validation/browser-page/tests/quant-memory.mjs "$PWD/dist-site" "quant-memory.${{ matrix.engine }}.tsv" ${{ matrix.engine }} 3 "${cases[@]}"
+          cp "$r/reads_check.tsv" "reads_check.${{ matrix.engine }}.tsv"
+      - uses: actions/upload-artifact@v7.0.2
+        if: ${{ always() }}
+        with:
+          name: quant-memory-${{ matrix.engine }}
+          path: |
+            quant-memory.${{ matrix.engine }}.tsv
+            reads_check.${{ matrix.engine }}.tsv
+          retention-days: 30

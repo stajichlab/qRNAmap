@@ -35,3 +35,10 @@ It downloads static files from the release `page-v1-test-data-v1` (pre-release) 
   (fixed seed; `s1` 300 pairs gzip, `s2` 300 pairs plain, `s3` 300 single-end reads gzip), and the expected values from `qrnamap quant` (kallisto 0.52.0 on PATH):
   `fixtures/expected_quant.tsv` (gene counts per case) and `fixtures/expected_runinfo.tsv` (n_processed, n_pseudoaligned). Case `s1_first100` is the first 100 pairs of `s1`.
   The tests check that the page gives the same gene counts as the command-line tool for the same reads. This is a small check of the acceptance rule; Task 9 does the check on the real test sets.
+
+## Memory jobs (`tests/genome-memory.mjs`, `tests/quant-memory.mjs`)
+
+- `.github/workflows/page-genome-memory.yml` and `.github/workflows/page-quant-memory.yml` measure the real page (not tests). They start by `workflow_dispatch`
+  (only after the files are on the default branch) or by a push to `page-v1` that changes `memory-run.trigger` (or the workflow file itself).
+- `tests/quant-memory-reads.sh <out dir> yeast|h99` gets the reads on the runner: the SRR3396381 prefix files (release asset, SHA-256 checked) and their plain copies,
+  or the first 200,000 pairs of SRR23037513 from NCBI SRA. It writes `reads_check.tsv` (records and read lengths).

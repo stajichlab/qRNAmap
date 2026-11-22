@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
-import { firstRecords, checkFastq } from '../../../site/analyze/fastq.js';
+import { firstRecords, checkFastq, firstNameStem } from '../../../site/analyze/fastq.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
   'tx1\t1491\t1327.5\t9\t31.1145\n' +
@@ -98,4 +98,20 @@ test('checkFastq: names the first bad record', () => {
   assert.throws(() => checkFastq(enc(fastq(1) + '>r\nACGT\n+\nIIII\n'), 'm'), /m is not a FASTQ file: record 2 \(line 5\) does not start with "@"/);
   assert.throws(() => checkFastq(enc(fastq(1) + '@r\nACGT\n-\nIIII\n'), 'm'), /record 2 \(line 7\) has no "\+" line/);
   assert.throws(() => checkFastq(enc('@r\nACGT\n+\nIII\n'), 'm'), /record 1 \(line 4\) has 4 bases but 3 quality letters/);
+});
+
+test('firstRecords: a blank line gives its own message (not the line-count message)', async () => {
+  await assert.rejects(firstRecords(new Blob([fastq(2) + '\n']), 100, 'Mate 1'), /Mate 1 has a blank line \(line 9\)\. A FASTQ file has no blank lines/);
+  await assert.rejects(firstRecords(new Blob(['\n' + fastq(2)]), 100, 'Mate 1'), /Mate 1 has a blank line \(line 1\)/);
+  await assert.rejects(firstRecords(new Blob([gzipSync(fastq(2).replaceAll('\n', '\r\n') + '\r\n')]), 100, 'Mate 2'), /Mate 2 has a blank line \(line 9\)/);
+  // A blank line after the cut is not read, so it does not matter.
+  const r = await firstRecords(new Blob([fastq(2) + '\n']), 2, 'Mate 1');
+  assert.equal(r.records, 2);
+});
+
+test('firstNameStem: first word, without @ and without /1 or /2', () => {
+  const enc = (s) => new TextEncoder().encode(s);
+  assert.equal(firstNameStem(enc('@r1/1\nA\n+\nI\n')), 'r1');
+  assert.equal(firstNameStem(enc('@SRR1.1 1 length=101\nA\n+\nI\n')), 'SRR1.1');
+  assert.equal(firstNameStem(enc('@x/2\r\nA\r\n')), 'x');
 });

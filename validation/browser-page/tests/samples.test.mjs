@@ -10,7 +10,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { gzipSync } from 'node:zlib';
 import { join, resolve, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox, webkit } from 'playwright';
@@ -37,17 +39,22 @@ for (const line of readFileSync(join(FIX, 'expected_quant.tsv'), 'utf8').trim().
 
 // ------------------------------------------------------------------ static server with the kallisto.mjs switches
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json' };
-const hooks = { damage: 0, hold: false, release: null, kallistoRequests: 0 };
+const hooks = { damage: 0, damageWhat: 'abundance', hold: false, holdSkip: 0, release: null, kallistoRequests: 0 };
 // A kallisto module that runs the real one, then writes the largest est_counts token of abundance.tsv three times
-// (as Firefox wrote `9` as `999` in the measurements).
-const DAMAGING = `import factory from '/vendor/kallisto/kallisto.mjs?real=1';
+// (as Firefox wrote `9` as `999` in the measurements), or (WHAT = runinfo) cuts run_info.json in half.
+const damaging = (what) => `const WHAT = '${what}';
+import factory from '/vendor/kallisto/kallisto.mjs?real=1';
 export default async function (options) {
   const m = await factory(options);
   const callMain = m.callMain;
   m.callMain = (args) => {
     try { return callMain(args); } finally {
       const p = '/work/kq/abundance.tsv';
-      if (m.FS.analyzePath(p).exists) {
+      const info = '/work/kq/run_info.json';
+      if (WHAT === 'runinfo' && m.FS.analyzePath(info).exists) {
+        const t = m.FS.readFile(info, { encoding: 'utf8' });
+        m.FS.writeFile(info, t.slice(0, Math.floor(t.length / 2)));
+      } else if (m.FS.analyzePath(p).exists) {
         const lines = m.FS.readFile(p, { encoding: 'utf8' }).split('\\n');
         let best = 1;
         for (let i = 1; i < lines.length; i++) if (lines[i] && Number(lines[i].split('\\t')[3]) > Number(lines[best].split('\\t')[3])) best = i;
@@ -69,10 +76,12 @@ const server = http.createServer(async (req, res) => {
     hooks.kallistoRequests++;
     if (hooks.damage > 0) {
       hooks.damage--;
-      res.writeHead(200, headers('text/javascript')).end(DAMAGING);
+      res.writeHead(200, headers('text/javascript')).end(damaging(hooks.damageWhat));
       return;
     }
-    if (hooks.hold) {
+    if (hooks.hold && hooks.holdSkip > 0) {
+      hooks.holdSkip--;
+    } else if (hooks.hold) {
       hooks.hold = false;
       await new Promise((r) => { hooks.release = r; });
     }
@@ -105,7 +114,9 @@ async function open(t) {
   page.on('pageerror', (e) => errors.push(e.message));
   t.after(async () => {
     hooks.damage = 0;
+    hooks.damageWhat = 'abundance';
     hooks.hold = false;
+    hooks.holdSkip = 0;
     hooks.release?.();
     hooks.release = null;
     await context.close();
@@ -136,7 +147,7 @@ async function fillRow(page, i, { name, condition, mate1, mate2 }) {
   const r = row(page, i);
   await r.locator('.sample-name').fill(name);
   if (condition !== undefined) await r.locator('.cov').first().fill(condition);
-  const arg = (m) => (typeof m === 'string' ? join(FIX, m) : m);
+  const arg = (m) => (typeof m === 'string' ? resolve(FIX, m) : m); // an absolute path stays as it is
   if (mate1) await r.locator('td[data-mate="1"] input').setInputFiles(arg(mate1));
   if (mate2) await row(page, i).locator('td[data-mate="2"] input').setInputFiles(arg(mate2));
 }
@@ -187,6 +198,8 @@ test('manual entry: three samples (gzip, plain, single-end) give the gene counts
   assert.match(await row(page, 0).locator('.status').textContent(), new RegExp(`^300 pairs processed, ${expected.s1.n_pseudoaligned} pseudoaligned \\(${(100 * expected.s1.n_pseudoaligned / 300).toFixed(1)}%\\)\\. All pairs \\(300\\)\\.$`));
   assert.match(await row(page, 2).locator('.status').textContent(), /^300 reads processed, .* All pairs \(300\)\.$/);
   assert.match(await page.textContent('#preview-label'), /preview of the first 200,000 pairs of each sample/);
+  assert.match(await page.textContent('#construction-notice'), /Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner \(small fixture genome and reads\); memory on full-size reads is not measured yet; results view is not built yet\./);
+  assert.deepEqual(samples.map((s) => s.warning), ['', '', '']);
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: 200000, label: 'preview of the first 200,000 pairs' });
   assert.deepEqual(await page.evaluate(() => window.__samplesDone), [['done', 'done', 'done']]);
   assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'done');
@@ -344,7 +357,14 @@ test('a damaged abundance.tsv (the Firefox fault) is found: one re-run gives the
   [s] = await run(page);
   assert.equal(s.status, 'error');
   assert.equal(s.kind, 'output');
-  assert.match(s.error, /kallisto wrote a damaged abundance\.tsv twice for sample S1 \(first run: the est_counts add up to .*, but run_info\.json says \d+ reads pseudoaligned; second run: /);
+  assert.match(s.error, /kallisto wrote a damaged output twice for sample S1 \(first run: the est_counts add up to .*, but run_info\.json says \d+ reads pseudoaligned; second run: /);
+  assert.equal(hooks.damage, 0);
+  // A run_info.json that cannot be read also starts the second run.
+  hooks.damage = 1;
+  hooks.damageWhat = 'runinfo';
+  [s] = await run(page);
+  assertCounts(s, 's1');
+  assert.equal(s.reruns, 1);
   assert.equal(hooks.damage, 0);
   assert.deepEqual(errors, []);
 });
@@ -406,4 +426,65 @@ test('covariate columns can be added, renamed and removed; an empty column is le
   await page.click('.remove-row');
   await page.click('#run-samples');
   assert.match(await page.textContent('#samples-errors'), /Add at least one sample\./);
+});
+
+test('mates whose first read names differ give a warning, not a refusal; a file name with a comma is refused', async (t) => {
+  const { page, errors } = await open(t);
+  const renamed = fixture('s2_R2.fastq').toString().replace(/^@s2_/gm, '@other_');
+  await fillRow(page, 0, { name: 'S2', condition: 'x', mate1: 's2_R1.fastq', mate2: fileArg('other_R2.fastq', Buffer.from(renamed)) });
+  await fillRow(page, 1, { name: 'C', condition: 'x', mate1: fileArg('a,b_R1.fastq', fixture('s2_R1.fastq')), mate2: 's2_R2.fastq' });
+  await page.click('#run-samples');
+  assert.match(await page.textContent('#samples-errors'), /Row 2 \(C\): the mate 1 file name "a,b_R1\.fastq" has a comma/);
+  assert.equal(await row(page, 1).getAttribute('data-invalid'), 'true');
+  await page.locator('#sample-table .remove-row').nth(1).click();
+  const [s] = await run(page);
+  assertCounts(s, 's2');
+  assert.equal(s.warning, 'the first read names of the two mates differ ("s2_000001" and "other_000001"). Check that the two files belong together.');
+  assert.match(await row(page, 0).locator('.status').textContent(), /Warning: the first read names of the two mates differ/);
+  assert.deepEqual(errors, []);
+});
+
+test('cancel at sample 2 keeps the counts of sample 1', async (t) => {
+  const { page, errors } = await open(t);
+  await fillRow(page, 0, { name: 'S1', condition: 'ctl', mate1: 's1_R1.fastq.gz', mate2: 's1_R2.fastq.gz' });
+  await fillRow(page, 1, { name: 'S2', condition: 'trt', mate1: 's2_R1.fastq', mate2: 's2_R2.fastq' });
+  hooks.hold = true;
+  hooks.holdSkip = 1; // the kallisto run of sample 1 goes through; the one of sample 2 is held
+  await page.click('#run-samples');
+  await page.waitForFunction(() => window.qrnamapApp.state.samples[0]?.status === 'done' && /Running kallisto quant/.test(document.getElementById('samples-status').textContent), null, { timeout: WAIT_MS });
+  await page.click('#samples-cancel');
+  await page.waitForFunction(() => window.qrnamapApp.state.samplesPhase === 'cancelled', null, { timeout: WAIT_MS });
+  const samples = await page.evaluate(() => window.qrnamapApp.state.samples);
+  assert.deepEqual(samples.map((s) => s.status), ['done', 'cancelled']);
+  assertCounts(samples[0], 's1');
+  assert.ok(await page.$('#preview-label'), 'the counts of sample 1 are results: the preview label is shown');
+  assert.deepEqual(await page.evaluate(() => window.__samplesDone), []);
+  assert.deepEqual(errors, []);
+});
+
+test('cancel while the reads are read (before kallisto runs)', async (t) => {
+  const { page, errors } = await open(t);
+  // 200,000 records of 150 bases (gzip level 1, in a temporary file): reading them takes long enough to cancel.
+  const dir = mkdtempSync(join(tmpdir(), 'qrnamap-prep-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const seq = 'ACGT'.repeat(37) + 'AC';
+  const qual = 'I'.repeat(150);
+  const parts = [];
+  for (let i = 0; i < 200000; i++) parts.push(`@big_${i}\n${seq}\n+\n${qual}\n`);
+  const gz = gzipSync(parts.join(''), { level: 1 });
+  parts.length = 0;
+  const [big1, big2] = [join(dir, 'big_R1.fastq.gz'), join(dir, 'big_R2.fastq.gz')];
+  writeFileSync(big1, gz);
+  writeFileSync(big2, gz);
+  await fillRow(page, 0, { name: 'Big', condition: 'x', mate1: big1, mate2: big2 });
+  const before = hooks.kallistoRequests;
+  await page.click('#run-samples');
+  await page.waitForFunction(() => /Reading/.test(document.getElementById('samples-status').textContent), null, { timeout: WAIT_MS, polling: 10 });
+  await page.click('#samples-cancel');
+  await page.waitForFunction(() => window.qrnamapApp.state.samplesPhase === 'cancelled', null, { timeout: WAIT_MS });
+  assert.equal(hooks.kallistoRequests, before, 'kallisto did not start: the cancel came during the read');
+  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.samples.map((s) => s.status)), ['cancelled']);
+  assert.equal(await page.evaluate(() => window.qrnamapApp.state.indexReady), true);
+  assert.deepEqual(await page.evaluate(() => window.__replaced), []);
+  assert.deepEqual(errors, []);
 });

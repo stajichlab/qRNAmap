@@ -1,10 +1,16 @@
 # Peak memory and time of the genome step of /analyze/ with the limit genome (Fulvia fulva Race5_Kim, GCF_020509005.1),
 # downloaded from NCBI through the real page in headless Chromium, Firefox and WebKit, 3 runs each.
-# Dispatch only (not on push): it downloads about 23 MB from NCBI per run. No secrets.
+# Start: workflow_dispatch (only after this file is on the default branch), or push branch page-v1 with a change to
+# validation/browser-page/memory-run.trigger or to this file (no other push paths: it downloads about 23 MB from NCBI per run). No secrets.
 # Result: artifact genome-memory-<engine> (one TSV). See docs/browser/page-v1-measurements.md, "Page genome path: peak memory".
 name: Page genome memory
 on:
   workflow_dispatch:
+  push:
+    branches: [page-v1]
+    paths:
+      - 'validation/browser-page/memory-run.trigger'
+      - '.github/workflows/page-genome-memory.yml'
 permissions:
   contents: read
 

@@ -358,6 +358,29 @@ Times in seconds, 3 runs. Peaks: whole-browser tree Pss (browsers) or sampled RS
 - Values to compare with (harness, section "Genomes"): index peak 1,728.9 MiB for F. fulva (WebKit, the highest of its 3 runs);
   the highest index peak of all genomes was 1,796.8 MiB (L. bicolor, WebKit).
 
+## Page quantification path: peak memory
+
+- The samples step of the page (Task 6) differs from the harness above. The page worker reads each local file twice (pass 1 counts the bytes of the first N records,
+  pass 2 copies them into one array of that exact size), with `gz.js` (fflate) for gzip files. The page worker then starts the kallisto worker (a nested worker)
+  through `ToolRunner`, with the index and the plain reads. The harness prepared the reads in the page or in a dedicated worker and started kallisto from the page.
+- Peak memory and time of this page path: UNVERIFIED. No run on a GitHub runner has measured them.
+- Job that measures them: `.github/workflows/page-quant-memory.yml` (script `validation/browser-page/tests/quant-memory.mjs`, reads from
+  `validation/browser-page/tests/quant-memory-reads.sh`). It starts by `workflow_dispatch` (only when the file is on the default branch), or by a push to branch
+  `page-v1` that changes `validation/browser-page/memory-run.trigger` or the workflow file. It loads the real page in Chromium, Firefox and WebKit, 3 runs per engine and case.
+  Per run: the catalog genome from NCBI through the menu (index built in the page), then one sample through the file chooser, counted at N = 200,000 pairs.
+  It records the whole-browser tree Pss peak per phase (genome, prep, quant; sampler copied from `measure.mjs`), the time of each phase,
+  the pairs, n_processed and n_pseudoaligned, and the re-runs.
+- Cases: yeast SRR3396381, the first 1,000,000 pairs (release asset, SHA-256 checked against `measure/reads_prefix.tsv`), given as gzip and as plain FASTQ,
+  with S. cerevisiae S288C (GCF_000146045.2); C. neoformans H99 SRR23037513 (BioProject PRJNA922535), the first 200,000 pairs from NCBI SRA (`fastq-dump -X 200000`),
+  plain FASTQ, with H99 (GCF_000149245.1). The H99 case is left out of a run when the SRA download fails on the runner.
+- Read lengths: 101 bases for SRR3396381 (both mates, all 1,000,000 records of the prefix files). For SRR23037513 the first 200,000 records of each mate are
+  150 bases long (counted on the cluster on 2026-11-22; the job writes the counts again in `reads_check.tsv`). Reads longer than 101 bases were not measured
+  so far: every value in the sections above uses SRR3396381.
+- Values to compare with (mode `plain`, 200,000 pairs, run 44985823017, `results/quant_runs.tsv`, sample peak = the higher of the preparation and quant
+  tree Pss peaks): Chromium 722 to 753 MiB, Firefox 1,105 to 1,109 MiB, WebKit 1,234 to 1,327 MiB.
+- A script check (not a measurement for this document): 1 Chromium run per case on the cluster node (not a runner), 2026-11-22. All finished with 200,000 pairs
+  processed; n_pseudoaligned was 188,616 for yeast gzip and yeast plain (equal to the harness value at 200,000 pairs) and 192,174 for H99 plain.
+
 ## Read counts and file sizes (ENA portal API, 2026-11-22)
 
 Query: `https://www.ebi.ac.uk/ena/portal/api/filereport?accession=<run or PRJNA976751>&result=read_run&fields=...&format=tsv`.
