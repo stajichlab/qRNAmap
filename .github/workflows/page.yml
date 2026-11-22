@@ -31,7 +31,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: page-${{ github.ref }}
+  group: page-${{ github.ref }}-${{ github.event_name }}-${{ inputs.suites }}
   cancel-in-progress: false
 # A push has no inputs: it runs a short check (2 counts, 1 run per case). The full measurement runs on dispatch.
 env:
