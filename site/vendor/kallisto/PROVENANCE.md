@@ -41,6 +41,9 @@ Vendored on 2026-11-21.
   We copied the licence files that upstream ships. We did not audit the sources.
 - UNVERIFIED: the runtime files were copied from the GitHub contents API at the pin. We did not compare them with the copy in the spike run.
 
+- Fact: no Emscripten runtime licence file is included here. `kallisto.mjs` is Emscripten output. `THIRD_PARTY_LICENSES.txt` has no Emscripten entry.
+- The check script trusts `PROVENANCE.md` itself. A change to `PROVENANCE.md` together with a change to a file is not detected by the script. Review of the diff is the control.
+
 ## Licences
 
 See `THIRD_PARTY_LICENSES.txt` and the `LICENSE.*` files here.

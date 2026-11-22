@@ -37,4 +37,44 @@ cp -r "$real" "$tmp/missing"
 rm "$tmp/missing/kallisto.mjs"
 expect_fail "missing file" "$tmp/missing"
 
+# 6. Symlink as extra entry.
+cp -r "$real" "$tmp/symextra"
+ln -s kallisto.mjs "$tmp/symextra/link.mjs"
+expect_fail "extra symlink" "$tmp/symextra"
+
+# 7. Listed file replaced by a symlink to identical content.
+cp -r "$real" "$tmp/symrepl"
+cp "$real/LICENSE" "$tmp/target_license"
+rm "$tmp/symrepl/LICENSE"
+ln -s "$tmp/target_license" "$tmp/symrepl/LICENSE"
+expect_fail "symlink replacing a listed file" "$tmp/symrepl"
+
+# Helper: copy the real directory and edit PROVENANCE.md.
+mod_prov() { # name  awk-or-sed program applied via function body in $2
+  cp -r "$real" "$tmp/$1"
+  eval "$2" < "$real/PROVENANCE.md" > "$tmp/$1/PROVENANCE.md"
+}
+row_index="$(grep -E '^[0-9a-f]{64}  runtime/index.mjs$' "$real/PROVENANCE.md")"
+hash_index="${row_index:0:64}"
+
+# 8. Identical duplicate row.
+mod_prov dup "sed 's|^$row_index\$|&\n$row_index|'"
+expect_fail "duplicate row" "$tmp/dup"
+
+# 9. Alias row with ./ prefix.
+mod_prov alias "sed 's|^$row_index\$|$hash_index  ./runtime/index.mjs|'"
+expect_fail "./ alias row" "$tmp/alias"
+
+# 10. Row with ..
+mod_prov dotdot "sed 's|^$row_index\$|$hash_index  runtime/../runtime/index.mjs|'"
+expect_fail ".. row" "$tmp/dotdot"
+
+# 11. Malformed row inside the block.
+mod_prov bad "sed 's|^$row_index\$|&\nnot-a-hash  runtime/x.mjs|'"
+expect_fail "malformed row" "$tmp/bad"
+
+# 12. Missing fences.
+mod_prov nofence "grep -v '^\`\`\`\$'"
+expect_fail "missing fences" "$tmp/nofence"
+
 echo "ok: check-vendor tests passed"
