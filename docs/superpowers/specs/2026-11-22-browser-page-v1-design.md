@@ -84,6 +84,12 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
 5. Behaviour on a phone-sized screen. Not measured.
 6. Genome menu limits: download size and transcript-building time for the larger genomes in the catalog.
 
+Results (2026-11-22): `docs/browser/page-v1-measurements.md`. In short (headless Playwright browsers on a GitHub runner, SRR3396381, yeast transcripts):
+item 1: N = 200,000 pairs, hard limit = 200,000 pairs, reads given to kallisto as plain FASTQ; item 2: a cut gzip goes through kallisto (exit 0, it stops at the
+shorter mate), and cutting both mates at N records works in all three browsers, but ENA failed in 11 of 30 sessions and the release-asset fallback is blocked by CORS
+(a same-origin fallback is UNVERIFIED); item 3: the 409 genes of Supplementary Table S3 match the RefSeq H99 locus tags and the qRNAmap gene names;
+item 4: measured (ENA portal API); item 5: not measured; item 6: the three largest catalog genomes finished in all engines.
+
 ## Acceptance rule
 
 For each test set, with the same reads and the same preview size, the page's gene count table equals the CLI's table. Gene summing, rounding and matrix building use `qrnamap-core` compiled to WASM in a `qrnamap-wasm` wrapper, so the CLI and the page share one code path. A difference blocks the release until it is explained.

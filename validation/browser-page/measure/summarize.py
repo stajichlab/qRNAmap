@@ -2,7 +2,7 @@
 """Merge the page-v1 measurement TSVs of one workflow run and apply the stated limit rules.
 
 Usage: summarize.py RUN_DIR OUT_DIR
-RUN_DIR holds the downloaded artifacts (any depth): quant.<engine>.<mode>.tsv, truncated.<engine>.tsv, genomes.<engine>.tsv.
+RUN_DIR holds the downloaded artifacts (any depth; the first directory level is copied to a column `source`, for example a run ID): quant.<engine>.<mode>.tsv, truncated.<engine>.tsv, genomes.<engine>.tsv.
 Writes to OUT_DIR: quant_runs.tsv, quant_summary.tsv, limits.tsv, truncated.tsv, genomes_runs.tsv, genomes_summary.tsv.
 
 Rules (from the Task 3 brief; the values are inputs, not results):
@@ -26,7 +26,10 @@ def read(pattern):
     rows = []
     for path in sorted(glob.glob(os.path.join(run_dir, '**', pattern), recursive=True)):
         with open(path, encoding='utf-8') as fh:
-            rows.extend(csv.DictReader(fh, delimiter='\t'))
+            source = os.path.relpath(path, run_dir).split(os.sep)[0]  # the first directory level names the run
+            for r in csv.DictReader(fh, delimiter='\t'):
+                r['source'] = source
+                rows.append(r)
     return rows
 
 
