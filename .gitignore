@@ -6,3 +6,4 @@ __pycache__/
 pkg-node/
 pkg-web/
 dist-site/
+node_modules/
