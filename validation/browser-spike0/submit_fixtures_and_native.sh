@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Submits the two Task 2 jobs exactly as they were submitted on 2026-11-21 (job IDs 32356703 and 32356735).
+# Records the two Task 2 job submissions of 2026-11-21 (job IDs 32356703 and 32356735).
+# Written after the jobs ran. Not executed as a script. Its parameters match sacct for both jobs:
+# partition short, 2 CPUs, 8G, 2 h.
 # Usage: submit_fixtures_and_native.sh WORKTREE DATA
 #   WORKTREE  absolute path of the worktree (pixi env at WORKTREE/.pixi/envs/default)
 #   DATA      absolute path of /bigdata/stajichlab/jstajich/projects/qRNAmap_data

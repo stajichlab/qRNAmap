@@ -6,7 +6,7 @@ Usage: summarize_index_size.py NATIVE_TIMES_TSV OUT_DIR ENGINE_TSV [ENGINE_TSV .
 Writes OUT_DIR/index_size_runs.tsv (every run, all columns, plus run_id) and OUT_DIR/index_size_summary.tsv
 (one row per case and engine: the three values of time and memory, outcome, native reference, criterion).
 
-Criterion (design section 15): the 12 Mb yeast HISAT2 index builds in 600 s or less and under 2 GiB.
+Criterion (parent design section 11b): the 12 Mb yeast HISAT2 index builds in 600 s or less and under 2 GiB.
 "Under 2 GiB" is checked on every memory probe the engine has: WASM linear memory (all engines),
 node_maxrss_kb (Node), tree_pss_peak_kb (browsers). A run that does not finish fails the criterion.
 The same limits are reported for the other cases as information, not as a criterion.

@@ -1,6 +1,6 @@
 # Browser spike 0 results
 
-Date of all measurements: 2026-11-21. Status: spike 0 is complete. The next step (the first page) is the user's decision.
+Date of all measurements: 2026-11-21, except the reviewer's live-site header check (2026-11-22 UTC). Status: spike 0 is complete. The next step (the first page) is the user's decision.
 Evidence: `validation/browser-spike0/` (README, `baseline.tsv`, `results/*.tsv`). Raw artifacts are not in git. They are in
 `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/`.
 
@@ -55,6 +55,8 @@ Evidence: `validation/browser-spike0/` (README, `baseline.tsv`, `results/*.tsv`)
   header identical apart from `@PG`; featureCounts count table and summary identical apart from the first comment line
   (program path); DESeq2 per value absolute difference 1e-12 or less, or relative difference 1e-6 or less. The DESeq2 tolerance
   was written before the run and was not changed after it.
+- Parent design section 11c says to exclude only the `CL` field of `@PG`. `compare_parity.py` drops the whole `@PG` line
+  (line 147). The verdict follows the section 11b wording ("apart from `@PG`"). All other SAM header lines and all records were identical.
 - featureCounts parity read the native HISAT2 SAM. It tests featureCounts alone.
 - The featureCounts output SHA-256 in Node (`5186a514...`) differs from the browser value (`8e375993...`) because the first comment line holds the program path (worker path in Node, `./this.program` in browsers). Parity ignores that line.
 - The parity browser runs used `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`
@@ -86,7 +88,7 @@ Per-engine values are in the next table.
 
 | tool | parity Node / Chromium / Firefox / WebKit | index time, s | index peak memory, MiB | needs isolation headers (measured) | result against criteria | verdict |
 |---|---|---|---|---|---|---|
-| kallisto 0.52.0 | pass / pass / pass / pass (`abundance.tsv` byte-identical, 6,478 targets) | yeast transcripts 19.34 to 37.03; Af293 transcripts 43.96 to 84.41 | yeast 274.7 to 828.8; Af293 411.0 to 1,176.5; WASM heap 117.1 and 204.4 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) not the criterion case (genome index); transcript indexes within 600 s and 2 GiB | `go with a stated caveat` (criteria 1-3, 200,000-pair subset, headless runner): index bytes differ between every run, cause unknown; quant output identical |
+| kallisto 0.52.0 | pass / pass / pass / pass (`abundance.tsv` byte-identical, 6,478 targets) | yeast transcripts 19.34 to 37.03; Af293 transcripts 43.96 to 84.41 | yeast 274.7 to 828.8; Af293 411.0 to 1,176.5; WASM heap 117.1 and 204.4 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) not the criterion case (genome index); transcript indexes within 600 s and 2 GiB | `go with a stated caveat` (criteria 1-2; 3 not applicable, 200,000-pair subset, headless runner): index bytes differ between every run, cause unknown; quant output identical |
 | HISAT2 2.2.2 | pass / pass / pass / pass (430,922 records, header without `@PG` identical) | yeast 12 Mb 5.33 to 7.49; Af293 29 Mb 11.71 to 16.21 | yeast 298.9 to 675.6; Af293 412.3 to 835.3; WASM heap 113.3 and 134.7 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) pass: max 7.49 s and 675.6 MiB | `go` (criteria 1-3, 200,000-pair subset, headless runner): all criteria pass |
 | featureCounts 2.1.1 | pass / pass / pass / pass (6,477 genes and summary identical) | no index; not measured | not measured | yes: fails without isolation in all 3 browsers (`SharedArrayBuffer is not defined`), also with `-T 1` | (1) pass, (2) pass with isolation, (3) not applicable | `go with a stated caveat` (criteria 1-2, 200,000-pair subset, headless runner): needs COOP/COEP headers or the service worker with one reload |
 | DESeq2 1.52.0 (WASM) vs 1.50.2 (native) | fail / not run / not run / not run | no index; not measured | not measured | not tested | tolerance: fail on 1 of 38,203 values (YPR148C pvalue, rel 5.36e-06 against 1e-6); (2) not tested | `not decided` (Node only, one count matrix, one run): browser run not done, and the failure cannot be split from the version difference |
@@ -245,7 +247,7 @@ This section lists facts from licence texts. It gives no legal conclusion. The d
 ### Scope and sources read
 
 - Repository: `comparativechrono/genomics-wasm`, pinned commit `0b015f63e8048eb57b72ffd2706b79b803862b7c`.
-- Files read through `gh api` (read-only) at the pin: `LICENSE`, `THIRD_PARTY.md`, `README.md`, and for kallisto, HISAT2, featureCounts and DESeq2 the files in `tools/<tool>/`.
+- Files read through `gh api` (read-only) at the pin: `LICENSE`, `THIRD_PARTY.md`, `README.md`, and for kallisto, HISAT2, featureCounts and DESeq2 the files in `tools/<tool>/`. For DESeq2, the files read are listed in the DESeq2 section below; 4 of its 8 files were read later, in the Task 7 review fix.
 - Bundles that the spike used, listed with `unzip -l` or `find`, under `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/baseline/`:
   - `quant/quant-compiled-kallisto/dist/kallisto/` (unpacked build output).
   - `ci/tool-packages/hisat2-2.2.2-wasm.zip`.
@@ -325,7 +327,7 @@ This section lists facts from licence texts. It gives no legal conclusion. The d
 
 #### DESeq2 1.52.0 (webR, R 4.6.0)
 
-- Files at the pin: `tools/deseq2/` has `README.md`, `sources.lock.json`, `licenses/Noto-OFL.txt`, `licenses/Noto-font-notices.txt`. It has no `LICENSE`, no `LICENSE*` file and no `THIRD_PARTY_LICENSES.txt` at the pin (not found at the pin).
+- Files at the pin: `tools/deseq2/` has 8 files: `README.md`, `sources.lock.json`, `licenses/Noto-OFL.txt`, `licenses/Noto-font-notices.txt`, `locfit-build.R`, `locfit.lock.json`, `native.lock.json`, `webr-build-provenance.json`. Task 6 read the first 4. The other 4 were read on 2026-11-22 (`gh api`, read-only, at the pin). Of these 4, only `locfit.lock.json` has a licence field: `"license": "GPL (>= 2)"`, the same as the locfit entry in `sources.lock.json`. It has no `LICENSE`, no `LICENSE*` file and no `THIRD_PARTY_LICENSES.txt` at the pin (not found at the pin).
 - Tool licence as written:
   - `tools/deseq2/README.md`, last paragraph: "DESeq2 is LGPL-3.0-or-later. The webR binary distribution is GPL-3.0 and dependencies retain their individual licences."
   - Same paragraph: "The archive includes upstream licence notices, corresponding sources and build information. Original JavaScript and validation infrastructure in this repository are MIT-licensed."

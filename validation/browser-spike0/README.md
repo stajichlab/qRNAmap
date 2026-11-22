@@ -42,7 +42,8 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 - Times and peak RSS: `native/native_times.tsv` in the fixture directory. Run-to-run repeatability of HISAT2 SAM output was not tested.
 - Scripts: `fixtures.sh` (stages `fetch`, `build`), `native_refs.sh`, `subset_reads.py`, `merge_counts.py`, `deseq2_ref.R`,
   `make_manifest.sh`, `how_made.tsv`, `check_manifest.sh`.
-- Job requests (see `submit_fixtures_and_native.sh`): partition short, 2 CPUs, 8 GB, 2 h, for both jobs. Measured peak MaxRSS:
+- Job requests (see `submit_fixtures_and_native.sh`): partition short, 2 CPUs, 8 GB, 2 h, for both jobs. The script was written
+  after the jobs ran and was not executed as a script. Its parameters match `sacct` for jobs 32356703 and 32356735. Measured peak MaxRSS:
   111040K (fixtures job 32356703, 1m12s) and 1231516K (native job 32356735, 8m24s). The 8 GB request was not a measured need.
   The peak was 1.2 GB, so the default memory would likely have been enough. This was not tested.
 - Exclude kallisto `run_info.json` from any comparison. It holds a start time and absolute paths.
