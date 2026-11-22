@@ -200,7 +200,7 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
 
 - Without isolation, featureCounts fails in all three browsers at module start, for every `-T` value (even `-T 1`), with a
   `SharedArrayBuffer` reference error. kallisto and HISAT2 run without isolation in all three browsers.
-  This confirms the design statement for featureCounts and for kallisto and HISAT2 (measured, for these fixtures).
+  This confirms the design statement "featureCounts needs the headers" only for this compiled build (the RNA analysis artifact of the pinned commit), in headless Playwright browsers on a GitHub runner. kallisto and HISAT2 ran without isolation under the same conditions, with these fixtures.
 - Output equality (browser, any mode, compared with the Task 3 outputs of the Chromium parity run):
   featureCounts `fc.tsv` without line 1 (command line, differs with `-T`), kallisto `abundance.tsv`, HISAT2 SAM without `@` lines.
   The SHA-256 is identical in every ok step of every mode and browser, for `-T 1`, `-T 2` and `-T 4`, and equal to the Task 3 files:
@@ -214,7 +214,7 @@ Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/
   `SharedArrayBuffer` was not defined in it. The page was not isolated. Chromium and Firefox reported false for both. The cause was not investigated.
 - `new WebAssembly.Memory({shared: true})` succeeded in every mode and browser, also without isolation. It is not a test of isolation here.
   The failure comes from the `SharedArrayBuffer` global.
-- Not tested: real hosting headers (for example GitHub Pages, which sends none); a service worker on a non-localhost https origin;
+- Not tested: real hosting headers (for example GitHub Pages: whether it can send COOP/COEP headers was not measured here); a service worker on a non-localhost https origin;
   upstream `examples/` pages; `Cross-Origin-Embedder-Policy: credentialless`; headed browsers; mobile browsers.
 
 ### 0d: cross-origin downloads (CORS)
@@ -242,6 +242,7 @@ The 9 other rows are the Ensembl Genomes request, which failed in all 9 combinat
 | ensemblgenomes_fungi | https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/ | GET | none | none | none | no: blocked, TLS certificate name mismatch (below) |
 
 - The body SHA-256 of each readable URL is the same in all 9 mode and browser combinations. The NCBI SHA-256 values equal `manifest.tsv`.
+- An empty `seen_corp` or `seen_aceh` in `cors_results.tsv` means that Playwright saw no such header. It is not a verified absence for every host. The node probe columns (`cors_node_probe.tsv`) support the absence only for the rows checked.
 - Under `Cross-Origin-Embedder-Policy: require-corp` (modes `coop-coep` and `service-worker` after reload), every readable URL
   was readable. The servers send `Access-Control-Allow-Origin: *` and no `Cross-Origin-Resource-Policy`, so CORS mode is the path that works.
   Only `mode: 'cors'` was tested. A no-cors request (for example a plain `<img>` or `<script>`) to these hosts under `require-corp` was not tested;
