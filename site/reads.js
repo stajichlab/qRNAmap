@@ -1,4 +1,4 @@
-// Copied from qmutfind 4404e1c93f47ea527287b93d6b496070563b193a, site/reads.js. Changes: see site/COPIED.md.
+// Copied from qmutfind 4404e1c93f47ea527287b93d6b496070563b193a, site/reads.js. Not used by the page and not copied to dist-site; see site/COPIED.md.
 // Keep the first reads of a FASTQ stream. The stream may be plain or gzip. The kept reads are packed again as gzip, so the page holds the
 // compressed reads only. A record is four lines. This runs in the worker (see worker.js), because unpacking and packing take seconds for a
 // million reads. It takes a reader (`stream.getReader()`) so that tests can feed it by hand.

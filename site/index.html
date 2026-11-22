@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: RNA-seq counts in your browser</title>
-<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The web page runs kallisto in your browser on a preview of the first 200,000 read pairs of each sample. The command-line tool does the full analysis.">
+<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The command-line tool exists. A web page that runs kallisto in your browser is planned (version 1, not built yet).">
 <script>
 // Apply a saved theme choice before the page is drawn. Without a choice, the system setting (prefers-color-scheme) applies.
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
@@ -21,26 +21,27 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead">Map bulk RNA-seq reads, count them per gene, and test for differential expression.</p>
 
-<p><a class="button" id="analyze-link" href="analyze/">Analyze reads</a></p>
-<p class="note">This is version 1 of the web page. It quantifies reads with kallisto in your browser. Your reads do not leave your computer.</p>
+<p class="warn"><strong>Status:</strong> the analysis tool is not built yet. This is the plan for version 1 of the web page.</p>
+<p><a class="button" id="analyze-link" href="analyze/">Preview the planned tool</a></p>
+<p class="lead">The button leads to a preview of the three planned steps. It does not analyze reads yet.</p>
 
 <h2>What qRNAmap is</h2>
 <ul>
-  <li>A command-line tool. It wraps kallisto or Salmon (transcript quantification), or HISAT2 with featureCounts (alignment), and then DESeq2.</li>
+  <li>The command-line tool exists today. It wraps kallisto or Salmon (transcript quantification), or HISAT2 with featureCounts (alignment), and then DESeq2.</li>
   <li>It runs on a laptop or as SLURM jobs on a cluster.</li>
-  <li>The web page runs the quantification step only, for a small preview of your data. It needs no server and no install.</li>
+  <li>The web page (version 1, planned) will run the quantification step only, for a small preview of your data. It will need no server and no install. Your reads will not leave your computer.</li>
 </ul>
 
-<h2>What version 1 of the web page does not do</h2>
+<h2>What version 1 of the web page will not do</h2>
 <ul>
-  <li>It does not test for differential expression. It gives a count table and quality plots, and the command that runs DESeq2 with the command-line tool.</li>
-  <li>It has no alignment mode (HISAT2 and featureCounts).</li>
-  <li>It is a preview. It reads the first 200,000 read pairs of each sample. Every table, plot and file from the page says so. The limit comes from memory measurements in Chromium, Firefox and WebKit (see the measurements link below).</li>
-  <li>It does not accept an ENA accession typed by the user.</li>
+  <li>It will not test for differential expression. The command-line tool does that with DESeq2. The page will give a count table, quality plots, and the command that runs DESeq2 with the command-line tool.</li>
+  <li>It will have no alignment mode (HISAT2 and featureCounts). The command-line tool has that mode.</li>
+  <li>It will be a preview. The planned limit is the first 200,000 read pairs of each sample. Every table, plot and file from the page will say so. The limit comes from memory measurements in Chromium, Firefox and WebKit (see the measurements link below).</li>
+  <li>It will not accept an ENA accession typed by the user.</li>
 </ul>
 
 <h2>Test sets</h2>
-<p>Two public data sets are planned as examples for the page. A third (<em>Neurospora crassa</em>) comes later.</p>
+<p>Two public data sets are planned as examples for the page (not built yet). A third (<em>Neurospora crassa</em>) comes later.</p>
 <table>
   <thead><tr><th>Organism</th><th>Study</th><th>Contrast</th></tr></thead>
   <tbody>

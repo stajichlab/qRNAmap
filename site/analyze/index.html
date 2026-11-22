@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: analyze reads</title>
-<meta name="description" content="Choose a genome, add samples, and count reads per gene with kallisto in your browser. Version 1 gives a preview of the first 200,000 read pairs of each sample.">
+<meta name="description" content="Under construction. This page shows the planned three steps of the qRNAmap browser tool (genome, samples, results).">
 <script>
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
 </script>
@@ -18,16 +18,15 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
     <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
   </nav>
 </div>
-<p class="lead"><a href="../">qRNAmap</a> version 1: kallisto in your browser. Your reads do not leave your computer.</p>
+<p class="lead"><a href="../">qRNAmap</a> web page, version 1 (planned).</p>
 
-<!-- The preview label. The tool fills it with the preview size (N pairs) and repeats it beside every table, plot and download. -->
-<p class="warn preview-label" id="preview-label" role="note">Preview of the first 200,000 read pairs of each sample. This is not a full analysis.</p>
+<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> the analysis tool is not available yet. This page shows the planned three steps.</p>
 
 <section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
   <h2 id="h-genome">1. Genome</h2>
   <p class="reason" id="reason-genome">Choose the genome first. The tool builds the transcript index from it.</p>
   <fieldset id="fs-genome">
-    <div id="genome-panel"><!-- the genome menu and the index build go here --></div>
+    <div id="genome-panel"><p>Genome choice comes in a later release of this page.</p></div>
   </fieldset>
 </section>
 
@@ -35,7 +34,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
   <h2 id="h-samples">2. Samples</h2>
   <p class="reason" id="reason-samples">Locked. Finish step 1 (the genome and its index) to add samples.</p>
   <fieldset id="fs-samples" disabled>
-    <div id="samples-panel"><!-- sample table, file picker and sample sheet go here --></div>
+    <div id="samples-panel"><p>Sample entry comes in a later release of this page.</p></div>
   </fieldset>
 </section>
 
@@ -43,7 +42,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
   <h2 id="h-results">3. Results</h2>
   <p class="reason" id="reason-results">Locked. Finish step 2 (at least one sample counted) to see results.</p>
   <fieldset id="fs-results" disabled>
-    <div id="results-panel"><!-- count table, quality plots and downloads go here --></div>
+    <div id="results-panel"><p>Results come in a later release of this page. Each result will carry the label "preview of the first 200,000 read pairs".</p></div>
   </fieldset>
 </section>
 

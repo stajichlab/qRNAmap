@@ -10,10 +10,12 @@ rm -rf dist-site
 mkdir -p dist-site/analyze dist-site/vendor dist-site/pkg-web
 cp site/index.html site/style.css site/theme.js dist-site/
 cp site/analyze/*.html site/analyze/*.js dist-site/analyze/
-cp site/gz.js site/reads.js site/persist.js site/reference-panel.js dist-site/
+cp site/gz.js site/persist.js site/reference-panel.js dist-site/
 cp site/vendor/fflate.js site/vendor/fflate.LICENSE dist-site/vendor/
 cp -r site/vendor/kallisto dist-site/vendor/kallisto
 cp pkg-web/qrnamap_wasm.js pkg-web/qrnamap_wasm_bg.wasm dist-site/pkg-web/
+
+# reads.js is not used by the page (see site/COPIED.md), so it is not copied to dist-site.
 
 # Name every file the page loads with one stamp (a hash of the source content). GitHub Pages lets a browser keep a file for
 # 10 minutes, so an old script could meet a new page. The source files hold the token __BUILD__ for the stamp.
@@ -28,4 +30,5 @@ if grep -rIl "__BUILD__" dist-site; then echo "a __BUILD__ token is left in dist
 echo "build stamp: $STAMP"
 if [ -n "${SITE_CNAME:-}" ]; then echo "$SITE_CNAME" > dist-site/CNAME; fi
 touch dist-site/.nojekyll
+bash scripts/check-vendor.sh "$PWD/dist-site/vendor/kallisto"
 ls -l dist-site
