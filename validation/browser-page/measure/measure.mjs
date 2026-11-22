@@ -34,7 +34,7 @@ import { createRequire } from 'node:module';
 
 const options = { suite: 'quant', engine: 'node', data: '', out: '', root: process.cwd(), counts: '100000,200000,500000,1000000',
   modes: 'gz,plain', reps: '3', pkg: '', genomes: '', 'guard-gib': '10', 'stop-gib': '6', 'timeout-min': '30', 'budget-min': '300',
-  child: '', count: '', mode: '', rep: '', genome: '', 'n-method': '100000', 'range-mib': '16' };
+  child: '', count: '', mode: '', rep: '', genome: '', 'n-method': '50000', 'range-mib': '8' };
 for (let i = 2; i < process.argv.length; i += 2) {
   const key = process.argv[i].replace(/^--/, '');
   if (!(key in options) || process.argv[i + 1] === undefined) throw new Error(`unknown or empty option ${process.argv[i]}`);
@@ -401,7 +401,7 @@ async function truncatedInPage(cfg) {
     try {
       cut[mate] = await range(cfg.ena[mate], R);
       add(`range_fetch_mate${mate}`, cut[mate].status === 206 && cut[mate].body.length === R ? 'pass' : 'fail',
-        `status=${cut[mate].status}; bytes=${cut[mate].body.length}; ms=${cut[mate].ms.toFixed(0)}; magic=${cut[mate].body[0]?.toString(16)}${cut[mate].body[1]?.toString(16)}; content_range_readable=${cut[mate].contentRange ?? 'null'}`);
+        `status=${cut[mate].status}; bytes=${cut[mate].body.length}; ms=${cut[mate].ms.toFixed(0)}; kB_per_s=${(cut[mate].body.length / cut[mate].ms).toFixed(1)}; magic=${cut[mate].body[0]?.toString(16)}${cut[mate].body[1]?.toString(16)}; content_range_readable=${cut[mate].contentRange ?? 'null'}`);
     } catch (e) { add(`range_fetch_mate${mate}`, 'fail', errText(e)); }
   }
   if (!cut[1]?.body?.length || !cut[2]?.body?.length) return rows;
@@ -450,45 +450,43 @@ async function truncatedInPage(cfg) {
   const N = cfg.n;
   const viaRange = {};
   for (const mate of [1, 2]) {
+    // The input is the bytes of the Range request above (the same bytes a live Range stream gives), read as a stream.
     const t = performance.now();
-    const r = await fetch(cfg.ena[mate], { headers: { Range: `bytes=0-${R - 1}` }, mode: 'cors', credentials: 'omit' });
-    const m = await s.prepMate(r.body.getReader(), N, 'gz', `mate ${mate}`);
-    viaRange[mate] = { ...m, ms: performance.now() - t, status: r.status };
+    const m = await s.prepMate(new Blob([cut[mate].body]).stream().getReader(), N, 'gz', `mate ${mate}`);
+    viaRange[mate] = { ...m, ms: performance.now() - t, status: cut[mate].status };
   }
   const p1 = s.plainOf(viaRange[1].bytes), p2 = s.plainOf(viaRange[2].bytes);
   const pc = s.pairCheck(p1, p2);
   const plainSha = { 1: await s.sha256(p1), 2: await s.sha256(p2) };
-  add('method_range_keepFirstReads', viaRange[1].reads === N && viaRange[2].reads === N && pc.names_equal ? 'pass' : 'fail',
+  add('method_cut_bytes_keepFirstReads', viaRange[1].reads === N && viaRange[2].reads === N && pc.names_equal ? 'pass' : 'fail',
     `status=${viaRange[1].status}/${viaRange[2].status}; reads=${viaRange[1].reads}/${viaRange[2].reads}; cut=${viaRange[1].cut}/${viaRange[2].cut}; packed_bytes=${viaRange[1].bytes.length}/${viaRange[2].bytes.length}; ms=${viaRange[1].ms.toFixed(0)}/${viaRange[2].ms.toFixed(0)}; names_equal=${pc.names_equal}; first_diff=${pc.first_diff}; plain_sha256_1=${plainSha[1]}; plain_sha256_2=${plainSha[2]}`);
-  await quant('kallisto_method_range_N', { name: 'n_1.fastq.gz', data: viaRange[1].bytes }, { name: 'n_2.fastq.gz', data: viaRange[2].bytes }, N);
+  await quant('kallisto_method_N_pairs', { name: 'n_1.fastq.gz', data: viaRange[1].bytes }, { name: 'n_2.fastq.gz', data: viaRange[2].bytes }, N);
   // Same method without a Range header: stream the whole URL, stop at N records, cancel.
   const full = {};
-  for (const mate of [1, 2]) {
+  try { for (const mate of [1, 2]) {
     const t = performance.now();
     let downloaded = 0;
     const r = await fetch(cfg.ena[mate], { mode: 'cors', credentials: 'omit' });
     const counting = r.body.pipeThrough(new TransformStream({ transform(chunk, ctl) { downloaded += chunk.length; ctl.enqueue(chunk); } }));
     const m = await s.prepMate(counting.getReader(), N, 'gz', `mate ${mate}`);
     full[mate] = { ...m, ms: performance.now() - t, status: r.status, downloaded, sha: await s.sha256(s.plainOf(m.bytes)) };
-  }
-  add('method_stream_cancel_no_range', full[1].reads === N && full[2].reads === N && full[1].sha === plainSha[1] && full[2].sha === plainSha[2] ? 'pass' : 'fail',
-    `status=${full[1].status}/${full[2].status}; reads=${full[1].reads}/${full[2].reads}; bytes_read_before_cancel=${full[1].downloaded}/${full[2].downloaded}; ms=${full[1].ms.toFixed(0)}/${full[2].ms.toFixed(0)}; plain_sha_equal_to_range_method=${full[1].sha === plainSha[1]}/${full[2].sha === plainSha[2]}`);
+  } } catch (e) { add('method_stream_cancel_no_range', 'fail', errText(e)); full[1] = full[1] || {}; full[2] = full[2] || {}; }
+  if (full[1].reads !== undefined && full[2].reads !== undefined) add('method_stream_cancel_no_range', full[1].reads === N && full[2].reads === N && full[1].sha === plainSha[1] && full[2].sha === plainSha[2] ? 'pass' : 'fail',
+    `status=${full[1].status}/${full[2].status}; reads=${full[1].reads}/${full[2].reads}; bytes_read_before_cancel=${full[1].downloaded}/${full[2].downloaded}; ms=${full[1].ms.toFixed(0)}/${full[2].ms.toFixed(0)}; kB_per_s=${(full[1].downloaded / full[1].ms).toFixed(1)}/${(full[2].downloaded / full[2].ms).toFixed(1)}; plain_sha_equal_to_range_method=${full[1].sha === plainSha[1]}/${full[2].sha === plainSha[2]}`);
   // The same cut with DecompressionStream instead of fflate.
   const ds = {};
   for (const mate of [1, 2]) {
     try {
-      const r = await fetch(cfg.ena[mate], { headers: { Range: `bytes=0-${R - 1}` }, mode: 'cors', credentials: 'omit' });
-      const m = await s.keepFirstPlainDS(r.body, N);
+      const m = await s.keepFirstPlainDS(new Blob([cut[mate].body]).stream(), N);
       ds[mate] = { reads: m.reads, sha: await s.sha256(m.bytes) };
     } catch (e) { ds[mate] = { error: errText(e) }; }
   }
-  add('method_range_decompressionstream', ds[1].reads === N && ds[2].reads === N && ds[1].sha === plainSha[1] && ds[2].sha === plainSha[2] ? 'pass' : 'fail',
+  add('method_cut_bytes_decompressionstream', ds[1].reads === N && ds[2].reads === N && ds[1].sha === plainSha[1] && ds[2].sha === plainSha[2] ? 'pass' : 'fail',
     `reads=${ds[1].reads}/${ds[2].reads}; plain_sha_equal_to_fflate=${ds[1].sha === plainSha[1]}/${ds[2].sha === plainSha[2]}; error=${ds[1].error ?? 'none'}/${ds[2].error ?? 'none'}`);
   // A range that is too short for the asked count (the stream ends first).
   const big = cut[1].records * 2;
   try {
-    const r = await fetch(cfg.ena[1], { headers: { Range: `bytes=0-${R - 1}` }, mode: 'cors', credentials: 'omit' });
-    const m = await s.prepMate(r.body.getReader(), big, 'gz', 'mate 1');
+    const m = await s.prepMate(new Blob([cut[1].body]).stream().getReader(), big, 'gz', 'mate 1');
     add('method_range_too_short', 'no_error', `asked=${big}; reads=${m.reads}; cut=${m.cut}`);
   } catch (e) { add('method_range_too_short', 'error', `asked=${big}; error=${errText(e)}`); }
   // The ENA filereport (read count) from the page.

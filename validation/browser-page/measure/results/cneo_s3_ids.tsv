@@ -1,0 +1,16 @@
+check	value
+s3_rows	409
+s3_fc_positive	276
+s3_fc_negative	133
+gff_genes_with_locus_tag	8334
+s3_locus_tag_in_gff	409
+s3_locus_tag_and_GeneID_pair_equal_gff	409
+s3_protein_id_in_gff_cds	293
+s3_locus_tag_missing_examples	
+genes_table_rows	8338
+s3_locus_tag_in_genes_table	409
+s3_GeneID_in_genes_table	0
+file	sha256	source
+supp.zip	58bac5b4e678795a1d35dcdc321b5bb43f9093630c8d8212a54790d7fdf2c814	https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11106425/supplementaryFiles (2026-11-22)
+Table_3.xlsx	7b723ed2e167f50cc5d2649f91ce60d9bb72160f61ce233a19297fc7ba44b8d7	inside supp.zip
+GCF_000149245.1_CNA3_genomic.gff.gz	69ee173098c9135e1d4f5dcf5584cfdef304e0aa07bff61d715b558089519cf3	NCBI FTP (catalog URL)

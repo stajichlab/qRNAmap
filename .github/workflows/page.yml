@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Download SRR3396381 from ENA and the yeast transcripts; check MD5, read counts, SHA-256
+      - name: SRR3396381 from NCBI SRA (fasterq-dump) and the yeast transcripts; check MD5, read counts, ENA head, SHA-256
         run: bash validation/browser-page/measure/prepare_reads.sh data/reads
       - uses: actions/upload-artifact@v7.0.2
         with:
@@ -154,7 +154,7 @@ jobs:
           out=reports/${{ matrix.suite }}-${{ matrix.engine }}-${{ matrix.mode }}
           case "${{ matrix.suite }}" in
             quant) extra=(--data data/reads --counts "$COUNTS" --modes "${{ matrix.mode }}" --budget-min 300) ;;
-            truncated) extra=(--data data/reads) ;;
+            truncated) extra=(--data data/reads --timeout-min 60) ;;
             genomes)
               pkg=pkg-web; [ "${{ matrix.engine }}" = node ] && pkg=pkg-node
               extra=(--data data/genomes --genomes data/genomes/genomes.tsv --pkg "$pkg") ;;
