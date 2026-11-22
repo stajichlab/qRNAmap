@@ -29,7 +29,7 @@ const EXPECTED = { genes: Number(expGenes), transcripts: Number(expTranscripts) 
 
 // ------------------------------------------------------------------ static server, with two test switches for kallisto.mjs
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json' };
-const hooks = { kallisto: 'serve', release: null };
+const hooks = { kallisto: 'serve', release: null, heldAborted: false };
 const server = http.createServer(async (req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   const headers = (type) => ({ 'content-type': type, 'cache-control': 'no-store' });
@@ -39,7 +39,12 @@ const server = http.createServer(async (req, res) => {
       .end("export default async function () { throw new RangeError('WebAssembly.Memory(): could not allocate memory'); }\n");
     return;
   }
-  if (path === '/vendor/kallisto/kallisto.mjs' && hooks.kallisto === 'hold') await new Promise((r) => { hooks.release = r; });
+  if (path === '/vendor/kallisto/kallisto.mjs' && hooks.kallisto === 'hold') {
+    hooks.heldAborted = false;
+    // A diagnostic: the browser closes this connection when the worker that asked for the module goes away.
+    res.on('close', () => { if (!res.writableEnded) hooks.heldAborted = true; });
+    await new Promise((r) => { hooks.release = r; });
+  }
   let file = resolve(join(root, path));
   if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
@@ -246,30 +251,72 @@ test('cancel during the download returns to "choose genome", and a new run works
   assert.deepEqual(errors, []);
 });
 
+/** A test-only wrapper of window.Worker: it records every construction and every terminate() call in window.__workerLog. */
+function recordWorkers() {
+  window.__workerLog = [];
+  window.__replaced = [];
+  window.addEventListener('qrnamap:worker-replaced', (e) => window.__replaced.push(e.detail.reason));
+  const Native = window.Worker;
+  let next = 0;
+  window.Worker = class extends Native {
+    constructor(url, options) {
+      super(url, options);
+      this.__id = ++next;
+      this.__url = String(url);
+      window.__workerLog.push({ id: this.__id, event: 'construct', url: this.__url });
+    }
+    terminate() {
+      window.__workerLog.push({ id: this.__id, event: 'terminate', url: this.__url });
+      return super.terminate();
+    }
+  };
+}
+const pageWorkerLog = (page) => page.evaluate(() => window.__workerLog.filter((e) => e.url.includes('/analyze/worker.js')));
+
 test('cancel during the index terminates the worker, returns to "choose genome", and a new run works', async (t) => {
-  const { page, errors } = await open(t);
+  const context = await browser.newContext();
+  await context.addInitScript(recordWorkers);
+  const { page, errors } = await open(t, { context });
   hooks.kallisto = 'hold'; // the kallisto module does not arrive until it is released
   await chooseYeast(page);
   await waitPhase(page, 'index', 30_000);
-  const workersBefore = page.workers().length;
-  const pageWorkers = page.workers().filter((w) => w.url().includes('/analyze/worker.js'));
-  assert.equal(pageWorkers.length, 1, `page workers: ${page.workers().map((w) => w.url()).join(', ')}`);
-  const closed = new Promise((r) => pageWorkers[0].once('close', r));
+  const logBefore = await pageWorkerLog(page);
+  assert.deepEqual(logBefore.map((e) => e.event), ['construct'], JSON.stringify(logBefore));
+  const oldId = logBefore[0].id;
+  // Diagnostic only (not asserted): the Playwright close event of the old page worker. CI run 45042394266: it did not come in Firefox within 5 s.
+  const pwWorkers = page.workers().filter((w) => w.url().includes('/analyze/worker.js'));
+  const closed = pwWorkers.length === 1
+    ? Promise.race([new Promise((r) => pwWorkers[0].once('close', () => r('yes'))), new Promise((r) => setTimeout(() => r('no'), 5000))])
+    : Promise.resolve(`not checked (${pwWorkers.length} page workers listed)`);
+
   await page.click('#genome-cancel');
-  await Promise.race([closed, new Promise((_, no) => setTimeout(() => no(new Error('the page worker was not terminated')), 5000))]);
   assert.equal(await phase(page), 'choose');
   assert.equal((await appState(page)).indexReady, false);
+  // The contract: the app called terminate() once on the old page worker and made exactly one new page worker.
+  const logAfter = await pageWorkerLog(page);
+  const terminated = logAfter.filter((e) => e.event === 'terminate');
+  const made = logAfter.filter((e) => e.event === 'construct');
+  assert.deepEqual(terminated.map((e) => e.id), [oldId], JSON.stringify(logAfter));
+  assert.equal(made.length, 2, JSON.stringify(logAfter));
+  const newId = made[1].id;
+  assert.notEqual(newId, oldId);
+  assert.deepEqual(await page.evaluate(() => window.__replaced), ['cancel']);
+
+  t.diagnostic(`${ENGINE}: Playwright close event of the old page worker within 5 s: ${await closed}`);
+  t.diagnostic(`${ENGINE}: held kallisto.mjs request closed by the browser before release: ${hooks.heldAborted ? 'yes' : 'no'}`);
   hooks.kallisto = 'serve';
   hooks.release?.(); // the old run gets its kallisto now; it must not come back to life
   hooks.release = null;
   await page.waitForTimeout(1500);
   assert.equal(await phase(page), 'choose');
   assert.equal((await appState(page)).indexReady, false);
-  assert.ok(page.workers().length <= workersBefore, `workers after cancel: ${page.workers().length}, before: ${workersBefore}`);
-  assert.equal(page.workers().filter((w) => w.url().includes('/analyze/worker.js')).length, 1, 'one new page worker');
+  t.diagnostic(`${ENGINE}: page workers listed by Playwright 1.5 s after cancel: ${page.workers().filter((w) => w.url().includes('/analyze/worker.js')).length}`);
+
   await chooseYeast(page);
   await waitPhase(page, 'ready');
   assert.equal(await page.textContent('#ready-transcripts'), String(EXPECTED.transcripts));
+  // The new run used the new worker: no other page worker was made or terminated.
+  assert.deepEqual((await pageWorkerLog(page)).map((e) => `${e.event}:${e.id}`), [`construct:${oldId}`, `terminate:${oldId}`, `construct:${newId}`]);
   assert.deepEqual(errors, []);
 });
 
