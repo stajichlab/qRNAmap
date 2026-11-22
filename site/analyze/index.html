@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: analyze reads</title>
-<meta name="description" content="Under construction. The genome step of the qRNAmap browser tool works in Chromium (tested); Firefox and Safari are not tested yet; the samples and results steps are not built yet.">
+<meta name="description" content="Under construction. The genome step and the quantification of a read preview work in the qRNAmap browser tool; the results view is not built yet.">
 <script>
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
 </script>
@@ -20,7 +20,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
 
-<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> the genome step works in Chromium (tested); Firefox and Safari are not tested yet; samples and results are not built yet. Step 1 builds the kallisto index of a genome in this browser. Steps 2 and 3 stay locked.</p>
+<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> the genome step and the quantification work; the results view is not built yet. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner (small fixture genome); the quantification in headless Chromium so far (small fixture reads). Step 1 builds the kallisto index of a genome in this browser. Step 2 counts a preview of the reads of each sample. Step 3 stays locked.</p>
 
 <section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
   <h2 id="h-genome">1. Genome</h2>
@@ -69,7 +69,41 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
   <h2 id="h-samples">2. Samples</h2>
   <p class="reason" id="reason-samples">Locked. Finish step 1 (the genome and its index) to add samples.</p>
   <fieldset id="fs-samples" disabled>
-    <div id="samples-panel"><p>Sample entry comes in a later release of this page.</p></div>
+    <div id="samples-panel">
+      <fieldset id="samples-edit">
+        <p class="small">One row per sample. Pick one mate 1 file and one mate 2 file per sample (leave mate 2 empty for single-end reads).
+          This version takes one file per mate: lanes must be joined into one file first. FASTQ files can be plain or gzip.
+          The files stay in this browser. The page reads only the first read pairs of each file (see "Read pairs per sample").</p>
+        <details id="sheet-box">
+          <summary>Or load a sample sheet (the command-line format)</summary>
+          <p class="small">A tab-separated sheet with the columns <code>sample</code>, <code>fastq1</code>, optional <code>fastq2</code>, and covariate columns
+            (a header <code>name:numeric</code> makes a numeric column). The page matches each <code>fastq1</code> and <code>fastq2</code> path to a picked file
+            by its file name; the folder part of the path is ignored. A row whose file was not picked is marked, with a file picker.</p>
+          <label for="sheet-file">Sample sheet (.tsv or .txt)</label>
+          <input id="sheet-file" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain">
+          <label for="sheet-fastqs">The FASTQ files the sheet names (you can pick several at once)</label>
+          <input id="sheet-fastqs" type="file" multiple>
+        </details>
+        <ul id="sheet-error" class="error" role="alert" hidden></ul>
+        <table id="sample-table"></table>
+        <p><button id="add-sample" type="button">Add a sample</button> <button id="add-column" type="button">Add a column</button></p>
+        <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
+        <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
+        <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
+        <p><label for="preview-pairs">Read pairs per sample</label>
+          <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
+          <span class="small">At most 200,000: the largest preview that met the memory and time rule in Chromium, Firefox and WebKit
+            (docs/browser/page-v1-measurements.md). Results are a preview of the first pairs, not a full run. For a full run, use the command-line tool.</span></p>
+        <button id="run-samples" type="button" class="button">Count reads</button>
+      </fieldset>
+      <ul id="samples-errors" class="error" role="alert" hidden></ul>
+      <div id="samples-busy" hidden>
+        <progress id="samples-progress"></progress>
+        <p id="samples-status" role="status" aria-live="polite"></p>
+        <button id="samples-cancel" type="button">Cancel</button>
+      </div>
+      <div id="samples-results"><p id="samples-summary" role="status"></p></div>
+    </div>
   </fieldset>
 </section>
 

@@ -59,3 +59,17 @@ footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem;
 #genome-progress { width: 100%; }
 .small { font-size: .9rem; color: var(--muted); }
 .error { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); border-radius: 6px; padding: .6rem 1rem; white-space: pre-wrap; }
+
+/* Step 2: samples */
+#samples-panel details label { display: block; margin-top: .5rem; }
+#samples-panel input[type="file"] { max-width: 100%; }
+#samples-panel button:not(.button) { font: inherit; padding: .3rem .8rem; border-radius: 6px; border: 1px solid var(--line); background: var(--note); color: var(--fg); cursor: pointer; }
+#samples-panel .button { margin-top: .5rem; cursor: pointer; }
+#sample-table { margin: .75rem 0 .25rem; }
+#sample-table input[type="text"] { font: inherit; max-width: 9rem; }
+#sample-table input[type="file"] { max-width: 12rem; }
+#sample-table .status { min-width: 12rem; font-size: .9rem; }
+.mate-name { display: block; font-size: .85rem; }
+.mate-name.missing, tr[data-invalid="true"] .status, tr[data-status="error"] .status { color: var(--warn); font-weight: 600; }
+#samples-progress { width: 100%; }
+ul.error { padding-left: 2rem; }

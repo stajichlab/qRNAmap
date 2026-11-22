@@ -612,35 +612,12 @@ pub fn check_samples(samples: &[Sample], cfg: &RunConfig, mode: Mode) -> Result<
 }
 
 /// Names qrnamap writes directly in the output directory that are also valid sample names.
-/// A sample with one of these names (or one of them with `.partial`) would collide with the
-/// file or directory, because each sample gets the directory `<out>/<sample>/`. Checked in
-/// every mode, so one output directory can hold both modes' files.
-pub const RESERVED_OUTPUT_NAMES: &[&str] = &[
-    "index",
-    "salmon_index",
-    "slurm",
-    "transcripts.kidx",
-    "transcripts.fa.zst",
-    "tx2gene.tsv.zst",
-    "genes.saf",
-    "splice_sites.txt",
-    GENES_TABLE,
-    MAPPING_SUMMARY,
-    "counts.tsv.zst",
-    "strand_check.tsv",
-    "deseq2.results.csv",
-    "deseq2.normalized.csv",
-    "deseq2.vst.csv",
-    "deseq2.versions.txt",
-    "deseq2.results.shrunk.csv",
-];
+/// Reserved sample names (one list in `qrnamap-core`, so the browser page checks the same names).
+pub use qrnamap_core::RESERVED_OUTPUT_NAMES;
 
 /// The reserved output name that `sample` equals, if any.
 fn reserved_name(sample: &str) -> Option<String> {
-    let base = sample.strip_suffix(".partial").unwrap_or(sample);
-    RESERVED_OUTPUT_NAMES
-        .contains(&base)
-        .then(|| sample.to_string())
+    qrnamap_core::reserved_output_name(sample)
 }
 
 /// Writes every byte read through it to `out` (a staged copy), so one pass both decompresses a
@@ -2047,6 +2024,21 @@ pub fn run_matrix_with_genes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reserved_names_hold_the_files_written_in_the_output_directory() {
+        // The list lives in qrnamap-core (the browser page uses it too). It must hold every
+        // name that this crate writes directly in the output directory.
+        for name in [
+            GENES_TABLE,
+            MAPPING_SUMMARY,
+            "counts.tsv.zst",
+            "index",
+            "slurm",
+        ] {
+            assert!(RESERVED_OUTPUT_NAMES.contains(&name), "{name}");
+        }
+    }
 
     #[test]
     fn json_number_reads_kallisto_fields() {

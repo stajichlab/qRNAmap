@@ -1,6 +1,7 @@
 # Site smoke test: build dist-site, check its links, and load / and /analyze/ in headless Chromium, Firefox and WebKit.
 # Start by hand with `gh workflow run` works only after this file is on the default branch; until then a push that touches it starts it.
-# Job genome-step: the browser tests of step 1 of /analyze/ (validation/browser-page/tests/), one job per engine, on the same dist-site.
+# Job genome-step: the browser tests of steps 1 and 2 of /analyze/ (validation/browser-page/tests/genome.test.mjs and samples.test.mjs),
+# one job per engine, on the same dist-site. The smoke job also runs the unit tests of the page modules (units.test.mjs, Node only).
 # Separate from page.yml so that a site change does not start the measurement jobs. No secrets.
 name: Site smoke
 on:
@@ -56,6 +57,8 @@ jobs:
         working-directory: validation/browser-page/smoke
       - name: Link checker tests
         run: node --test validation/browser-page/smoke/check-links.test.mjs
+      - name: Unit tests of the page modules (abundance check, sheet helpers, FASTQ cut)
+        run: node --test validation/browser-page/tests/units.test.mjs
       - name: Link test on dist-site
         run: node validation/browser-page/smoke/check-links.mjs "$PWD/dist-site"
       - name: Install the Playwright browsers
@@ -91,6 +94,13 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.engine }}
       - name: Genome step tests (${{ matrix.engine }})
         run: node --test validation/browser-page/tests/genome.test.mjs
+        env:
+          DIST: ${{ github.workspace }}/dist-site
+          ENGINE: ${{ matrix.engine }}
+      # Runs also when the genome step tests fail, so one CI run reports both steps.
+      - name: Samples step tests (${{ matrix.engine }})
+        if: ${{ !cancelled() }}
+        run: node --test validation/browser-page/tests/samples.test.mjs
         env:
           DIST: ${{ github.workspace }}/dist-site
           ENGINE: ${{ matrix.engine }}

@@ -1,0 +1,300 @@
+// Step 2 of /analyze/: the sample table (sample name, covariate columns, one mate 1 and one mate 2 file per row), the
+// upload of a command-line sample sheet with file-name matching, the checks before a run, and the run (quant.js).
+// The table is the one place the samples live: a loaded sheet fills it, and a run reads it.
+// Checks: the sheet that the table gives is checked with validate_sheet (the command-line parser and reserved names)
+// and with the page rules of sheet.js. The page does not refuse a file by its size: it reads only the first N pairs.
+import { validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
+import { baseName, pageRules, filesByName, sheetText } from './sheet.js?v=__BUILD__';
+import { createQuant, MAX_PAIRS, previewLabel } from './quant.js?v=__BUILD__';
+
+const fmt = (n) => Number(n).toLocaleString('en-US');
+const ROUTE = 'Use the command-line tool instead (README, "Install and build"): qrnamap quant --samples samples.tsv ...';
+
+/**
+ * Set up step 2. `$` finds an element by id. `app`: window.qrnamapApp ({state, getWorker, nextId}).
+ * `shell`: { markDone(name), resetFrom(name) } of app.js.
+ */
+export function createSamplesStep({ $, app, shell }) {
+  let nextKey = 0;
+  const key = () => ++nextKey;
+  const model = { columns: [{ key: key(), name: 'condition' }], rows: [] };
+  let picked = new Map(); // files picked for a sheet, by name
+  let runRows = []; // the table rows of the current run, in run order
+
+  const newRow = (fields = {}) => ({ key: key(), name: '', values: {}, files: { 1: null, 2: null }, expect: { 1: null, 2: null }, ...fields });
+  model.rows.push(newRow());
+
+  const showList = (id, messages) => {
+    const box = $(id);
+    box.replaceChildren(...messages.map((m) => Object.assign(document.createElement('li'), { textContent: m })));
+    box.hidden = messages.length === 0;
+  };
+  const sheetError = (messages) => showList('sheet-error', messages);
+
+  // ------------------------------------------------------------------ the table
+  const el = (tag, { dataset = {}, ...props } = {}, children = []) => {
+    const e = Object.assign(document.createElement(tag), props);
+    for (const [k, v] of Object.entries(dataset)) e.dataset[k] = v;
+    e.append(...children);
+    return e;
+  };
+
+  function mateCell(row, mate) {
+    const file = row.files[mate];
+    const expect = row.expect[mate];
+    let text = '';
+    let missing = false;
+    if (file) text = expect && file.name === expect ? `${file.name} (matched to the sheet)` : file.name;
+    else if (expect) { text = `missing: the sheet names "${expect}". Pick that file.`; missing = true; }
+    else if (mate === 2) text = 'none (single-end)';
+    const input = el('input', { type: 'file', className: 'mate-file', ariaLabel: `Mate ${mate} file of sample row ${model.rows.indexOf(row) + 1}` });
+    input.dataset.mate = mate;
+    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [input, el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text })]);
+  }
+
+  function render() {
+    const head = el('tr', {}, [el('th', { textContent: 'Sample name' })]);
+    for (const col of model.columns) {
+      const name = el('input', { type: 'text', className: 'col-name', value: col.name, ariaLabel: 'Column name', size: 10 });
+      name.dataset.col = col.key;
+      const remove = el('button', { type: 'button', className: 'remove-col', textContent: 'Remove', ariaLabel: `Remove column ${col.name}` });
+      remove.dataset.col = col.key;
+      head.append(el('th', {}, [name, ' ', remove]));
+    }
+    head.append(el('th', { textContent: 'Mate 1 file' }), el('th', { textContent: 'Mate 2 file' }), el('th', { textContent: 'Status' }), el('th', { textContent: '' }));
+    const body = model.rows.map((row, i) => {
+      const tr = el('tr', { dataset: { row: String(row.key), missing: String(Boolean((row.expect[1] && !row.files[1]) || (row.expect[2] && !row.files[2]))) } });
+      tr.append(el('td', {}, [el('input', { type: 'text', className: 'sample-name', value: row.name, ariaLabel: `Sample name, row ${i + 1}`, size: 12 })]));
+      for (const col of model.columns) {
+        const input = el('input', { type: 'text', className: 'cov', value: row.values[col.key] ?? '', ariaLabel: `${col.name}, row ${i + 1}`, size: 8 });
+        input.dataset.col = col.key;
+        tr.append(el('td', {}, [input]));
+      }
+      tr.append(mateCell(row, 1), mateCell(row, 2), el('td', { className: 'status' }));
+      tr.append(el('td', {}, [el('button', { type: 'button', className: 'remove-row', textContent: 'Remove', ariaLabel: `Remove sample row ${i + 1}` })]));
+      return tr;
+    });
+    $('sample-table').replaceChildren(el('thead', {}, [head]), el('tbody', {}, body));
+  }
+
+  const rowOf = (target) => model.rows.find((r) => String(r.key) === target.closest('tr')?.dataset.row);
+  $('sample-table').addEventListener('input', ({ target }) => {
+    if (target.classList.contains('col-name')) { model.columns.find((c) => String(c.key) === target.dataset.col).name = target.value; return; }
+    const row = rowOf(target);
+    if (!row) return;
+    if (target.classList.contains('sample-name')) row.name = target.value;
+    if (target.classList.contains('cov')) row.values[target.dataset.col] = target.value;
+  });
+  $('sample-table').addEventListener('change', ({ target }) => {
+    if (!target.classList.contains('mate-file')) return;
+    const row = rowOf(target);
+    row.files[target.dataset.mate] = target.files[0] || null;
+    render();
+  });
+  $('sample-table').addEventListener('click', ({ target }) => {
+    if (target.classList.contains('remove-row')) {
+      model.rows = model.rows.filter((r) => r !== rowOf(target));
+      render();
+    } else if (target.classList.contains('remove-col')) {
+      model.columns = model.columns.filter((c) => String(c.key) !== target.dataset.col);
+      render();
+    }
+  });
+  $('add-sample').addEventListener('click', () => { model.rows.push(newRow()); render(); });
+  $('add-column').addEventListener('click', () => { model.columns.push({ key: key(), name: '' }); render(); });
+
+  // ------------------------------------------------------------------ sheet upload and file matching
+  function applyPicked() {
+    for (const row of model.rows) {
+      for (const mate of [1, 2]) {
+        if (row.expect[mate] && picked.has(row.expect[mate])) row.files[mate] = picked.get(row.expect[mate]);
+      }
+    }
+  }
+
+  $('sheet-file').addEventListener('change', async ({ target }) => {
+    const file = target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    target.value = '';
+    const result = JSON.parse(validate_sheet(text));
+    if (!result.ok) { sheetError([`The sample sheet ${file.name} was not loaded:`, ...result.errors]); return; }
+    const rules = pageRules(result.rows);
+    if (rules.length) { sheetError([`The sample sheet ${file.name} was not loaded:`, ...rules]); return; }
+    sheetError([]);
+    model.columns = result.columns.map(([name, type]) => ({ key: key(), name: type === 'numeric' ? `${name}:numeric` : name }));
+    model.rows = result.rows.map((r) => newRow({
+      name: r.sample,
+      values: Object.fromEntries(model.columns.map((c, i) => [c.key, r.covariates[result.columns[i][0]] ?? ''])),
+      expect: { 1: baseName(r.fastq1[0]), 2: r.fastq2.length ? baseName(r.fastq2[0]) : null },
+    }));
+    applyPicked();
+    render();
+    $('samples-panel').dataset.sheet = file.name;
+  });
+
+  $('sheet-fastqs').addEventListener('change', ({ target }) => {
+    const { byName, errors } = filesByName([...target.files]);
+    if (errors.length) { sheetError(['The picked FASTQ files were not used:', ...errors]); target.value = ''; return; }
+    sheetError([]);
+    picked = byName;
+    applyPicked();
+    render();
+  });
+
+  // ------------------------------------------------------------------ checks before a run
+  function check() {
+    const errors = [];
+    const rowErrors = new Map();
+    const fail = (row, text) => { errors.push(text); if (row) rowErrors.set(row, [...(rowErrors.get(row) || []), text]); };
+    if (!model.rows.length) fail(null, 'Add at least one sample.');
+    model.rows.forEach((row, i) => {
+      const who = `Row ${i + 1}${row.name ? ` (${row.name})` : ''}`;
+      for (const mate of [1, 2]) {
+        if (row.files[mate]) continue;
+        if (row.expect[mate]) fail(row, `${who}: the sheet names "${row.expect[mate]}" for mate ${mate}, but no picked file has that name. Pick the file.`);
+        else if (mate === 1) fail(row, `${who}: pick the mate 1 file.`);
+      }
+    });
+    model.columns.forEach((col) => {
+      if (!col.name.trim() && model.rows.some((r) => String(r.values[col.key] ?? '').trim())) fail(null, 'A covariate column has values but no name. Give it a name or remove it.');
+    });
+    const pairs = Number($('preview-pairs').value);
+    if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
+      fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)} (the largest preview measured to work in Chromium, Firefox and WebKit).`);
+    }
+    const single = model.rows.some((r) => r.files[1] && !r.files[2] && !r.expect[2]);
+    const mean = Number($('frag-mean').value);
+    const sd = Number($('frag-sd').value);
+    if (single && !(mean > 0 && sd > 0 && $('frag-mean').value !== '' && $('frag-sd').value !== '')) {
+      fail(null, 'Single-end samples (no mate 2 file) need the fragment length mean and SD (both above 0). kallisto needs them, as the command-line tool does (--fragment-length MEAN,SD).');
+    }
+    if (errors.length) return { errors, rowErrors };
+
+    const text = sheetText(model.columns.map((c) => c.name.trim()), model.rows.map((r) => ({
+      name: r.name, values: model.columns.map((c) => r.values[c.key] ?? ''), fastq1: r.files[1].name, fastq2: r.files[2]?.name ?? '',
+    })));
+    const result = JSON.parse(validate_sheet(text));
+    const sheetErrors = result.ok ? pageRules(result.rows) : result.errors;
+    for (const message of sheetErrors) {
+      const rows = model.rows.filter((r) => r.name && (message.includes(`"${r.name}"`) || message.includes(`'${r.name}'`)));
+      errors.push(message);
+      for (const row of rows) rowErrors.set(row, [...(rowErrors.get(row) || []), message]);
+    }
+    if (errors.length) return { errors, rowErrors };
+    return {
+      errors, rowErrors, pairs, text,
+      jobs: model.rows.map((r, i) => ({ name: r.name, covariates: result.rows[i].covariates, mate1: r.files[1], mate2: r.files[2], fragment: r.files[2] ? null : [mean, sd] })),
+    };
+  }
+
+  // ------------------------------------------------------------------ the run
+  const statusCell = (row) => $('sample-table').querySelector(`tr[data-row="${row.key}"] .status`);
+
+  function sampleText(s) {
+    const unit = s.args?.includes('--single') ? 'reads' : 'pairs';
+    switch (s.status) {
+      case 'waiting': return 'Waiting.';
+      case 'running': return 'Running.';
+      case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
+        `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(app.state.preview.n).replace(/^p/, 'P')}.`}` +
+        `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}`;
+      case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
+      case 'cancelled': return 'Cancelled.';
+      default: return 'Not run.';
+    }
+  }
+
+  function showSample(sample) {
+    const i = app.state.samples.indexOf(sample);
+    const row = runRows[i];
+    if (!row) return;
+    const tr = $('sample-table').querySelector(`tr[data-row="${row.key}"]`);
+    if (!tr) return;
+    tr.dataset.status = sample.status;
+    statusCell(row).textContent = sampleText(sample);
+    showPreviewLabel();
+  }
+
+  /** The preview label is on the page whenever a counted sample exists (and only then). */
+  function showPreviewLabel() {
+    const results = (app.state.samples || []).some((s) => s.status === 'done');
+    let label = document.getElementById('preview-label');
+    if (!results) { label?.remove(); return; }
+    if (!label) {
+      label = el('p', { id: 'preview-label', className: 'preview-label' });
+      $('samples-results').append(label);
+    }
+    label.textContent = `Counts: ${previewLabel(app.state.preview.n)} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
+  }
+
+  const busy = (flag) => {
+    $('samples-edit').disabled = flag;
+    $('samples-busy').hidden = !flag;
+    $('step-samples').dataset.phase = flag ? 'running' : (app.state.samplesPhase || 'edit');
+  };
+
+  const quant = createQuant(app, {
+    onChange: showSample,
+    onProgress: (p) => {
+      $('samples-status').textContent = p.text;
+      const i = app.state.samples.findIndex((s) => s.status === 'running');
+      if (i >= 0 && runRows[i]) statusCell(runRows[i]).textContent = `Running: ${p.text}`;
+    },
+  });
+
+  $('run-samples').addEventListener('click', async () => {
+    showList('samples-errors', []);
+    for (const tr of $('sample-table').querySelectorAll('tbody tr')) { delete tr.dataset.invalid; delete tr.dataset.status; tr.querySelector('.status').textContent = ''; }
+    const checked = check();
+    if (checked.errors.length) {
+      showList('samples-errors', checked.errors);
+      for (const [row, messages] of checked.rowErrors) {
+        const tr = $('sample-table').querySelector(`tr[data-row="${row.key}"]`);
+        tr.dataset.invalid = 'true';
+        tr.querySelector('.status').textContent = messages.join(' ');
+      }
+      return;
+    }
+    if (!app.state.indexReady) { showList('samples-errors', ['The genome index is not ready. Build it in step 1 first.']); return; }
+    shell.resetFrom('samples');
+    runRows = [...model.rows];
+    busy(true);
+    try {
+      await quant.run(checked.jobs, checked.pairs);
+    } finally {
+      busy(false);
+    }
+    if (app.state.samplesPhase === 'done' && app.state.samples.some((s) => s.status === 'done')) shell.markDone('samples');
+    const counted = app.state.samples.filter((s) => s.status === 'done').length;
+    $('samples-status').textContent = '';
+    $('samples-summary').textContent = app.state.samplesPhase === 'done'
+      ? `${counted} of ${app.state.samples.length} samples counted.`
+      : app.state.samplesPhase === 'cancelled' ? 'Cancelled. Samples counted before the cancel keep their counts. Press "Count reads" to run all samples again.' : '';
+  });
+  $('samples-cancel').addEventListener('click', () => quant.cancel());
+
+  // The genome changed, or the page worker was lost: the counts belong to the old index, so they are cleared.
+  window.addEventListener('qrnamap:worker-replaced', () => {
+    const had = (app.state.samples || []).length > 0;
+    setTimeout(() => { // after quant.js has closed its request
+      app.state.samples = [];
+      app.state.samplesPhase = 'edit';
+      runRows = [];
+      for (const tr of $('sample-table').querySelectorAll('tbody tr')) { delete tr.dataset.status; tr.querySelector('.status').textContent = ''; }
+      showPreviewLabel();
+      $('samples-summary').textContent = '';
+      $('step-samples').dataset.phase = 'edit';
+      if (had) showList('samples-errors', ['The genome index was replaced or lost, so the counts were cleared. Build the index in step 1, then count the reads again.']);
+    }, 0);
+  });
+
+  $('preview-pairs').max = String(MAX_PAIRS);
+  $('preview-pairs').value = String(MAX_PAIRS);
+  app.state.samples = [];
+  app.state.preview = { n: MAX_PAIRS, label: previewLabel(MAX_PAIRS) };
+  app.state.samplesPhase = 'edit';
+  render();
+  $('step-samples').dataset.phase = 'edit';
+  return { quant, model };
+}

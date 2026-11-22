@@ -31,7 +31,9 @@ pub use matrix::{
 };
 pub use qc::{log_cpm, pca, sample_correlation, Pca, QcError};
 pub use saf::saf;
-pub use sheet::{ColType, Sample, SampleSheet, SheetError};
+pub use sheet::{
+    reserved_output_name, ColType, Sample, SampleSheet, SheetError, RESERVED_OUTPUT_NAMES,
+};
 pub use splice::splice_sites;
 pub use strand::{assigned_fraction, StrandReport, STRAND_THRESHOLD};
 pub use transcripts::{build_transcripts, tx2gene_tsv, write_fasta, BuildError, TxRecord};

@@ -22,3 +22,16 @@ It downloads static files from the release `page-v1-test-data-v1` (pre-release) 
 - `fixtures/make_fixtures.py` makes the fixtures from the S288C RefSeq files: the mitochondrial genome NC_001224.1 only
   (`mito.fna`, `mito.gff3`, and gzip copies). `fixtures/PROVENANCE.tsv` has the SHA-256 of the sources and the outputs.
   `fixtures/expected.tsv` has the counts of `qrnamap transcripts` on the fixture (46 genes, 47 transcripts).
+
+## Samples step tests (`tests/samples.test.mjs`, `tests/units.test.mjs`)
+
+- `tests/samples.test.mjs`: browser tests of step 2 of `/analyze/` (sample table, sheet upload, checks, quantification, cancel, the abundance check).
+  Each test uploads the fixture genome in step 1 first. Same job as the genome step tests (`genome-step`, one job per engine).
+  Run: `DIST=$PWD/dist-site ENGINE=chromium node --test validation/browser-page/tests/samples.test.mjs`.
+- The local test server can replace `vendor/kallisto/kallisto.mjs` after the index is built: a module that writes the largest `est_counts` token of
+  `abundance.tsv` three times (as Firefox did in the measurements), for the next 1 or 2 runs, or it holds the request (cancel test). The page has no test switch for this.
+- `tests/units.test.mjs`: Node tests (no browser) of `site/analyze/abundance-check.js`, `sheet.js` and `fastq.js`. Run: `node --test validation/browser-page/tests/units.test.mjs`.
+- `fixtures/make_reads.py <fixtures dir> <qrnamap binary>` makes the read fixtures: reads simulated from the 47 transcripts of the fixture genome
+  (fixed seed; `s1` 300 pairs gzip, `s2` 300 pairs plain, `s3` 300 single-end reads gzip), and the expected values from `qrnamap quant` (kallisto 0.52.0 on PATH):
+  `fixtures/expected_quant.tsv` (gene counts per case) and `fixtures/expected_runinfo.tsv` (n_processed, n_pseudoaligned). Case `s1_first100` is the first 100 pairs of `s1`.
+  The tests check that the page gives the same gene counts as the command-line tool for the same reads. This is a small check of the acceptance rule; Task 9 does the check on the real test sets.

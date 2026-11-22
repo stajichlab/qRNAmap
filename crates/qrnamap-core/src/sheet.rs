@@ -331,3 +331,35 @@ impl SampleSheet {
         }
     }
 }
+
+/// Sample names that would collide with a file or directory that qrnamap writes in the output
+/// directory, because each sample gets the directory `<out>/<sample>/`. A name is also reserved
+/// with `.partial` at its end. The command-line tool checks this in every mode before any tool
+/// runs; the browser page checks it in `validate_sheet`. One list, so both give the same answer.
+pub const RESERVED_OUTPUT_NAMES: &[&str] = &[
+    "index",
+    "salmon_index",
+    "slurm",
+    "transcripts.kidx",
+    "transcripts.fa.zst",
+    "tx2gene.tsv.zst",
+    "genes.saf",
+    "splice_sites.txt",
+    "genes.tsv.zst",
+    "mapping_summary.tsv.zst",
+    "counts.tsv.zst",
+    "strand_check.tsv",
+    "deseq2.results.csv",
+    "deseq2.normalized.csv",
+    "deseq2.vst.csv",
+    "deseq2.versions.txt",
+    "deseq2.results.shrunk.csv",
+];
+
+/// The reserved output name that `sample` collides with (the sample name itself), if any.
+pub fn reserved_output_name(sample: &str) -> Option<String> {
+    let base = sample.strip_suffix(".partial").unwrap_or(sample);
+    RESERVED_OUTPUT_NAMES
+        .contains(&base)
+        .then(|| sample.to_string())
+}

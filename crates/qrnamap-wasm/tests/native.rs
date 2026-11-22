@@ -117,6 +117,36 @@ fn validate_sheet_reports_errors_and_samples() {
 }
 
 #[test]
+fn validate_sheet_gives_rows_and_refuses_reserved_names() {
+    let ok = json(&validate_sheet_native(
+        "# comment\r\nsample\tfastq1\tfastq2\tcondition\tdose:numeric\r\n\r\nA\tdir/a 1.fq.gz\t\tctl\t1.5\r\nB\tb1.fq,b2.fq\tc1.fq,c2.fq\ttrt\t2\r\n",
+    ));
+    assert_eq!(ok["ok"], true, "{ok}");
+    assert_eq!(
+        ok["rows"],
+        serde_json::json!([
+            {"sample": "A", "fastq1": ["dir/a 1.fq.gz"], "fastq2": [], "covariates": {"condition": "ctl", "dose": "1.5"}},
+            {"sample": "B", "fastq1": ["b1.fq", "b2.fq"], "fastq2": ["c1.fq", "c2.fq"], "covariates": {"condition": "trt", "dose": "2"}},
+        ])
+    );
+    assert_eq!(
+        ok["columns"],
+        serde_json::json!([["condition", "factor"], ["dose", "numeric"]])
+    );
+    for name in ["index", "counts.tsv.zst", "slurm.partial"] {
+        let bad = json(&validate_sheet_native(&format!(
+            "sample\tfastq1\nA\ta.fq\n{name}\tb.fq\n"
+        )));
+        assert_eq!(bad["ok"], false, "{name}");
+        assert_eq!(bad["rows"], serde_json::json!([]));
+        assert_eq!(
+            bad["errors"][0],
+            format!("sample '{name}': the name is reserved: qrnamap writes '{name}' in the output directory. Rename the sample in the sheet")
+        );
+    }
+}
+
+#[test]
 fn matrix_and_gene_counts_through_the_wrapper() {
     let t2g = "tx1\tgA\ntx2\tgA\ntx3\tgB\n";
     let ab = "target_id\tlength\teff_length\test_counts\ttpm\ntx1\t1\t1\t1.4\t0\ntx2\t1\t1\t1.4\t0\ntx3\t1\t1\t0\t0\n";

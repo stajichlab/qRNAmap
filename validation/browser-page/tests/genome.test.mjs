@@ -132,7 +132,7 @@ test('the menu lists the catalog, RefSeq first, and the search filters it', asyn
   await page.fill('#genome-filter', 'cerevisiae');
   const options = await page.$$eval('#genome-menu option', (os) => os.map((o) => o.textContent));
   assert.deepEqual(options, ['Saccharomyces cerevisiae S288C | GCF_000146045.2 | 12.1 Mb | 6,477 genes']);
-  assert.match(await page.textContent('#construction-notice'), /Under construction: the genome step works in Chromium \(tested\); Firefox and Safari are not tested yet; samples and results are not built yet/);
+  assert.match(await page.textContent('#construction-notice'), /Under construction: the genome step and the quantification work; the results view is not built yet\. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner \(small fixture genome\); the quantification in headless Chromium so far/);
   assert.deepEqual(errors, []);
 });
 
@@ -149,10 +149,10 @@ test('catalog genome: download, transcripts and index reach "index ready" with t
   assert.equal(s.nTranscripts, EXPECTED.transcripts);
   assert.equal(s.nGenes, EXPECTED.genes);
   assert.equal(s.genome.accession, YEAST);
-  // Steps 2 and 3 are not built: they stay locked.
+  // Step 2 (samples) opens; step 3 (results) is not built and stays locked.
   assert.equal(await page.getAttribute('#step-genome', 'data-state'), 'done');
-  assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'locked');
-  assert.match(await page.textContent('#reason-samples'), /not built yet/);
+  assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'active');
+  assert.equal(await page.getAttribute('#step-results', 'data-state'), 'locked');
   // The index argv is the one of the Task 3 measurements (qrnamap-core toolcall, no -t).
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.indexArgs), ['index', '-i', 'transcripts.idx', 'transcripts.fa']);
   // The fixture sizes differ from the catalog sizes: a soft note in the state, not an error.

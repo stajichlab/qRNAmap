@@ -11,8 +11,8 @@ use std::io::Cursor;
 use qrnamap_core::{
     build_transcripts, count_matrix, gene_counts_from_abundance, gene_table, gene_table_tsv,
     genes_from_tx2gene, kallisto_index, kallisto_quant, log_cpm, parse_tx2gene, pca,
-    sample_correlation, tx2gene_tsv, write_fasta, ColType, CountMatrix, QcError, RunConfig, Sample,
-    SampleSheet, Strandedness,
+    reserved_output_name, sample_correlation, tx2gene_tsv, write_fasta, ColType, CountMatrix,
+    QcError, RunConfig, Sample, SampleSheet, Strandedness,
 };
 use qseq_io::{parse_gff3, read_fasta};
 use serde_json::{json, Value};
@@ -422,26 +422,47 @@ pub fn de_command_native(
 // ---------------------------------------------------------------------------------------------
 // Sample sheet
 
-/// Check a sample sheet with the core parser. JSON: `{ok, errors: [text], samples: [name],
-/// columns: [[name, "factor"|"numeric"]]}`. This function does not fail.
+/// Check a sample sheet with the core parser, and refuse the sample names that the command-line
+/// tool refuses (`RESERVED_OUTPUT_NAMES`, with the same message). JSON: `{ok, errors: [text],
+/// samples: [name], columns: [[name, "factor"|"numeric"]], rows: [{sample, fastq1: [path],
+/// fastq2: [path], covariates: {column: value}}]}`. On an error, `samples`, `columns` and `rows`
+/// are empty. This function does not fail.
 pub fn validate_sheet_native(sheet_tsv: &str) -> String {
-    match SampleSheet::parse(sheet_tsv) {
-        Ok(sheet) => json!({
-            "ok": true,
-            "errors": [],
-            "samples": sheet.samples.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
-            "columns": sheet.columns.iter().map(|(n, t)| json!([n, match t {
-                ColType::Factor => "factor",
-                ColType::Numeric => "numeric",
-            }])).collect::<Vec<_>>(),
-        }),
-        Err(errs) => json!({
-            "ok": false,
-            "errors": errs.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
-            "samples": [],
-            "columns": [],
-        }),
+    let failed = |errors: Vec<String>| json!({"ok": false, "errors": errors, "samples": [], "columns": [], "rows": []});
+    let sheet = match SampleSheet::parse(sheet_tsv) {
+        Ok(sheet) => sheet,
+        Err(errs) => return failed(errs.iter().map(|e| e.to_string()).collect()).to_string(),
+    };
+    // Same text as the command-line error PipelineError::ReservedSampleName.
+    let reserved: Vec<String> = sheet
+        .samples
+        .iter()
+        .filter_map(|s| reserved_output_name(&s.name))
+        .map(|r| {
+            format!(
+                "sample '{r}': the name is reserved: qrnamap writes '{r}' in the output \
+                 directory. Rename the sample in the sheet"
+            )
+        })
+        .collect();
+    if !reserved.is_empty() {
+        return failed(reserved).to_string();
     }
+    json!({
+        "ok": true,
+        "errors": [],
+        "samples": sheet.samples.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        "columns": sheet.columns.iter().map(|(n, t)| json!([n, match t {
+            ColType::Factor => "factor",
+            ColType::Numeric => "numeric",
+        }])).collect::<Vec<_>>(),
+        "rows": sheet.samples.iter().map(|s| json!({
+            "sample": s.name,
+            "fastq1": s.fastq1,
+            "fastq2": s.fastq2,
+            "covariates": s.covariates,
+        })).collect::<Vec<_>>(),
+    })
     .to_string()
 }
 

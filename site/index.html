@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: RNA-seq counts in your browser</title>
-<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The command-line tool exists. A web page that runs kallisto in your browser is under construction (version 1: the genome step works).">
+<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The command-line tool exists. A web page that runs kallisto in your browser is under construction (version 1: the genome step and the quantification of a read preview work; the results view is not built yet).">
 <script>
 // Apply a saved theme choice before the page is drawn. Without a choice, the system setting (prefers-color-scheme) applies.
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
@@ -21,9 +21,9 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead">Map bulk RNA-seq reads, count them per gene, and test for differential expression.</p>
 
-<p class="warn"><strong>Status:</strong> under construction: the genome step works in Chromium (tested); Firefox and Safari are not tested yet; samples and results are not built yet. The genome step downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. The page cannot count reads yet.</p>
-<p><a class="button" id="analyze-link" href="analyze/">Open the tool (genome step only)</a></p>
-<p class="lead">The button leads to the three steps of the tool. Step 1 (genome) works. Steps 2 and 3 are locked until they are built.</p>
+<p class="warn"><strong>Status:</strong> under construction: the genome step and the quantification of a read preview work; the results view is not built yet. Tested: the genome step in headless Chromium, Firefox and WebKit on a GitHub runner (small fixture genome); the quantification in headless Chromium so far (small fixture reads). Step 1 downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. Step 2 counts the first read pairs of each sample with kallisto and shows the mapping numbers per sample. There is no count table, plot or download yet.</p>
+<p><a class="button" id="analyze-link" href="analyze/">Open the tool (genome and samples steps)</a></p>
+<p class="lead">The button leads to the three steps of the tool. Steps 1 (genome) and 2 (samples) work. Step 3 (results) is locked until it is built.</p>
 
 <h2>What qRNAmap is</h2>
 <ul>
