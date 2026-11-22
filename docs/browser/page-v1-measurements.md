@@ -346,6 +346,18 @@ Times in seconds, 3 runs. Peaks: whole-browser tree Pss (browsers) or sampled RS
   in all engines. No catalog genome was too large in this test. A genome size limit from these data: none needed below 67.2 Mb on this runner.
 - Not tested: genomes uploaded by users above 67.2 Mb; devices with less memory.
 
+## Page genome path: peak memory
+
+- The genome step of the page (Task 5) does more than the harness above: the page downloads both files, gives them to a page worker,
+  and the page worker starts the kallisto worker (a nested worker) through `ToolRunner`. The harness ran `build_transcriptome` in the page
+  and started the kallisto worker from the page.
+- Peak memory and time of this page path: UNVERIFIED. No run measured them.
+- Job that measures them: `.github/workflows/page-genome-memory.yml` (dispatch only). It loads the real page in Chromium, Firefox and WebKit,
+  chooses Fulvia fulva Race5_Kim (GCF_020509005.1, the page size limit) in the catalog menu, downloads it from NCBI, and records the time to
+  "index ready" and the whole-browser tree Pss peak (sampler copied from `measure.mjs`), 3 runs per engine (`validation/browser-page/tests/genome-memory.mjs`).
+- Values to compare with (harness, section "Genomes"): index peak 1,728.9 MiB for F. fulva (WebKit, the highest of its 3 runs);
+  the highest index peak of all genomes was 1,796.8 MiB (L. bicolor, WebKit).
+
 ## Read counts and file sizes (ENA portal API, 2026-11-22)
 
 Query: `https://www.ebi.ac.uk/ena/portal/api/filereport?accession=<run or PRJNA976751>&result=read_run&fields=...&format=tsv`.

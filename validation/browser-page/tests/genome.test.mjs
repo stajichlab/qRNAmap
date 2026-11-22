@@ -127,7 +127,7 @@ test('the menu lists the catalog, RefSeq first, and the search filters it', asyn
   await page.fill('#genome-filter', 'cerevisiae');
   const options = await page.$$eval('#genome-menu option', (os) => os.map((o) => o.textContent));
   assert.deepEqual(options, ['Saccharomyces cerevisiae S288C | GCF_000146045.2 | 12.1 Mb | 6,477 genes']);
-  assert.match(await page.textContent('#construction-notice'), /genome step works; samples and results are not built yet/);
+  assert.match(await page.textContent('#construction-notice'), /Under construction: the genome step works in Chromium \(tested\); Firefox and Safari are not tested yet; samples and results are not built yet/);
   assert.deepEqual(errors, []);
 });
 
@@ -148,9 +148,13 @@ test('catalog genome: download, transcripts and index reach "index ready" with t
   assert.equal(await page.getAttribute('#step-genome', 'data-state'), 'done');
   assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'locked');
   assert.match(await page.textContent('#reason-samples'), /not built yet/);
+  // The index argv is the one of the Task 3 measurements (qrnamap-core toolcall, no -t).
+  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.indexArgs), ['index', '-i', 'transcripts.idx', 'transcripts.fa']);
+  // The fixture sizes differ from the catalog sizes: a soft note in the state, not an error.
+  assert.equal((await page.evaluate(() => window.qrnamapApp.state.downloadNotes)).length, 2);
   assert.deepEqual(errors, []);
   // The last genome is remembered (persist.js) and selected again after a reload; it is not downloaded again by itself.
-  await page.waitForTimeout(300);
+  await page.waitForSelector('#step-genome[data-saved="catalog"]', { timeout: 10_000 });
   const again = await open(t, { context });
   assert.equal(await again.page.inputValue('#genome-menu'), YEAST);
   assert.match(await again.page.textContent('#genome-note'), /Last genome: Saccharomyces cerevisiae S288C \(GCF_000146045\.2\)/);
@@ -295,6 +299,75 @@ test('a kallisto out-of-memory failure gives a message that names the command-li
   await chooseYeast(page); // the page worker still works
   await waitPhase(page, 'ready');
   assert.deepEqual(errors, []);
+});
+
+test('a catalog download that is not gzip (an HTML error page with HTTP 200) gives a clear message', async (t) => {
+  const { page } = await open(t, {
+    ncbi: (route) => route.fulfill({ status: 200, body: '<!DOCTYPE html><html><body>Service unavailable</body></html>', headers: { 'access-control-allow-origin': '*', 'content-type': 'text/html' } }),
+  });
+  await chooseYeast(page);
+  assert.match(await errorText(page), /the genome FASTA: the file from ftp\.ncbi\.nlm\.nih\.gov is not a gzip file from NCBI \(\d+ bytes; it starts with "<!DOCTYPE html>/);
+});
+
+test('qrnamap:worker-replaced fires on cancel and on a genome change, and nextId() never repeats an id of the genome step', async (t) => {
+  const context = await browser.newContext();
+  // Record the id of every message the page sends to a worker.
+  await context.addInitScript(() => {
+    window.sentIds = [];
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, ...rest) { if (message && typeof message.id === 'number') window.sentIds.push(message.id); return post.call(this, message, ...rest); };
+    window.replaced = [];
+    window.addEventListener('qrnamap:worker-replaced', (e) => window.replaced.push(e.detail.reason));
+  });
+  const { page, errors } = await open(t, { context });
+  const before = await page.evaluate(() => [window.qrnamapApp.nextId(), window.qrnamapApp.nextId()]);
+  hooks.kallisto = 'hold';
+  await chooseYeast(page);
+  await waitPhase(page, 'index', 30_000);
+  await page.click('#genome-cancel');
+  assert.deepEqual(await page.evaluate(() => window.replaced), ['cancel']);
+  hooks.kallisto = 'serve';
+  hooks.release?.();
+  hooks.release = null;
+  await chooseYeast(page);
+  await waitPhase(page, 'ready');
+  await page.click('#genome-change');
+  assert.deepEqual(await page.evaluate(() => window.replaced), ['cancel', 'change']);
+  assert.equal((await appState(page)).indexReady, false);
+  const after = await page.evaluate(() => window.qrnamapApp.nextId());
+  const genomeIds = await page.evaluate(() => window.sentIds);
+  assert.equal(genomeIds.length, 2);
+  const all = [...before, ...genomeIds, after];
+  assert.equal(new Set(all).size, all.length, `ids: ${all.join(',')}`);
+  assert.deepEqual(errors, []);
+});
+
+test('a damaged stored last genome is ignored', async (t) => {
+  for (const value of [{ source: 'catalog', accession: 42, label: { x: 1 } }, { source: 'upload', fasta: null, gff: ['a'] }, 'not an object']) {
+    const context = await browser.newContext();
+    const first = await open(t, { context });
+    await first.page.evaluate((v) => new Promise((done, fail) => {
+      const request = indexedDB.open('qrnamap', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('kv');
+      request.onerror = () => fail(request.error);
+      request.onsuccess = () => {
+        const tx = request.result.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(v, 'last-genome');
+        tx.oncomplete = () => { request.result.close(); done(); };
+        tx.onerror = () => fail(tx.error);
+      };
+    }), value);
+    const again = await open(t, { context });
+    assert.equal(await again.page.textContent('#genome-note'), '', JSON.stringify(value));
+    assert.equal(await again.page.inputValue('#genome-menu'), '');
+    assert.deepEqual(again.errors, []);
+  }
+});
+
+test('a genome_limit_bases value below 1 is ignored', async (t) => {
+  const { page } = await open(t, { query: '?genome_limit_bases=0.9' });
+  await chooseYeast(page);
+  await waitPhase(page, 'ready');
 });
 
 test('real NCBI download of S. cerevisiae S288C (REAL_NCBI=1 only)', { skip: process.env.REAL_NCBI !== '1' }, async (t) => {

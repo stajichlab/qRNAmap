@@ -1,0 +1,49 @@
+# Peak memory and time of the genome step of /analyze/ with the limit genome (Fulvia fulva Race5_Kim, GCF_020509005.1),
+# downloaded from NCBI through the real page in headless Chromium, Firefox and WebKit, 3 runs each.
+# Dispatch only (not on push): it downloads about 23 MB from NCBI per run. No secrets.
+# Result: artifact genome-memory-<engine> (one TSV). See docs/browser/page-v1-measurements.md, "Page genome path: peak memory".
+name: Page genome memory
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+# Action versions are pinned to exact tags (the same tags as page-smoke.yml and page.yml).
+jobs:
+  genome-memory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          locked: true
+          cache: true
+      - run: pixi run build-wasm-web
+      - run: bash scripts/build-site.sh
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22.23.5'
+          cache: npm
+          cache-dependency-path: validation/browser-page/tests/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: validation/browser-page/tests
+      - name: Install the Playwright browser
+        working-directory: validation/browser-page/tests
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Record the runner
+        run: |
+          nproc
+          grep -E 'MemTotal|SwapTotal' /proc/meminfo
+      - name: Genome path memory (${{ matrix.engine }}, 3 runs)
+        run: node validation/browser-page/tests/genome-memory.mjs "$PWD/dist-site" "genome-memory.${{ matrix.engine }}.tsv" ${{ matrix.engine }} 3
+      - uses: actions/upload-artifact@v7.0.2
+        if: ${{ always() }}
+        with:
+          name: genome-memory-${{ matrix.engine }}
+          path: genome-memory.${{ matrix.engine }}.tsv
+          retention-days: 30

@@ -46,4 +46,6 @@ window.qrnamapShell = { completeStep, markDone, resetFrom };
 const $ = (id) => document.getElementById(id);
 const genomeStep = await createGenomeStep({ $, shell: { markDone, resetFrom } });
 // What the later steps read: genome, nTranscripts, nGenes, indexReady (and tx2gene, genesTsv). The index stays in the worker.
-window.qrnamapApp = { state: genomeStep.state, getWorker: genomeStep.getWorker, cancelGenome: genomeStep.cancel };
+// nextId(): the id for any message to the page worker (shared with the genome step, so ids never collide).
+// The event `qrnamap:worker-replaced` on window says that the worker was replaced and its index is gone (PROTOCOL.md).
+window.qrnamapApp = { state: genomeStep.state, getWorker: genomeStep.getWorker, cancelGenome: genomeStep.cancel, nextId: genomeStep.nextId };

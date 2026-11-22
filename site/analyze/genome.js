@@ -13,8 +13,8 @@ import { readStore, writeStore } from '../persist.js?v=__BUILD__';
  * lower the limit (the tests use it); it cannot raise it.
  */
 export const LARGEST_TESTED = { label: 'Fulvia fulva Race5_Kim', accession: 'GCF_020509005.1', bases: 67169167 };
-const askedLimit = Number(new URLSearchParams(location.search).get('genome_limit_bases'));
-export const LIMIT_BASES = askedLimit > 0 ? Math.min(askedLimit, LARGEST_TESTED.bases) : LARGEST_TESTED.bases;
+const askedLimit = Math.floor(Number(new URLSearchParams(location.search).get('genome_limit_bases')));
+export const LIMIT_BASES = Number.isFinite(askedLimit) && askedLimit >= 1 ? Math.min(askedLimit, LARGEST_TESTED.bases) : LARGEST_TESTED.bases;
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 const STORE_KEY = 'last-genome';
@@ -35,11 +35,14 @@ function limitText(entry) {
 }
 
 /** The state that the later steps read. `indexReady` is true only while the worker holds the index of `genome`. */
-export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '' };
+export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', indexArgs: null, downloadNotes: [] };
 
 let worker = null;
 let pending = null; // { id, resolve, reject, onProgress }
 let messageId = 0;
+
+/** A message id for the page worker. Every step takes its ids from here, so no two messages share an id. */
+export const nextId = () => ++messageId;
 
 function startWorker() {
   worker = new Worker(new URL(`worker.js?v=__BUILD__`, import.meta.url), { type: 'module' });
@@ -53,15 +56,20 @@ function startWorker() {
     const message = `The page worker stopped (${text || 'no message from the browser'}). This often means the browser ran out of memory.`;
     if (pending) { const p = pending; pending = null; p.reject(Object.assign(new Error(message), { kind: 'memory' })); }
     else if (state.indexReady) hooks.lost?.(message);
-    restartWorker();
+    restartWorker('crash');
   };
   worker.onerror = (event) => { event.preventDefault?.(); crashed(event.message); };
   worker.onmessageerror = () => crashed('a message could not be read');
 }
 
-function restartWorker() {
+/**
+ * Terminate the page worker and start a new one. Its genome state (the index) is lost. `reason` is 'cancel', 'crash' or
+ * 'change'. The event `qrnamap:worker-replaced` on window tells the other steps (detail: { reason }).
+ */
+function restartWorker(reason) {
   worker?.terminate();
   startWorker();
+  window.dispatchEvent(new CustomEvent('qrnamap:worker-replaced', { detail: { reason } }));
 }
 
 /** The page worker. Task 6 sends its own message types to the same worker (PROTOCOL.md). */
@@ -69,7 +77,7 @@ export const getWorker = () => worker;
 
 function runInWorker(message, onProgress) {
   return new Promise((resolve, reject) => {
-    const id = ++messageId;
+    const id = nextId();
     pending = { id, resolve, reject, onProgress };
     worker.postMessage({ ...message, id });
   });
@@ -103,7 +111,7 @@ export async function createGenomeStep({ $, shell }) {
   const changed = () => document.dispatchEvent(new CustomEvent('qrnamap:genome', { detail: { ...state } }));
 
   function clearGenome() {
-    Object.assign(state, { genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '' });
+    Object.assign(state, { genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', indexArgs: null, downloadNotes: [] });
     $('genome-ready').hidden = true;
     shell.resetFrom('genome');
   }
@@ -176,7 +184,11 @@ export async function createGenomeStep({ $, shell }) {
 
   // The last genome (persist.js): select it in the menu again. The page does not download it again by itself.
   try {
-    const saved = (await readStore([STORE_KEY]))[STORE_KEY];
+    const raw = (await readStore([STORE_KEY]))[STORE_KEY];
+    const text = (v) => typeof v === 'string' && v.length > 0 && v.length < 1000;
+    // A stored value can be damaged or come from another version of the page: use it only when every field is a string.
+    const saved = raw && typeof raw === 'object' && ((raw.source === 'catalog' && text(raw.accession) && text(raw.label))
+      || (raw.source === 'upload' && text(raw.fasta) && text(raw.gff))) ? raw : null;
     if (saved?.source === 'catalog' && entries.some((e) => e.accession === saved.accession)) {
       $('genome-menu').value = saved.accession;
       describe();
@@ -216,6 +228,13 @@ export async function createGenomeStep({ $, shell }) {
       if (signal.aborted) throw error;
       throw new Error(`${label}: the download from ${url.host} stopped after ${mb(got)} (${error.message}). Check the network connection and try again.`);
     }
+    const head = parts.length ? parts[0] : new Uint8Array(0);
+    if (!(head.length >= 2 && head[0] === 0x1f && head[1] === 0x8b)) {
+      const start = new TextDecoder().decode(head.subarray(0, 40)).replace(/[^\x20-\x7e]/g, '?');
+      throw new Error(`${label}: the file from ${url.host} is not a gzip file from NCBI (${got} bytes; it starts with "${start}"). The server may have sent an error page. Try again later.`);
+    }
+    // A soft check: the catalog size was read on the catalog date. A different size is noted in the state, not refused.
+    if (file.bytes && got !== file.bytes) state.downloadNotes.push(`${file.name}: ${got} bytes, the catalog says ${file.bytes}`);
     return new File(parts, file.name);
   }
 
@@ -243,18 +262,26 @@ export async function createGenomeStep({ $, shell }) {
           if (mine !== run) return;
         }
         [fasta, gff] = files;
+        files.length = 0;
       }
       if (mine !== run) return;
       setPhase('read');
-      const ready = await runInWorker({ type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry) }, (p) => {
+      const saved = entry ? { source: 'catalog', accession, label } : { source: 'upload', fasta: fasta.name, gff: gff.name };
+      const request = { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry) };
+      fasta = null; // the page keeps no reference to the genome bytes while the worker runs
+      gff = null;
+      const answer = runInWorker(request, (p) => {
         if (mine !== run) return;
         setPhase(p.phase);
         status(p.text, p.done, p.total);
       });
+      request.fasta = null;
+      request.gff = null;
+      const ready = await answer;
       if (mine !== run) return;
       Object.assign(state, {
         genome: { label, accession, source: entry ? 'catalog' : 'upload', bases: ready.bases },
-        nTranscripts: ready.nTranscripts, nGenes: ready.nGenes, indexReady: true, tx2gene: ready.tx2gene, genesTsv: ready.genesTsv,
+        nTranscripts: ready.nTranscripts, nGenes: ready.nGenes, indexReady: true, tx2gene: ready.tx2gene, genesTsv: ready.genesTsv, indexArgs: ready.indexArgs,
       });
       setPhase('ready');
       busy(false);
@@ -266,8 +293,7 @@ export async function createGenomeStep({ $, shell }) {
       $('genome-ready').hidden = false;
       shell.markDone('genome');
       changed();
-      const saved = entry ? { source: 'catalog', accession, label } : { source: 'upload', fasta: fasta.name, gff: gff.name };
-      writeStore({ [STORE_KEY]: { ...saved, saved: Date.now() } }).catch(() => {});
+      writeStore({ [STORE_KEY]: { ...saved, saved: Date.now() } }).then(() => { if (mine === run) section.dataset.saved = saved.source; }).catch(() => {});
     } catch (error) {
       if (mine !== run) return; // cancelled: cancel() has reset the step
       clearGenome();
@@ -284,8 +310,8 @@ export async function createGenomeStep({ $, shell }) {
     run++;
     controller?.abort();
     controller = null;
-    if (pending) { pending = null; }
-    restartWorker();
+    pending = null;
+    restartWorker('cancel');
     clearGenome();
     backToChoose();
     showError('');
@@ -305,12 +331,13 @@ export async function createGenomeStep({ $, shell }) {
     build({ fasta, gff, label: `${fasta.name} + ${gff.name}`, accession: '' });
   });
   $('genome-change').addEventListener('click', () => {
-    worker.postMessage({ type: 'clear', id: ++messageId });
+    run++;
+    restartWorker('change'); // drops the index of the old genome
     clearGenome();
     backToChoose();
   });
 
   setPhase('choose');
   section.dataset.ready = 'menu'; // the tests wait for this
-  return { state, getWorker, cancel };
+  return { state, getWorker, cancel, nextId };
 }

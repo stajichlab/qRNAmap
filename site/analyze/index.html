@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: analyze reads</title>
-<meta name="description" content="Under construction. The genome step of the qRNAmap browser tool works; the samples and results steps are not built yet.">
+<meta name="description" content="Under construction. The genome step of the qRNAmap browser tool works in Chromium (tested); Firefox and Safari are not tested yet; the samples and results steps are not built yet.">
 <script>
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
 </script>
@@ -20,7 +20,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 </div>
 <p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
 
-<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> genome step works; samples and results are not built yet. Step 1 builds the kallisto index of a genome in this browser. Steps 2 and 3 stay locked.</p>
+<p class="warn" id="construction-notice" role="note"><strong>Under construction:</strong> the genome step works in Chromium (tested); Firefox and Safari are not tested yet; samples and results are not built yet. Step 1 builds the kallisto index of a genome in this browser. Steps 2 and 3 stay locked.</p>
 
 <section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
   <h2 id="h-genome">1. Genome</h2>

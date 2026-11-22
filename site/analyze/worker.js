@@ -7,10 +7,14 @@ import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
 import { ToolRunner } from '../vendor/kallisto/runtime/index.mjs?v=__BUILD__';
 
 const ready = init({ module_or_path: new URL('../pkg-web/qrnamap_wasm_bg.wasm?v=__BUILD__', import.meta.url) });
-const KALLISTO = new URL('../vendor/kallisto/kallisto.mjs', import.meta.url);
-// A GFF3 larger than this (after gunzip) is refused. The largest catalog GFF3 measured is 3,795,369 bytes as gzip
-// (docs/browser/page-v1-measurements.md, "Genomes"); this cap only stops a file that would fill the memory of the tab.
-const MAX_GFF_BYTES = 1e9;
+// Stamped like the page files, so a cached old kallisto cannot meet a new page. The runtime worker imports execute.mjs without a stamp
+// (a vendored file, not changed).
+const KALLISTO = new URL('../vendor/kallisto/kallisto.mjs?v=__BUILD__', import.meta.url);
+const RUNTIME_WORKER = new URL('../vendor/kallisto/runtime/worker.mjs?v=__BUILD__', import.meta.url);
+// A guard, not a measurement: a GFF3 larger than this after gunzip is refused, so a bad file cannot fill the memory of the tab.
+// The largest GFF3 in the Task 3 genome runs is 64,659,993 bytes after gunzip (Laccaria bicolor, GCF_000143565.1;
+// validation/browser-page/measure/results/genomes_runs.tsv, column gff_bytes). The guard is about 4 times that.
+const MAX_GFF_BYTES = 260e6;
 
 /** The genome of the page, or null. */
 let genome = null;
@@ -92,12 +96,15 @@ function memoryLike(text) {
   return /out of memory|memory access out of bounds|could not allocate|cannot enlarge memory|allocation failed|Array buffer allocation|RangeError|OOM/i.test(text);
 }
 
-async function buildGenome(message) {
-  const { id, fasta, gff, label, accession, limitBases, limitText } = message;
-  genome = null; // a new genome replaces the old one at once, so no step can use a stale index
-  const progress = (phase, text, done = 0, total = 0) => post({ type: 'progress', id, phase, text, done, total });
+/**
+ * Read both files and build the transcripts. Everything this function reads (the File objects, the genome bytes, the GFF3
+ * bytes and text) is unreachable when it returns: only the transcript FASTA and the small results leave it.
+ */
+async function prepareTranscripts(message, progress) {
+  const { fasta, gff, limitBases, limitText } = message;
+  message.fasta = null; // the request object must not keep the files while kallisto runs
+  message.gff = null;
   const mbText = (n) => `${(n / 1e6).toFixed(1)} MB`;
-
   progress('read', `Reading the genome FASTA (${fasta.name || 'FASTA'})`);
   const counter = baseCounter(limitBases, `The genome FASTA (${fasta.name || 'FASTA'})`, limitText);
   const fastaBytes = await readWhole(fasta, `The genome FASTA (${fasta.name || 'FASTA'})`, {
@@ -105,11 +112,10 @@ async function buildGenome(message) {
     progress: (r, t) => progress('read', `Reading the genome FASTA: ${mbText(r)} of ${mbText(t)}`, r, t),
   });
   progress('read', `Reading the GFF3 (${gff.name || 'GFF3'})`);
-  const gffBytes = await readWhole(gff, `The GFF3 (${gff.name || 'GFF3'})`, {
+  const gffText = new TextDecoder().decode(await readWhole(gff, `The GFF3 (${gff.name || 'GFF3'})`, {
     maxBytes: MAX_GFF_BYTES,
     progress: (r, t) => progress('read', `Reading the GFF3: ${mbText(r)} of ${mbText(t)}`, r, t),
-  });
-  const gffText = new TextDecoder().decode(gffBytes);
+  }));
 
   progress('build', `Building the transcripts (${counter.bases.toLocaleString('en-US')} bases)`);
   await ready;
@@ -119,20 +125,34 @@ async function buildGenome(message) {
   } catch (error) {
     throw new StepError('input', `The transcripts could not be built: ${typeof error === 'string' ? error : error?.message || error}`);
   }
-  const transcripts = tr.fasta;
-  const result = { tx2gene: tr.tx2gene, genesTsv: tr.genes_tsv, nTranscripts: tr.n_transcripts, nGenes: tr.n_genes };
-  tr.free();
+  try {
+    return { transcripts: tr.fasta, tx2gene: tr.tx2gene, genesTsv: tr.genes_tsv, nTranscripts: tr.n_transcripts, nGenes: tr.n_genes, bases: counter.bases };
+  } finally {
+    tr.free();
+  }
+}
 
-  progress('index', `Building the kallisto index of ${result.nTranscripts.toLocaleString('en-US')} transcripts. This can take one to two minutes for a large genome.`);
-  const args = JSON.parse(kallisto_args(JSON.stringify({ kind: 'index', fasta: 'transcripts.fa', index: 'transcripts.idx' })));
-  const runner = new ToolRunner({ moduleUrl: KALLISTO, waitForExit: false });
+/** The kallisto index argument list, from qrnamap-core (the same list as the Task 3 measurements). */
+const indexArgs = () => JSON.parse(kallisto_args(JSON.stringify({ kind: 'index', fasta: 'transcripts.fa', index: 'transcripts.idx' })));
+
+async function buildGenome(message) {
+  const { id, label, accession } = message;
+  genome = null; // a new genome replaces the old one at once, so no step can use a stale index
+  const progress = (phase, text, done = 0, total = 0) => post({ type: 'progress', id, phase, text, done, total });
+  const built = await prepareTranscripts(message, progress);
+
+  progress('index', `Building the kallisto index of ${built.nTranscripts.toLocaleString('en-US')} transcripts. This can take one to two minutes for a large genome.`);
+  const args = indexArgs();
+  const runner = new ToolRunner({ moduleUrl: KALLISTO, workerUrl: RUNTIME_WORKER, waitForExit: false });
   let run;
   const started = performance.now();
   try {
-    run = await runner.run(args, { files: [{ path: 'transcripts.fa', data: transcripts }], outputs: ['transcripts.idx'] });
+    run = await runner.run(args, { files: [{ path: 'transcripts.fa', data: built.transcripts }], outputs: ['transcripts.idx'] });
   } catch (error) {
     const text = `${error?.name || 'Error'}: ${error?.message || error}`;
     throw new StepError(memoryLike(text) ? 'memory' : 'kallisto', `kallisto index stopped (${text}).`);
+  } finally {
+    built.transcripts = null; // not kept: Task 6 needs only the index (PROTOCOL.md)
   }
   const stderr = new TextDecoder().decode(run.stderr);
   if (run.exitCode !== 0 || run.missingOutputs.length) {
@@ -140,9 +160,10 @@ async function buildGenome(message) {
     throw new StepError(memoryLike(stderr) ? 'memory' : 'kallisto', `kallisto index failed (exit ${run.exitCode}${run.missingOutputs.length ? ', no index file' : ''}). ${tail}`);
   }
   const index = run.files.find((f) => f.path === '/work/transcripts.idx').data;
-  genome = { id, label, accession, transcripts, index, ...result };
-  post({ type: 'genome-ready', id, label, accession, nTranscripts: result.nTranscripts, nGenes: result.nGenes, bases: counter.bases,
-    indexBytes: index.length, indexSeconds: (performance.now() - started) / 1000, tx2gene: result.tx2gene, genesTsv: result.genesTsv });
+  // The worker keeps only the index. tx2gene and the gene table go to the page, which keeps them.
+  genome = { label, accession, index };
+  post({ type: 'genome-ready', id, label, accession, nTranscripts: built.nTranscripts, nGenes: built.nGenes, bases: built.bases,
+    indexBytes: index.length, indexSeconds: (performance.now() - started) / 1000, indexArgs: args, tx2gene: built.tx2gene, genesTsv: built.genesTsv });
 }
 
 self.onmessage = async ({ data }) => {
@@ -154,9 +175,7 @@ self.onmessage = async ({ data }) => {
       const kind = error instanceof StepError ? error.kind : (memoryLike(String(error?.message || error)) ? 'memory' : 'internal');
       post({ type: 'error', id: data.id, kind, message: error?.message || String(error) });
     }
-  } else if (data?.type === 'clear') {
-    genome = null;
   } else if (data?.type === 'status') {
-    post({ type: 'status', id: data.id, genome: genome && { label: genome.label, accession: genome.accession, nTranscripts: genome.nTranscripts, nGenes: genome.nGenes, indexBytes: genome.index.length } });
+    post({ type: 'status', id: data.id, genome: genome && { label: genome.label, accession: genome.accession, indexBytes: genome.index.length } });
   }
 };
