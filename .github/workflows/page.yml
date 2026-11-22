@@ -51,6 +51,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      reads_kind: ${{ steps.plan.outputs.reads_kind }}
     steps:
       - id: plan
         run: |
@@ -70,6 +71,9 @@ jobs:
               inc += [{'suite': 'determinism', 'engine': e, 'mode': '-'} for e in ['node', 'chromium', 'firefox', 'webkit']]
           inc = [x for x in inc if x['engine'] in engines]
           print('matrix=' + json.dumps({'include': inc}))
+          # Reads: the prefix files (1,000,000 pairs) serve all counts <= 1,000,000; otherwise the full files. Both are release assets.
+          counts = [int(c) for c in os.environ['COUNTS'].replace(' ', '').split(',') if c]
+          print('reads_kind=' + ('prefix' if counts and max(counts) <= 1000000 else 'full'))
           EOF
 
   wasm-pkg:
@@ -94,12 +98,15 @@ jobs:
           retention-days: 7
 
   reads:
+    needs: [plan]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: SRR3396381 from NCBI SRA (fasterq-dump) and the yeast transcripts; check MD5, read counts, ENA head, SHA-256
-        run: bash validation/browser-page/measure/prepare_reads.sh data/reads
+      # Static files from release page-v1-test-data-v1 (SHA-256 checked against validation/browser-page/measure/reads_prefix.tsv).
+      # prepare_reads.sh (NCBI SRA download and conversion) is the documented way to re-create them; CI does not run it.
+      - name: SRR3396381 reads (${{ needs.plan.outputs.reads_kind }}) and the yeast transcripts from releases
+        run: bash validation/browser-page/measure/fetch_reads_release.sh data/reads "${{ needs.plan.outputs.reads_kind }}"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: measure-reads

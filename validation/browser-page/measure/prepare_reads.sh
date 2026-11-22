@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Page-v1 measurements, CI only: SRR3396381 reads (both mates) and the yeast transcripts of the spike 0 fixture release.
 # Usage: prepare_reads.sh <out dir>. Run from the repository root. No BASH_SOURCE is used.
+# Note: CI no longer runs this script. CI downloads the files made by it from release page-v1-test-data-v1
+# (fetch_reads_release.sh). Use this script to re-create the data.
 #
 # Source of the reads: the NCBI SRA file of SRR3396381 (AWS open data URL from the NCBI locate API), converted with
 # fasterq-dump of the NCBI SRA Toolkit 3.2.0, then gzip -6. Reason: in run 44984006776 (2026-11-22) a full download of the
