@@ -1,4 +1,5 @@
 # Site smoke test: build dist-site, check its links, and load / and /analyze/ in headless Chromium, Firefox and WebKit.
+# Start by hand with `gh workflow run` works only after this file is on the default branch; until then a push that touches it starts it.
 # Job genome-step: the browser tests of step 1 of /analyze/ (validation/browser-page/tests/), one job per engine, on the same dist-site.
 # Separate from page.yml so that a site change does not start the measurement jobs. No secrets.
 name: Site smoke
