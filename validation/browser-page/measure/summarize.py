@@ -104,6 +104,7 @@ for pairs in sorted({int(r['pairs']) for r in quant}):
 write('quant_abundance_agreement.tsv', agree)
 
 write('truncated.tsv', read('truncated.*.tsv'))
+write('determinism.tsv', read('determinism.*.tsv'))
 
 genomes = read('genomes.*.tsv')
 write('genomes_runs.tsv', genomes)

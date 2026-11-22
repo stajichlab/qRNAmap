@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: 'Comma list: quant, truncated, genomes'
+        description: 'Comma list: quant, truncated, genomes, determinism'
         required: false
         default: 'quant,truncated,genomes'
       counts:
@@ -24,6 +24,10 @@ on:
         description: 'Runs per case'
         required: false
         default: '3'
+      engines:
+        description: 'Comma list: node, chromium, firefox, webkit'
+        required: false
+        default: 'node,chromium,firefox,webkit'
 permissions:
   contents: read
 concurrency:
@@ -34,6 +38,7 @@ env:
   SUITES: ${{ inputs.suites || 'quant,truncated,genomes' }}
   COUNTS: ${{ inputs.counts || '100000,200000' }}
   REPS: ${{ inputs.reps || '1' }}
+  ENGINES: ${{ inputs.engines || 'node,chromium,firefox,webkit' }}
 
 # Action versions are pinned to exact tags (checkout and setup-pixi as in pages.yml; the others checked on 2026-11-22).
 jobs:
@@ -47,6 +52,7 @@ jobs:
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os
           suites = [s.strip() for s in os.environ['SUITES'].split(',') if s.strip()]
+          engines = [e.strip() for e in os.environ['ENGINES'].split(',') if e.strip()]
           inc = []
           if 'quant' in suites:
               inc += [{'suite': 'quant', 'engine': e, 'mode': m} for e in ['node', 'chromium', 'firefox', 'webkit'] for m in ['gz', 'plain']]
@@ -54,6 +60,9 @@ jobs:
               inc += [{'suite': 'truncated', 'engine': e, 'mode': '-'} for e in ['chromium', 'firefox', 'webkit']]
           if 'genomes' in suites:
               inc += [{'suite': 'genomes', 'engine': e, 'mode': '-'} for e in ['node', 'chromium', 'firefox', 'webkit']]
+          if 'determinism' in suites:
+              inc += [{'suite': 'determinism', 'engine': e, 'mode': '-'} for e in ['node', 'chromium', 'firefox', 'webkit']]
+          inc = [x for x in inc if x['engine'] in engines]
           print('matrix=' + json.dumps({'include': inc}))
           EOF
 
@@ -155,6 +164,7 @@ jobs:
           case "${{ matrix.suite }}" in
             quant) extra=(--data data/reads --counts "$COUNTS" --modes "${{ matrix.mode }}" --budget-min 300) ;;
             truncated) extra=(--data data/reads --timeout-min 60) ;;
+            determinism) extra=(--data data/reads --counts "$COUNTS") ;;
             genomes)
               pkg=pkg-web; [ "${{ matrix.engine }}" = node ] && pkg=pkg-node
               extra=(--data data/genomes --genomes data/genomes/genomes.tsv --pkg "$pkg") ;;

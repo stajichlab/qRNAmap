@@ -657,6 +657,69 @@ async function suiteGenomes(playwright) {
   }
 }
 
+// ================================================================= suite determinism
+// One browser (or Node process) per rep: one index build, then the first N pairs as gz and as plain, each quantified twice
+// with that same index. The index and every abundance.tsv are written to OUT/determinism/ (artifact only, not git).
+async function determinismInPage(cfg) {
+  const s = await import(cfg.stepsUrl);
+  const out = { quants: [] };
+  const tx = globalThis.measureTx || new Uint8Array(await (await fetch(cfg.txUrl)).arrayBuffer());
+  const ix = await s.runKallisto({ ...cfg.urls, args: s.KALLISTO_ARGS.index('yeast.transcripts.fa', 'yeast.idx'),
+    files: [{ path: 'yeast.transcripts.fa', data: tx }], outputs: ['yeast.idx'], timeoutMs: cfg.timeoutMs });
+  const idx = ix.files?.['yeast.idx'];
+  if (!idx) { out.error = `index: ${ix.error || ix.exitCode}`; return out; }
+  out.index_sha256 = await s.sha256(idx);
+  out.index_b64 = cfg.keepIndex ? btoa(Array.from(idx, b => String.fromCharCode(b)).join('')) : '';
+  for (const mode of ['gz', 'plain']) {
+    const reads = {};
+    for (const mate of [1, 2]) {
+      const reader = cfg.open ? await cfg.open(mate) : (await fetch(cfg.readUrls[mate])).body.getReader();
+      reads[mate] = (await s.prepMate(reader, cfg.pairs, mode, `mate ${mate}`)).bytes;
+    }
+    const ext = mode === 'gz' ? '.fastq.gz' : '.fastq';
+    for (const k of [1, 2]) {
+      const q = await s.runKallisto({ ...cfg.urls, args: s.KALLISTO_ARGS.quant('yeast.idx', 'kq', `r_1${ext}`, `r_2${ext}`),
+        files: [{ path: 'yeast.idx', data: idx }, { path: `r_1${ext}`, data: reads[1] }, { path: `r_2${ext}`, data: reads[2] }],
+        outputs: ['kq/abundance.tsv', 'kq/run_info.json'], timeoutMs: cfg.timeoutMs });
+      const ab = q.files?.['kq/abundance.tsv'];
+      out.quants.push({ mode, k, exitCode: q.exitCode, error: q.error, sha: ab ? await s.sha256(ab) : '', text: ab ? new TextDecoder().decode(ab) : '',
+        input1_sha256: await s.sha256(reads[1]), ...(q.files?.['kq/run_info.json'] ? s.runInfo(q.files['kq/run_info.json']) : {}) });
+    }
+  }
+  return out;
+}
+
+async function suiteDeterminism(playwright) {
+  const reps = Number(options.reps), pairs = Number(options.counts.split(',')[0]);
+  const dir = join(outDir, 'determinism');
+  await mkdir(dir, { recursive: true });
+  const lines = ['engine\tpairs\trep\tindex_sha256\tmode\tquant\texit_code\tn_processed\tn_pseudoaligned\tinput1_sha256\tabundance_sha256\tdetail'];
+  for (let rep = 1; rep <= reps; rep++) {
+    let session, result;
+    try {
+      if (options.engine === 'node') {
+        globalThis.measureTx = new Uint8Array(await readFile(join(dataDir, 'yeast.transcripts.fa')));
+        result = await determinismInPage({ stepsUrl: pathToFileURL(join(here, 'steps.mjs')).href, urls: nodeUrls(), timeoutMs: TIMEOUT_MS, pairs, keepIndex: true,
+          open: async mate => Readable.toWeb(createReadStream(join(dataDir, `${RUN}_${mate}.fastq.gz`))).getReader() });
+      } else {
+        session = await openBrowser(playwright);
+        const port = server.address().port;
+        result = await session.eval(determinismInPage, { stepsUrl: `http://127.0.0.1:${port}/measure/steps.mjs`, urls: pageUrls(), timeoutMs: TIMEOUT_MS, pairs, keepIndex: true,
+          txUrl: '/data/yeast.transcripts.fa', readUrls: { 1: `/data/${RUN}_1.fastq.gz`, 2: `/data/${RUN}_2.fastq.gz` } });
+      }
+    } catch (error) { result = { error: String(error?.message || error), quants: [] }; }
+    finally { await closeBrowser(session); }
+    if (result.index_b64) await writeFile(join(dir, `${options.engine}.r${rep}.yeast.idx`), Buffer.from(result.index_b64, 'base64'));
+    if (result.error) lines.push([options.engine, pairs, rep, result.index_sha256 ?? '', '', '', '', '', '', '', '', clean(result.error)].join('\t'));
+    for (const q of result.quants) {
+      if (q.text) await writeFile(join(dir, `${options.engine}.r${rep}.${q.mode}.q${q.k}.abundance.tsv`), q.text);
+      lines.push([options.engine, pairs, rep, result.index_sha256, q.mode, q.k, q.exitCode, q.n_processed, q.n_pseudoaligned, q.input1_sha256, q.sha, clean(q.error)].join('\t'));
+    }
+    await writeFile(join(outDir, `determinism.${options.engine}.tsv`), lines.join('\n') + '\n');
+    log(`determinism rep ${rep} done: index ${result.index_sha256 ?? 'none'}`);
+  }
+}
+
 // ================================================================= main
 async function main() {
   if (options.child === 'quant') { await quantChild(); return 0; }
@@ -678,6 +741,7 @@ async function main() {
     if (options.suite === 'quant') await suiteQuant(playwright, meta);
     else if (options.suite === 'truncated') await suiteTruncated(playwright);
     else if (options.suite === 'genomes') await suiteGenomes(playwright);
+    else if (options.suite === 'determinism') await suiteDeterminism(playwright);
     else throw new Error(`unknown suite ${options.suite}`);
   } finally {
     meta.finishedAt = new Date().toISOString();
