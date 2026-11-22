@@ -87,8 +87,12 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
 Results (2026-11-22): `docs/browser/page-v1-measurements.md`. In short (headless Playwright browsers on a GitHub runner, SRR3396381, yeast transcripts):
 item 1: N = 200,000 pairs, hard limit = 200,000 pairs, reads given to kallisto as plain FASTQ; item 2: a cut gzip goes through kallisto (exit 0, it stops at the
 shorter mate), and cutting both mates at N records works in all three browsers, but ENA failed in 11 of 30 sessions and the release-asset fallback is blocked by CORS
-(a same-origin fallback is UNVERIFIED); item 3: the 409 genes of Supplementary Table S3 match the RefSeq H99 locus tags and the qRNAmap gene names;
-item 4: measured (ENA portal API); item 5: not measured; item 6: the three largest catalog genomes finished in all engines.
+(a same-origin fallback is UNVERIFIED; the CORS test used a release asset of stajichlab/genomics-wasm); item 3: the 409 genes of Supplementary Table S3
+match the RefSeq H99 locus tags and the qRNAmap gene names (column-to-run mapping UNVERIFIED); item 4: measured (ENA portal API); item 5: not measured;
+item 6: the three largest catalog genomes finished in all engines.
+Firefox wrote a damaged `abundance.tsv` in 4 of 130 kallisto runs (about 3%, no error, cause UNVERIFIED). So a byte-identical comparison of Firefox output
+with the CLI (acceptance rule) can fail without a code fault: Task 9 must re-run or check the file before it reports a mismatch. Needed page behaviour:
+check each `abundance.tsv` and re-run the sample once when the check fails (untested).
 
 ## Acceptance rule
 

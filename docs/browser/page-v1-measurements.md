@@ -29,13 +29,16 @@ Result tables (small TSVs): `validation/browser-page/measure/results/`.
   met the N rule only at 100,000 pairs (WebKit preparation peak 1,327 to 1,535 MiB), and in a worker (mode `wgz`) it met the N rule at no count
   (Firefox preparation peak above 5 GiB from 100,000 pairs; WebKit 1,348 to 1,693 MiB at 100,000 pairs).
 - **Test-set reads: fetch from ENA in the browser and cut both mates at N records** (read the stream, count N x 4 newlines, keep, cancel).
-  This worked in all three browsers whenever ENA answered (details below). A Range header is not needed for this method.
+  The cut worked in all three browsers on the bytes ENA sent. The stream method without a Range header succeeded in 17 of 30 sessions
+  (17 of the 19 sessions where ENA answered the Range requests; it failed twice with a network error during the stream). A Range header is not needed for this method.
   ENA did not answer in 11 of 30 browser sessions on the runners, so the page needs a clear error and the test-set tests in CI must not depend on ENA.
   The fallback in the spec (the page fetches GitHub release assets) does not work: all three browsers blocked the request (CORS) in all 9 sessions.
 - **Genome menu limit:** no limit is needed for the catalog. The three largest catalog genomes (63.4 to 67.2 Mb) finished download, transcript building
   and index in all engines, with a peak of 1,796.8 MiB or less.
-- **kallisto output check:** Firefox wrote a damaged `abundance.tsv` in 4 of 130 kallisto runs (no error). The page should check each `abundance.tsv`
-  (see "Run-to-run output of kallisto").
+- **kallisto output check:** Firefox wrote a damaged `abundance.tsv` in 4 of 130 kallisto runs (about 3%), with no error (cause UNVERIFIED).
+  So a byte-identical comparison of Firefox output with the CLI (the Task 9 acceptance rule) can fail without a fault in the page code.
+  Task 9 must re-run or check the file before it reports a mismatch. Needed page behaviour: check each `abundance.tsv`, and re-run the sample once
+  when the check fails. This behaviour was not tested (see "Run-to-run output of kallisto").
 
 ## Runs
 
@@ -46,6 +49,9 @@ Result tables (small TSVs): `validation/browser-page/measure/results/`.
 | [44985823017](https://github.com/stajichlab/qRNAmap/actions/runs/44985823017) | dispatch | `c4abdce` | full: quant (modes `gz`, `plain`), truncated, genomes; 3 runs per case | see the tables |
 | [44986429632](https://github.com/stajichlab/qRNAmap/actions/runs/44986429632) | dispatch | `3a4a968` | determinism (100,000 pairs) and truncated; 3 runs | see the tables |
 | [44990656616](https://github.com/stajichlab/qRNAmap/actions/runs/44990656616) | dispatch | `5d307df` | quant (modes `wgz`, `wplain`) in the three browsers, truncated with the GitHub release check; 3 runs | see the tables |
+
+The merged result tables in `results/` come from runs 44985823017, 44986429632 and 44990656616; `results/truncated.tsv` also holds the
+truncated-test rows of run 44984897294 (1 session per browser). Run 44984897294 quant rows are not in `results/quant_runs.tsv`.
 
 Every push to `page-v1` also starts `ci.yml` (it has `on: push` with no branch filter). Commits with `[skip ci]` started no workflow.
 
@@ -200,7 +206,8 @@ Result of the rules (`results/limits.tsv`):
 Suite `truncated` (browsers). Runs 44984897294 (1 session per browser), 44985823017, 44986429632 and 44990656616 (3 sessions per browser each): 30 sessions.
 URLs: `https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_{1,2}.fastq.gz`. Each session asks for bytes 0 to 8,388,607 of each mate
 (`Range`, HTTP 206), then runs the tests below on those bytes. One test streams the whole URL without `Range` and stops early.
-Values below are identical in every session where the fetch worked, unless a range is given.
+Values below are identical in every session where the fetch worked, unless counts are given. In the passing stream tests, 3,839,689 to 4,303,689 bytes
+were read before the cancel, and the plain bytes equalled those of the Range bytes.
 
 | test | Chromium | Firefox | WebKit |
 |---|---|---|---|
@@ -213,21 +220,24 @@ Values below are identical in every session where the fetch worked, unless a ran
 | N-pair method: `keepFirstReads` to 50,000 records on each mate, stop | pass: 50,000 and 50,000 records; read names equal record by record for all 50,000 pairs | pass | pass |
 | kallisto on those 50,000 pairs | pass: `n_processed` 50,000, `n_pseudoaligned` 47,100 | pass (see the Firefox output fault) | pass |
 | same cut with `DecompressionStream` instead of fflate | same plain bytes (SHA-256 equal) | same | same |
-| stream the whole URL without `Range`, stop at 50,000 records, cancel | pass; 3,839,689 to 4,303,689 bytes read before the cancel; plain bytes equal the Range method | pass | pass |
+| stream the whole URL without `Range`, stop at 50,000 records, cancel (run only in the 19 sessions where both ranges came) | pass 7 of 7 | pass 8 of 9; 1 fail: `TypeError: Error in input stream` (run 44986429632, session 1) | pass 2 of 3; 1 fail: `TypeError: Load failed` (run 44985823017, session 2) |
 | ask for more records than the cut file holds (218,380) | `Error: unexpected EOF` | same | same |
 | ENA filereport from the page | HTTP 200, `read_count` 8405534 | same | same |
-| GitHub release asset `yeast_sub_1.fastq.gz` (run 44990656616 only) | fail x3: `TypeError: Failed to fetch` | fail x3: `TypeError: NetworkError when attempting to fetch resource.` | fail x3: `TypeError: Load failed` |
+| GitHub release asset `yeast_sub_1.fastq.gz` of `stajichlab/genomics-wasm` (run 44990656616 only) | fail x3: `TypeError: Failed to fetch` | fail x3: `TypeError: NetworkError when attempting to fetch resource.` | fail x3: `TypeError: Load failed` |
 
 - Pairing: kallisto pairs records by position. It gives no error when one mate has fewer records; it stops at the shorter mate.
   So two cut files with different record counts give a silent short run. The page must cut both mates at the same record count itself.
 - Method that gives exactly N pairs from two cut streams (tested): read each mate stream through a gzip decoder, count newlines to N x 4,
   keep the bytes up to that newline, cancel the stream. Do not call the decoder end on a cut stream (it throws). Check that both mates have N records.
   The method works with fflate and with `DecompressionStream`, from a Range request or from a plain request that is cancelled.
+  Overall, the stream method (no Range) succeeded in 17 of 30 sessions: 17 of the 19 sessions where ENA answered the Range requests.
 - If the stream ends before N records, fflate throws `unexpected EOF` at the end. The page must show this as "the file has fewer than N pairs" or as a damaged download.
 - GitHub release assets: the request redirects to `release-assets.githubusercontent.com`. WebKit logged
   `Cross-origin redirection to https://release-assets.githubusercontent.com/... due to access control checks.` and, for the Range request,
-  `Origin http://127.0.0.1:PORT is not allowed by Access-Control-Allow-Origin. Status code: 403`. So a page cannot read a release asset in these
-  three browsers (tested from an `http://127.0.0.1` origin only). The fallback in the spec (the test-set button fetches release assets) does not work as written.
+  `Origin http://127.0.0.1:PORT is not allowed by Access-Control-Allow-Origin. Status code: 403`. So a page could not read that release asset in these
+  three browsers (tested from an `http://127.0.0.1` origin only). The tested asset belongs to `stajichlab/genomics-wasm`
+  (`measure.mjs`, `ghAsset`), not to this repository. That release assets of this repository behave the same is an inference (same GitHub download
+  path and redirect host), not a measurement. On that basis the fallback in the spec (the test-set button fetches release assets) does not work as written.
 
 ENA availability from the runners (each session needs both mates):
 
@@ -243,7 +253,8 @@ ENA availability from the runners (each session needs both mates):
   Firefox `TypeError: Content-Length header of network response exceeds response Body.` and `TypeError: Error in input stream`;
   WebKit `TypeError: Load failed`, with `Status code: 403` and no CORS header in the log of run 44990656616.
 - Speed of a successful 8 MiB range: 29.2 to 1,813 kB/s. The stream test read about 4 MB at 152 to 6,452 kB/s.
-- In CI, a full download of the ENA FASTQ with `curl` failed (run 44984006776). The NCBI SRA file (1,082,915,326 bytes, from the AWS open data URL of the NCBI locate API) downloaded in 16.9 s.
+- In CI, a full download of the ENA FASTQ with `curl` failed (run 44984006776). The NCBI SRA file (1,082,915,326 bytes, from the AWS open data URL of the NCBI locate API) downloaded in
+  16.9 s (run 44984897294), 43.0 s (run 44985823017), 15.5 s (run 44986429632) and 19.6 s (run 44990656616).
 - Not tested: ENA from a user's network or from an `https` page origin; retries; other ENA hosts.
 
 ### Test-set fetch method (decision)
@@ -276,6 +287,9 @@ and runs quant twice per input with that same index. The index and every `abunda
 - Effect on the page: an `abundance.tsv` from Firefox can be wrong without an error. A check that would have caught both cases here:
   every data line parses as 4 numbers, the row count equals the transcript count, and the sum of `est_counts` equals `n_pseudoaligned` within rounding
   (94,278.997 against 94,279). This check was computed on these files only; a page that checks and repeats the run was not tested.
+- Effect on the acceptance test (Task 9): a byte-identical comparison of Firefox output with the CLI can fail without a code fault
+  (4 of 130 Firefox kallisto runs here, about 3%; cause UNVERIFIED). Task 9 must re-run the sample or check the file before it reports a mismatch.
+  Needed page behaviour: check each `abundance.tsv` as above, and re-run the sample once when the check fails (untested).
 
 ## Genomes: download size, gunzip and transcript building
 
@@ -371,7 +385,7 @@ The project has 6 more runs (rapamycin 60 min, wild type and *lkh1*); they are n
   Columns include `Gene_ID` (NCBI GeneID), `locus_tag` (`CNAG_xxxxx`) and `Protein_ID` (`XP_...`).
 - `s3_vs_gff.py` against the RefSeq H99 GFF3 (catalog URL, SHA-256 `69ee1730...19cf3`): all 409 locus tags are genes in the GFF3, and all 409
   (`locus_tag`, `GeneID`) pairs equal the GFF3 pairs. 293 of 409 `Protein_ID` values are CDS `protein_id` values in the GFF3
-  (81 of the 409 genes are ncRNA, 1 rRNA, 1 tRNA; some cells list several proteins).
+  (S3 `gene_biotype`: 326 protein_coding, 81 ncRNA, 1 rRNA, 1 tRNA; 33 `Protein_ID` cells list several proteins; `results/cneo_s3_ids.tsv`).
 - The gene names that `qrnamap transcripts` makes from this GFF3 (CLI, debug build of this branch, run on the cluster) are the locus tags:
   8,338 genes, 9,189 transcripts. All 409 S3 locus tags are among them. So the paper's identifiers match the RefSeq H99 annotation and the qRNAmap gene names.
 - The S3 count columns are named `H99_basal_3`, `_6`, `_7` and `lkhl_basal_3`, `_6`, `_7`. The ENA titles say `sample_1` to `sample_3`.

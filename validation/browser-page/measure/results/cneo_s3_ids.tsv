@@ -6,6 +6,11 @@ gff_genes_with_locus_tag	8334
 s3_locus_tag_in_gff	409
 s3_locus_tag_and_GeneID_pair_equal_gff	409
 s3_protein_id_in_gff_cds	293
+s3_gene_biotype_ncRNA	81
+s3_gene_biotype_protein_coding	326
+s3_gene_biotype_rRNA	1
+s3_gene_biotype_tRNA	1
+s3_protein_id_cells_with_semicolon	33
 s3_locus_tag_missing_examples	
 genes_table_rows	8338
 s3_locus_tag_in_genes_table	409

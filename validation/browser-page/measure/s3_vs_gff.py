@@ -14,6 +14,7 @@ rows = [line.rstrip('\n').split('\t') for line in open(s3_path, encoding='utf-8'
 hdr_i = next(i for i, r in enumerate(rows) if r and r[0] == 'Gene_ID')
 hdr = rows[hdr_i]
 gi, lt, pi = hdr.index('Gene_ID'), hdr.index('locus_tag'), hdr.index('Protein_ID')
+bt = hdr.index('gene_biotype')
 fc = hdr.index('lkhl_basal/H99_basal.fc')
 s3 = [r for r in rows[hdr_i + 1:] if len(r) > lt and r[gi].strip()]
 
@@ -50,6 +51,9 @@ print(f'gff_genes_with_locus_tag\t{len(gff_gene)}')
 print(f's3_locus_tag_in_gff\t{lt_in}')
 print(f's3_locus_tag_and_GeneID_pair_equal_gff\t{pair_ok}')
 print(f's3_protein_id_in_gff_cds\t{prot_ok}')
+for biotype in sorted({r[bt] for r in s3}):
+    print(f's3_gene_biotype_{biotype}\t{sum(1 for r in s3 if r[bt] == biotype)}')
+print(f's3_protein_id_cells_with_semicolon\t{sum(1 for r in s3 if ";" in r[pi])}')
 missing = [r[lt] for r in s3 if r[lt] not in gff_gene]
 print(f's3_locus_tag_missing_examples\t{",".join(missing[:10])}')
 if genes_path:
