@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
-import { firstRecords, checkFastq, firstNameStem } from '../../../site/analyze/fastq.js';
+import { firstRecords, checkFastq, firstNameStem, firstReadLength } from '../../../site/analyze/fastq.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
   'tx1\t1491\t1327.5\t9\t31.1145\n' +
@@ -114,4 +114,24 @@ test('firstNameStem: first word, without @ and without /1 or /2', () => {
   assert.equal(firstNameStem(enc('@r1/1\nA\n+\nI\n')), 'r1');
   assert.equal(firstNameStem(enc('@SRR1.1 1 length=101\nA\n+\nI\n')), 'SRR1.1');
   assert.equal(firstNameStem(enc('@x/2\r\nA\r\n')), 'x');
+});
+
+test('previewLimit: 200,000 pairs up to 101 bases, 100,000 (provisional) above; never above the hard limit', async () => {
+  const { previewLimit, PREVIEW_TABLE, HARD_LIMIT } = await import('../../../site/analyze/preview-limit.js');
+  assert.equal(previewLimit(50), 200000);
+  assert.equal(previewLimit(101), 200000);
+  assert.equal(previewLimit(102), 100000);
+  assert.equal(previewLimit(150), 100000);
+  assert.equal(previewLimit(250), 100000);
+  assert.throws(() => previewLimit(0), RangeError);
+  assert.throws(() => previewLimit(undefined), RangeError);
+  assert.ok(PREVIEW_TABLE.every((r) => r.pairs <= HARD_LIMIT));
+  assert.match(PREVIEW_TABLE[1].measured, /PROVISIONAL/);
+});
+
+test('firstReadLength: the sequence length of the first record (CRLF ok)', () => {
+  const enc = (s) => new TextEncoder().encode(s);
+  assert.equal(firstReadLength(enc('@r\nACGTA\n+\nIIIII\n@s\nAC\n+\nII\n')), 5);
+  assert.equal(firstReadLength(enc('@r\r\nACG\r\n+\r\nIII\r\n')), 3);
+  assert.equal(firstReadLength(enc('@r\n')), 0);
 });

@@ -6,7 +6,8 @@
 import init, { build_transcriptome, kallisto_args } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
 import { ToolRunner } from '../vendor/kallisto/runtime/index.mjs?v=__BUILD__';
-import { firstRecords, checkFastq, firstNameStem, ReadError } from './fastq.js?v=__BUILD__';
+import { firstRecords, checkFastq, firstNameStem, firstReadLength, ReadError } from './fastq.js?v=__BUILD__';
+import { previewLimit, HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
 import { checkAbundance } from './abundance-check.js?v=__BUILD__';
 
 const ready = init({ module_or_path: new URL('../pkg-web/qrnamap_wasm_bg.wasm?v=__BUILD__', import.meta.url) });
@@ -190,6 +191,9 @@ async function kallistoQuant(args, files, signal) {
     throw new StepError(memoryLike(text) ? 'memory' : 'kallisto', `kallisto quant stopped (${text}).`);
   }
   const stderr = new TextDecoder().decode(run.stderr);
+  if (run.exitCode !== 0 && /zero reads pseudoaligned/.test(stderr)) {
+    throw new StepError('input', 'No read pseudoaligned to the transcripts of this genome (kallisto: "zero reads pseudoaligned"). Check that the reads come from this organism and that they are RNA-seq reads.');
+  }
   if (run.exitCode !== 0 || run.missingOutputs.length) {
     const tail = stderr.trim().split('\n').slice(-3).join(' ');
     throw new StepError(memoryLike(stderr) ? 'memory' : 'kallisto', `kallisto quant failed (exit ${run.exitCode}${run.missingOutputs.length ? ', an output file is missing' : ''}). ${tail}`);
@@ -222,12 +226,26 @@ function outputProblems(result, nPairs, nTranscripts, unit) {
  * Nothing of the sample is kept after the answer.
  */
 async function quantSample(message, signal) {
-  const { id, name, pairs, fragment, nTranscripts } = message;
+  const { id, name, fragment, nTranscripts, limitOverride } = message;
   const { mate1, mate2 } = message;
   message.mate1 = null; // the request must not keep the files
   message.mate2 = null;
   if (!genome) throw new StepError('no-index', 'The kallisto index is not in the page worker any more. Build the genome index again (step 1).');
   const progress = (phase, text) => post({ type: 'progress', id, phase, text });
+  // N for this sample: the read length (the longest first record of the two mates) gives the limit (preview-limit.js), or the
+  // measurement option `limitOverride` replaces it (never above HARD_LIMIT); `message.pairs` (the page field) can lower it.
+  progress('prep', `Reading the first record of each mate to find the read length`);
+  let readLength = 0;
+  for (const [file, mate] of [[mate1, 1], [mate2, 2]]) {
+    if (!file) continue;
+    const label = `Mate ${mate} of sample ${name} (${file.name})`;
+    const first = await firstRecords(file, 1, label, { signal });
+    checkFastq(first.bytes, label);
+    readLength = Math.max(readLength, firstReadLength(first.bytes));
+  }
+  if (readLength < 1) throw new StepError('input', `The first record of sample ${name} has no bases.`);
+  const limit = limitOverride ? Math.min(limitOverride, HARD_LIMIT) : previewLimit(readLength);
+  const pairs = Math.min(message.pairs, limit);
   const read = async (file, mate) => {
     const label = `Mate ${mate} of sample ${name} (${file.name})`;
     progress('prep', `Reading the first ${fmt(pairs)} records of mate ${mate} (${file.name})`);
@@ -282,7 +300,7 @@ async function quantSample(message, signal) {
     }
     firstProblems = problems;
   }
-  post({ type: 'quant-done', id, name, nPairs, wholeFile, args, reruns: firstProblems ? 1 : 0, warning,
+  post({ type: 'quant-done', id, name, nPairs, wholeFile, previewN: pairs, readLength, limitSource: limitOverride ? 'override' : 'read length', args, reruns: firstProblems ? 1 : 0, warning,
     abundance: result.abundance, runInfo: result.info });
 }
 

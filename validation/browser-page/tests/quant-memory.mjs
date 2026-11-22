@@ -3,7 +3,9 @@
 // and counted with the default preview size (N = 200,000 pairs). Not a test: a measurement for docs/browser/page-v1-measurements.md,
 // "Page quantification path: peak memory". Linux only (/proc).
 //   node quant-memory.mjs <absolute path of dist-site> <out.tsv> <engines> <runs> <case>...
-//   case = <label>:<accession>:<mate 1 path>:<mate 2 path>   (absolute paths; the label names the reads in the TSV)
+//   case = <label>:<accession>:<mate 1 path>:<mate 2 path>[:<N>]   (absolute paths; the label names the reads in the TSV)
+//   Without N the page uses its own N for the read length (preview-limit.js). With N the page is opened with ?preview_pairs=N, the
+//   page option that replaces the read-length limit; the reads still go through the same page path (page worker, cut at N, kallisto).
 // Each run is a new browser process. The whole-browser Pss is sampled every 250 ms (procTree, sampleTree and Sampler are copied
 // from validation/browser-page/measure/measure.mjs through genome-memory.mjs, not changed). The peak is kept per phase:
 // genome (download, transcripts, index), prep (reading and cutting the reads), quant (kallisto quant and the gene counts).
@@ -16,9 +18,9 @@ const root = resolve(process.argv[2] ?? '');
 const outFile = process.argv[3];
 const engines = (process.argv[4] ?? '').split(',').filter(Boolean);
 const RUNS = Number(process.argv[5]);
-const cases = process.argv.slice(6).map((c) => { const [label, accession, mate1, mate2] = c.split(':'); return { label, accession, mate1, mate2 }; });
+const cases = process.argv.slice(6).map((c) => { const [label, accession, mate1, mate2, n] = c.split(':'); return { label, accession, mate1, mate2, n: n ? Number(n) : 0 }; });
 if (!process.argv[2] || !outFile || !existsSync(join(root, 'analyze/index.html')) || !engines.length || !(RUNS > 0) || !cases.length ||
-    cases.some((c) => !c.accession || !existsSync(c.mate1) || !existsSync(c.mate2))) {
+    cases.some((c) => !c.accession || !existsSync(c.mate1) || !existsSync(c.mate2) || !(c.n === 0 || (Number.isInteger(c.n) && c.n > 0)))) {
   console.error('usage: node quant-memory.mjs <absolute path of dist-site> <out.tsv> <engines> <runs> <label>:<accession>:<mate1>:<mate2>...');
   process.exit(2);
 }
@@ -93,7 +95,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const PHASES = ['genome', 'prep', 'quant'];
-const COLS = ['engine', 'browser_version', 'case', 'accession', 'mate1_bytes', 'mate2_bytes', 'run', 'outcome', 'seconds_genome', 'seconds_sample',
+const COLS = ['engine', 'browser_version', 'case', 'accession', 'mate1_bytes', 'mate2_bytes', 'n_option', 'read_length', 'n', 'run', 'outcome', 'seconds_genome', 'seconds_sample',
   'pairs', 'processed', 'pseudoaligned', 'reruns', 'load_tree_pss_kb', ...PHASES.map((p) => `${p}_tree_pss_peak_kb`), 'peak_tree_rss_sum_kb', 'samples', 'detail'];
 const rows = [];
 const clean = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').slice(0, 500);
@@ -101,7 +103,7 @@ const clean = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').slice(0, 500);
 for (const c of cases) {
   for (const engine of engines) {
     for (let run = 1; run <= RUNS; run++) {
-      const row = { engine, case: c.label, accession: c.accession, run, mate1_bytes: statSync(c.mate1).size, mate2_bytes: statSync(c.mate2).size };
+      const row = { engine, case: c.label, accession: c.accession, run, mate1_bytes: statSync(c.mate1).size, mate2_bytes: statSync(c.mate2).size, n_option: c.n || '' };
       let browser;
       let sampler;
       const peaks = Object.fromEntries(PHASES.map((p) => [p, 0]));
@@ -109,7 +111,7 @@ for (const c of cases) {
         browser = await { chromium, firefox, webkit }[engine].launch();
         row.browser_version = browser.version();
         const page = await browser.newPage();
-        await page.goto(`${base}/analyze/`);
+        await page.goto(`${base}/analyze/${c.n ? `?preview_pairs=${c.n}` : ''}`);
         await page.waitForSelector('#step-samples[data-ready="table"]', { timeout: 60_000 });
         await page.waitForTimeout(500);
         row.load_tree_pss_kb = sampleTree().pss;
@@ -153,7 +155,7 @@ for (const c of cases) {
         }, 'sample');
         row.seconds_sample = ((Date.now() - started) / 1000).toFixed(2);
         const s = await page.evaluate(() => window.qrnamapApp.state.samples[0]);
-        Object.assign(row, { pairs: s.nPairs, processed: s.processed, pseudoaligned: s.pseudoaligned, reruns: s.reruns });
+        Object.assign(row, { pairs: s.nPairs, processed: s.processed, pseudoaligned: s.pseudoaligned, reruns: s.reruns, n: s.previewN, read_length: s.readLength });
         if (s.status !== 'done') throw new Error(`sample ${s.status}: ${s.error}`);
         row.outcome = 'finished';
       } catch (error) {

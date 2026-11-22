@@ -44,8 +44,15 @@ async function scan(file, maxRecords, label, signal, onRecords, sink) {
   };
   const gunzip = gz ? new VerifyingGunzip(feed) : null;
   const reader = file.stream().getReader();
+  let lastYield = performance.now();
   try {
     while (!cut) {
+      // Give the event loop a turn at least every 50 ms. Reason: when the file data is already in memory, an engine can resolve
+      // every reader.read() as a microtask, and then a `quant-cancel` message (a task) would wait until the whole read ends.
+      if (performance.now() - lastYield > 50) {
+        await new Promise((done) => setTimeout(done, 0));
+        lastYield = performance.now();
+      }
       if (signal?.aborted) throw signal.reason ?? new DOMException('cancelled', 'AbortError');
       const { done, value } = await reader.read();
       if (done) {
@@ -101,6 +108,19 @@ export async function firstRecords(file, maxRecords, label, { signal, onRecords 
   if (first.addNewline) bytes[first.total] = NL;
   onRecords(first.lines / 4);
   return { bytes, records: first.lines / 4, wholeFile: !first.cut };
+}
+
+/** The sequence length of the first record of FASTQ bytes (line 2, without a carriage return). */
+export function firstReadLength(bytes) {
+  let line = 0;
+  let start = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] !== NL) continue;
+    if (line === 1) return (i > start && bytes[i - 1] === 13) ? i - start - 1 : i - start;
+    line++;
+    start = i + 1;
+  }
+  return 0;
 }
 
 /** The first word of the first line of FASTQ bytes, without `@` and without a `/1` or `/2` end (for the mate name check). */

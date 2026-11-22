@@ -107,7 +107,7 @@ after(async () => {
 });
 
 /** A new page with the fixture genome index ready (upload path) and step 2 open. */
-async function open(t) {
+async function open(t, query = '') {
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors = [];
@@ -121,7 +121,7 @@ async function open(t) {
     hooks.release = null;
     await context.close();
   });
-  await page.goto(`${base}/analyze/`);
+  await page.goto(`${base}/analyze/${query}`);
   await page.waitForSelector('#step-samples[data-ready="table"]', { timeout: 30_000 });
   assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'locked');
   await page.check('input[name="genome-source"][value="upload"]');
@@ -195,8 +195,8 @@ test('manual entry: three samples (gzip, plain, single-end) give the gene counts
   assert.deepEqual(samples[0].args, ['quant', '-i', 'transcripts.idx', '-o', 'kq', '--plaintext', '-t', '1', 'r1.fastq', 'r2.fastq']);
   assert.deepEqual(samples[2].args, ['quant', '-i', 'transcripts.idx', '-o', 'kq', '--plaintext', '-t', '1', '--single', '-l', '200', '-s', '20', 'r1.fastq']);
   // Mapping numbers on the row, "all pairs (300)" because the files have fewer than N pairs.
-  assert.match(await row(page, 0).locator('.status').textContent(), new RegExp(`^300 pairs processed, ${expected.s1.n_pseudoaligned} pseudoaligned \\(${(100 * expected.s1.n_pseudoaligned / 300).toFixed(1)}%\\)\\. All pairs \\(300\\)\\.$`));
-  assert.match(await row(page, 2).locator('.status').textContent(), /^300 reads processed, .* All pairs \(300\)\.$/);
+  assert.match(await row(page, 0).locator('.status').textContent(), new RegExp(`^300 pairs processed, ${expected.s1.n_pseudoaligned} pseudoaligned \\(${(100 * expected.s1.n_pseudoaligned / 300).toFixed(1)}%\\)\\. All pairs \\(300\\)\\. Reads of 50 bases: N = 200,000\\.$`));
+  assert.match(await row(page, 2).locator('.status').textContent(), /^300 reads processed, .* All pairs \(300\)\. Reads of 50 bases: N = 200,000\.$/);
   assert.match(await page.textContent('#preview-label'), /preview of the first 200,000 pairs of each sample/);
   assert.match(await page.textContent('#construction-notice'), /Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner \(small fixture genome and reads\); memory on full-size reads is not measured yet; results view is not built yet\./);
   assert.deepEqual(samples.map((s) => s.warning), ['', '', '']);
@@ -216,7 +216,7 @@ test('one sample, cut at N = 100 pairs: exactly 100 pairs are read, counts equal
   const [s] = await run(page);
   assertCounts(s, 's1_first100');
   assert.equal(s.allPairs, false);
-  assert.match(await row(page, 0).locator('.status').textContent(), /100 pairs processed, .* Preview of the first 100 pairs\.$/);
+  assert.match(await row(page, 0).locator('.status').textContent(), /100 pairs processed, .* Preview of the first 100 pairs\. Reads of 50 bases: N = 100\.$/);
   assert.match(await page.textContent('#preview-label'), /preview of the first 100 pairs/);
   // N cannot be raised above the hard limit.
   await page.fill('#preview-pairs', '200001');
@@ -462,29 +462,121 @@ test('cancel at sample 2 keeps the counts of sample 1', async (t) => {
   assert.deepEqual(errors, []);
 });
 
+/**
+ * Wait for `fn` in the page. On a timeout, throw an error that names the wait and holds the page state: samplesPhase, the
+ * samples-status text, the sample statuses and errors, the kallisto.mjs requests of the test server, page errors, and the history
+ * of the samples-status text with times (recorded by a MutationObserver, see watchStatus).
+ */
+async function waitOrDump(page, fn, what, errors, arg) {
+  try {
+    await page.waitForFunction(fn, arg, { timeout: WAIT_MS, polling: 10 });
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      samplesPhase: window.qrnamapApp.state.samplesPhase,
+      status: document.getElementById('samples-status').textContent,
+      samples: window.qrnamapApp.state.samples.map((s) => ({ status: s.status, error: s.error, nPairs: s.nPairs, previewN: s.previewN })),
+      history: window.__statusHistory || [],
+    })).catch((e) => ({ evaluateFailed: e.message }));
+    throw new Error(`wait "${what}" failed (${error.message.split('\n')[0]}). kallisto.mjs requests: ${hooks.kallistoRequests}. ` +
+      `page errors: ${JSON.stringify(errors)}. state: ${JSON.stringify(state)}`);
+  }
+}
+
+/** Record every change of the samples-status text with the ms since the call (window.__statusHistory). */
+const watchStatus = (page) => page.evaluate(() => {
+  const t0 = performance.now();
+  const box = document.getElementById('samples-status');
+  window.__statusHistory = [];
+  new MutationObserver(() => window.__statusHistory.push(`${Math.round(performance.now() - t0)} ms: ${box.textContent}`))
+    .observe(box, { childList: true, characterData: true, subtree: true });
+  document.getElementById('samples-cancel').addEventListener('click', () => window.__statusHistory.push(`${Math.round(performance.now() - t0)} ms: CANCEL CLICKED`));
+});
+
 test('cancel while the reads are read (before kallisto runs)', async (t) => {
   const { page, errors } = await open(t);
   // 200,000 records of 150 bases (gzip level 1, in a temporary file): reading them takes long enough to cancel.
   const dir = mkdtempSync(join(tmpdir(), 'qrnamap-prep-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const seq = 'ACGT'.repeat(37) + 'AC';
-  const qual = 'I'.repeat(150);
-  const parts = [];
-  for (let i = 0; i < 200000; i++) parts.push(`@big_${i}\n${seq}\n+\n${qual}\n`);
-  const gz = gzipSync(parts.join(''), { level: 1 });
-  parts.length = 0;
-  const [big1, big2] = [join(dir, 'big_R1.fastq.gz'), join(dir, 'big_R2.fastq.gz')];
-  writeFileSync(big1, gz);
-  writeFileSync(big2, gz);
+  const [big1, big2] = writeBig(dir, 200000);
   await fillRow(page, 0, { name: 'Big', condition: 'x', mate1: big1, mate2: big2 });
   const before = hooks.kallistoRequests;
+  await watchStatus(page);
   await page.click('#run-samples');
-  await page.waitForFunction(() => /Reading/.test(document.getElementById('samples-status').textContent), null, { timeout: WAIT_MS, polling: 10 });
+  // Wait until the bulk read has started (a record count is shown), not only the read of the first record.
+  await waitOrDump(page, () => /Reading mate \d \(.*\): [\d,]+ records/.test(document.getElementById('samples-status').textContent), 'status shows a record count', errors);
   await page.click('#samples-cancel');
-  await page.waitForFunction(() => window.qrnamapApp.state.samplesPhase === 'cancelled', null, { timeout: WAIT_MS });
-  assert.equal(hooks.kallistoRequests, before, 'kallisto did not start: the cancel came during the read');
+  await waitOrDump(page, () => window.qrnamapApp.state.samplesPhase === 'cancelled', 'samplesPhase is cancelled', errors);
+  const history = await page.evaluate(() => window.__statusHistory);
+  t.diagnostic(`status history: ${history.join(' | ')}`);
+  assert.equal(hooks.kallistoRequests, before, `kallisto did not start: the cancel came during the read. History: ${history.join(' | ')}`);
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.samples.map((s) => s.status)), ['cancelled']);
   assert.equal(await page.evaluate(() => window.qrnamapApp.state.indexReady), true);
   assert.deepEqual(await page.evaluate(() => window.__replaced), []);
+  assert.deepEqual(errors, []);
+});
+
+/**
+ * Two gzip files (mate 1 and 2) of `n` pairs of 150-base reads, in `dir`: windows of the fixture genome (mito.fna) at a fixed stride;
+ * mate 2 is the reverse complement of the window 200 bases further on. Many pairs fall in transcripts, so some pseudoalign.
+ */
+function writeBig(dir, n) {
+  const genome = fixture('mito.fna').toString().split('\n').filter((l) => !l.startsWith('>')).join('').toUpperCase();
+  const comp = { A: 'T', C: 'G', G: 'C', T: 'A' };
+  const rc = (x) => [...x].reverse().map((c) => comp[c] || 'N').join('');
+  const qual = 'I'.repeat(150);
+  const m1 = [];
+  const m2 = [];
+  for (let i = 0; i < n; i++) {
+    const p = (i * 997) % (genome.length - 400);
+    m1.push(`@big_${i}/1\n${genome.slice(p, p + 150)}\n+\n${qual}\n`);
+    m2.push(`@big_${i}/2\n${rc(genome.slice(p + 200, p + 350))}\n+\n${qual}\n`);
+  }
+  const files = [join(dir, 'big_R1.fastq.gz'), join(dir, 'big_R2.fastq.gz')];
+  writeFileSync(files[0], gzipSync(m1.join(''), { level: 1 }));
+  writeFileSync(files[1], gzipSync(m2.join(''), { level: 1 }));
+  return files;
+}
+
+test('the read length sets N: 150-base reads use the (provisional) 100,000 pairs, 50-base reads 200,000; the label shows both', async (t) => {
+  const { page, errors } = await open(t);
+  const dir = mkdtempSync(join(tmpdir(), 'qrnamap-long-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const [big1, big2] = writeBig(dir, 100010);
+  await fillRow(page, 0, { name: 'S1', condition: 'x', mate1: 's1_R1.fastq.gz', mate2: 's1_R2.fastq.gz' });
+  await fillRow(page, 1, { name: 'Long', condition: 'y', mate1: big1, mate2: big2 });
+  const samples = await run(page);
+  assertCounts(samples[0], 's1');
+  assert.equal(samples[0].previewN, 200000);
+  assert.equal(samples[0].readLength, 50);
+  assert.equal(samples[1].status, 'done', samples[1].error);
+  assert.deepEqual([samples[1].readLength, samples[1].previewN, samples[1].nPairs, samples[1].processed, samples[1].allPairs], [150, 100000, 100000, 100000, false]);
+  assert.match(await row(page, 1).locator('.status').textContent(), /^100,000 pairs processed, .* Preview of the first 100,000 pairs\. Reads of 150 bases: N = 100,000\.$/);
+  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview),
+    { n: null, label: 'preview of the first 100,000 to 200,000 pairs (the N of each sample is in its row)' });
+  assert.match(await page.textContent('#preview-label'), /preview of the first 100,000 to 200,000 pairs/);
+  assert.deepEqual(errors, []);
+});
+
+test('measurement option ?preview_pairs replaces the read-length limit (never above 200,000)', async (t) => {
+  const { page, errors } = await open(t, '?preview_pairs=100005');
+  const dir = mkdtempSync(join(tmpdir(), 'qrnamap-over-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const [big1, big2] = writeBig(dir, 100010);
+  await fillRow(page, 0, { name: 'Long', condition: 'y', mate1: big1, mate2: big2 });
+  const [s] = await run(page);
+  assert.equal(s.status, 'done', s.error);
+  assert.deepEqual([s.previewN, s.nPairs], [100005, 100005]);
+  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: 100005, label: 'preview of the first 100,005 pairs' });
+  assert.deepEqual(errors, []);
+});
+
+test('a sample where no read pseudoaligns gives a clear message', async (t) => {
+  const { page, errors } = await open(t);
+  const reads = (m) => Array.from({ length: 300 }, (_, i) => `@z_${i}/${m}\n${'ACGT'.repeat(25)}\n+\n${'I'.repeat(100)}\n`).join('');
+  await fillRow(page, 0, { name: 'Zero', condition: 'x', mate1: fileArg('z_R1.fastq', Buffer.from(reads(1))), mate2: fileArg('z_R2.fastq', Buffer.from(reads(2))) });
+  const [s] = await run(page);
+  assert.equal(s.status, 'error');
+  assert.equal(s.kind, 'input');
+  assert.match(s.error, /No read pseudoaligned to the transcripts of this genome \(kallisto: "zero reads pseudoaligned"\)/);
   assert.deepEqual(errors, []);
 });

@@ -90,10 +90,11 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
         <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
         <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
-        <p><label for="preview-pairs">Read pairs per sample</label>
+        <p><label for="preview-pairs">Read pairs per sample (at most)</label>
           <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
-          <span class="small">At most 200,000: the largest preview that met the memory and time rule in Chromium, Firefox and WebKit
-            (docs/browser/page-v1-measurements.md). Results are a preview of the first pairs, not a full run. For a full run, use the command-line tool.</span></p>
+          <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of
+            up to 101 bases (measured), 100,000 pairs for longer reads (provisional, not measured yet; docs/browser/page-v1-measurements.md).
+            This field can only lower N. Results are a preview of the first pairs, not a full run. For a full run, use the command-line tool.</span></p>
         <button id="run-samples" type="button" class="button">Count reads</button>
       </fieldset>
       <ul id="samples-errors" class="error" role="alert" hidden></ul>

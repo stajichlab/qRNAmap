@@ -1,8 +1,9 @@
 # Peak memory and time of the quantification path of /analyze/ (Task 6): the real page in headless Chromium, Firefox and WebKit.
 # Per run: the catalog genome from NCBI through the menu (index built in the page), then ONE sample added through the file chooser
-# (local files downloaded on the runner; the page does not fetch reads) and counted at N = 200,000 pairs. 3 runs per engine and case.
-# Cases: yeast SRR3396381 (2 x 101 bases) as gzip and as plain FASTQ with S. cerevisiae S288C (GCF_000146045.2);
-# C. neoformans H99 SRR23037513 (read length written by the reads script) as plain FASTQ with H99 (GCF_000149245.1).
+# (local files downloaded on the runner; the page does not fetch reads) and counted. 3 runs per engine and case. N is a column of the TSV.
+# Cases: yeast SRR3396381 (2 x 101 bases) as gzip and as plain FASTQ with S. cerevisiae S288C (GCF_000146045.2), with the N that the page
+# takes for 101-base reads (200,000; preview-limit.js); C. neoformans H99 SRR23037513 (2 x 150 bases, written by the reads script) as plain
+# FASTQ with H99 (GCF_000149245.1) at the candidates N = 100,000, 125,000 and 150,000 (page option ?preview_pairs=N, same page path).
 # Start: workflow_dispatch (only after this file is on the default branch), or push branch page-v1 with a change to
 # validation/browser-page/memory-run.trigger or to this file. No secrets.
 # Result: artifact quant-memory-<engine> (TSV and reads_check.tsv). See docs/browser/page-v1-measurements.md,
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   quant-memory:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -62,11 +63,13 @@ jobs:
         timeout-minutes: 20
         run: bash validation/browser-page/tests/quant-memory-reads.sh "$RUNNER_TEMP/reads" h99
       - name: Quantification path memory (${{ matrix.engine }}, 3 runs per case)
-        timeout-minutes: 100
+        timeout-minutes: 180
         run: |
           r="$RUNNER_TEMP/reads"
           cases=("yeast_gz:GCF_000146045.2:$r/yeast_1.fastq.gz:$r/yeast_2.fastq.gz" "yeast_plain:GCF_000146045.2:$r/yeast_1.fastq:$r/yeast_2.fastq")
-          if [ "${{ steps.h99.outcome }}" = success ]; then cases+=("h99_plain:GCF_000149245.1:$r/h99_1.fastq:$r/h99_2.fastq"); fi
+          if [ "${{ steps.h99.outcome }}" = success ]; then
+            for n in 100000 125000 150000; do cases+=("h99_plain_$n:GCF_000149245.1:$r/h99_1.fastq:$r/h99_2.fastq:$n"); done
+          fi
           node validation/browser-page/tests/quant-memory.mjs "$PWD/dist-site" "quant-memory.${{ matrix.engine }}.tsv" ${{ matrix.engine }} 3 "${cases[@]}"
           cp "$r/reads_check.tsv" "reads_check.${{ matrix.engine }}.tsv"
       - uses: actions/upload-artifact@v7.0.2

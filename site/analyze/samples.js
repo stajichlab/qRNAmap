@@ -8,6 +8,10 @@ import { baseName, pageRules, filesByName, sheetText } from './sheet.js?v=__BUIL
 import { createQuant, MAX_PAIRS, previewLabel } from './quant.js?v=__BUILD__';
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
+// Measurement option (page-quant-memory.yml): `?preview_pairs=N` replaces the read-length limit of preview-limit.js with N for every
+// sample, so a candidate N can be measured through the shipped page path. It is capped at the hard limit (200,000) by the worker.
+const askedOverride = Math.floor(Number(new URLSearchParams(location.search).get('preview_pairs')));
+const LIMIT_OVERRIDE = Number.isFinite(askedOverride) && askedOverride >= 1 ? Math.min(askedOverride, 200000) : 0;
 const ROUTE = 'Use the command-line tool instead (README, "Install and build"): qrnamap quant --samples samples.tsv ...';
 
 /**
@@ -174,7 +178,7 @@ export function createSamplesStep({ $, app, shell }) {
     });
     const pairs = Number($('preview-pairs').value);
     if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
-      fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)} (the largest preview measured to work in Chromium, Firefox and WebKit).`);
+      fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
     }
     const single = model.rows.some((r) => r.files[1] && !r.files[2] && !r.expect[2]);
     const mean = Number($('frag-mean').value);
@@ -210,7 +214,8 @@ export function createSamplesStep({ $, app, shell }) {
       case 'waiting': return 'Waiting.';
       case 'running': return 'Running.';
       case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
-        `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(app.state.preview.n).replace(/^p/, 'P')}.`}` +
+        `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(s.previewN).replace(/^p/, 'P')}.`}` +
+        ` Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.` +
         `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}` +
         `${s.warning ? ` Warning: ${s.warning}` : ''}`;
       case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
@@ -239,7 +244,7 @@ export function createSamplesStep({ $, app, shell }) {
       label = el('p', { id: 'preview-label', className: 'preview-label' });
       $('samples-results').append(label);
     }
-    label.textContent = `Counts: ${previewLabel(app.state.preview.n)} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
+    label.textContent = `Counts: ${app.state.preview.label} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
   }
 
   const busy = (flag) => {
@@ -275,7 +280,7 @@ export function createSamplesStep({ $, app, shell }) {
     runRows = [...model.rows];
     busy(true);
     try {
-      await quant.run(checked.jobs, checked.pairs);
+      await quant.run(checked.jobs, checked.pairs, LIMIT_OVERRIDE);
     } finally {
       busy(false);
     }
@@ -306,7 +311,7 @@ export function createSamplesStep({ $, app, shell }) {
   $('preview-pairs').max = String(MAX_PAIRS);
   $('preview-pairs').value = String(MAX_PAIRS);
   app.state.samples = [];
-  app.state.preview = { n: MAX_PAIRS, label: previewLabel(MAX_PAIRS) };
+  app.state.preview = { n: null, label: '' };
   app.state.samplesPhase = 'edit';
   render();
   $('step-samples').dataset.phase = 'edit';

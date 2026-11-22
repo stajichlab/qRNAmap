@@ -17,6 +17,8 @@ Result tables (small TSVs): `validation/browser-page/measure/results/`.
 
 ## Decisions for the later tasks
 
+- **Changed 2026-11-22 (user decision): N depends on the read length** (section "Page quantification path: peak memory"). The values below hold for
+  101-base reads (SRR3396381) only.
 - **Preview size N (default): 200,000 read pairs per sample.** Reason: it is the largest tested count that met the N rule
   (all 3 runs finished, 300 s or less per sample, sample peak 1.5 GiB or less) in Chromium, Firefox and WebKit, in mode `plain` and in mode `wplain`.
   At 500,000 pairs, Firefox (`plain`: 1,731 to 1,938 MiB; `wplain`: 2,683 to 2,788 MiB) and WebKit (`plain`: 4,329 to 5,781 MiB; `wplain`: 2,040 to 2,505 MiB) were above 1.5 GiB.
@@ -363,19 +365,28 @@ Times in seconds, 3 runs. Peaks: whole-browser tree Pss (browsers) or sampled RS
 - The samples step of the page (Task 6) differs from the harness above. The page worker reads each local file twice (pass 1 counts the bytes of the first N records,
   pass 2 copies them into one array of that exact size), with `gz.js` (fflate) for gzip files. The page worker then starts the kallisto worker (a nested worker)
   through `ToolRunner`, with the index and the plain reads. The harness prepared the reads in the page or in a dedicated worker and started kallisto from the page.
-- Peak memory and time of this page path: UNVERIFIED. No run on a GitHub runner has measured them.
+- First run: workflow run 45049907640, N = 200,000 pairs for every case. Quant-phase whole-browser Pss, as reported to this task (the artifact TSVs
+  were not read in this task, so these numbers are not checked here): H99 150-base plain: Chromium 1,204 MiB, Firefox 1,663 to 1,759 MiB, WebKit 1,993 to 2,044 MiB;
+  yeast 101-base: WebKit up to 1,508 MiB. The 150-base values are above the N rule (1.5 GiB in all three browsers). So N must depend on the read length.
+- User decision (2026-11-22): the preview size N depends on the read length. The page takes N from `previewLimit(readLength)`
+  (`site/analyze/preview-limit.js`; read length = the longer first record of the two mates). Table now: reads of up to 101 bases: 200,000 pairs
+  (measured, Task 3 and this section); longer reads: 100,000 pairs, PROVISIONAL (not measured). The page field "Read pairs per sample" can only lower N.
+- Candidates for reads longer than 101 bases: 100,000, 125,000 and 150,000 pairs, measured with 150-base H99 reads by the job below. UNVERIFIED until that run.
+  The table must then be set from it (the largest candidate that meets the N rule in all three browsers).
 - Job that measures them: `.github/workflows/page-quant-memory.yml` (script `validation/browser-page/tests/quant-memory.mjs`, reads from
   `validation/browser-page/tests/quant-memory-reads.sh`). It starts by `workflow_dispatch` (only when the file is on the default branch), or by a push to branch
   `page-v1` that changes `validation/browser-page/memory-run.trigger` or the workflow file. It loads the real page in Chromium, Firefox and WebKit, 3 runs per engine and case.
-  Per run: the catalog genome from NCBI through the menu (index built in the page), then one sample through the file chooser, counted at N = 200,000 pairs.
+  Per run: the catalog genome from NCBI through the menu (index built in the page), then one sample through the file chooser, counted at N pairs.
+  N for yeast: the page value for 101-base reads (200,000). N for H99: 100,000, 125,000 and 150,000, set with the page option `?preview_pairs=N`
+  (it replaces the read-length limit; the reads go through the same page path). The TSV has the columns `n_option`, `read_length` and `n` (the N the page used).
   It records the whole-browser tree Pss peak per phase (genome, prep, quant; sampler copied from `measure.mjs`), the time of each phase,
   the pairs, n_processed and n_pseudoaligned, and the re-runs.
 - Cases: yeast SRR3396381, the first 1,000,000 pairs (release asset, SHA-256 checked against `measure/reads_prefix.tsv`), given as gzip and as plain FASTQ,
   with S. cerevisiae S288C (GCF_000146045.2); C. neoformans H99 SRR23037513 (BioProject PRJNA922535), the first 200,000 pairs from NCBI SRA (`fastq-dump -X 200000`),
-  plain FASTQ, with H99 (GCF_000149245.1). The H99 case is left out of a run when the SRA download fails on the runner.
+  plain FASTQ, with H99 (GCF_000149245.1), at the three candidate N. The H99 cases are left out of a run when the SRA download fails on the runner.
 - Read lengths: 101 bases for SRR3396381 (both mates, all 1,000,000 records of the prefix files). For SRR23037513 the first 200,000 records of each mate are
-  150 bases long (counted on the cluster on 2026-11-22; the job writes the counts again in `reads_check.tsv`). Reads longer than 101 bases were not measured
-  so far: every value in the sections above uses SRR3396381.
+  150 bases long (counted on the cluster on 2026-11-22; the job writes the counts again in `reads_check.tsv`). Before run 45049907640, reads longer than
+  101 bases were not measured: every value in the sections above uses SRR3396381.
 - Values to compare with (mode `plain`, 200,000 pairs, run 44985823017, `results/quant_runs.tsv`, sample peak = the higher of the preparation and quant
   tree Pss peaks): Chromium 722 to 753 MiB, Firefox 1,105 to 1,109 MiB, WebKit 1,234 to 1,327 MiB.
 - A script check (not a measurement for this document): 1 Chromium run per case on the cluster node (not a runner), 2026-11-22. All finished with 200,000 pairs

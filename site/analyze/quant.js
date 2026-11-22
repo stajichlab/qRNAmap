@@ -5,14 +5,26 @@
 // Cancel stops the sample in the worker (the reading stops and ToolRunner terminates the kallisto worker). The page worker
 // and its index stay, so a new run needs no new index.
 import { gene_counts } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
+import { HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
 
-/** The largest preview size: N = hard limit = 200,000 read pairs per sample (docs/browser/page-v1-measurements.md). */
-export const MAX_PAIRS = 200000;
+/** The largest value of the page field "Read pairs per sample". The N of each sample also depends on its read length (preview-limit.js). */
+export const MAX_PAIRS = HARD_LIMIT;
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
 /** The label of every result made from a preview of `n` pairs. */
 export const previewLabel = (n) => `preview of the first ${fmt(n)} pairs`;
+
+/**
+ * The preview of the counted samples: `{ n, label }`. `n` is the N that every counted sample used, or null when the samples used
+ * different N (then the label gives the range, and each sample has its own `previewN`). Empty label when no sample is counted.
+ */
+export function previewOf(samples) {
+  const used = [...new Set(samples.filter((s) => s.status === 'done').map((s) => s.previewN))].sort((a, b) => a - b);
+  if (!used.length) return { n: null, label: '' };
+  if (used.length === 1) return { n: used[0], label: previewLabel(used[0]) };
+  return { n: null, label: `preview of the first ${fmt(used[0])} to ${fmt(used[used.length - 1])} pairs (the N of each sample is in its row)` };
+}
 
 /**
  * `app`: { state, getWorker, nextId } (window.qrnamapApp). `onChange(sample)` is called when a sample changes.
@@ -33,7 +45,10 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
       const listener = ({ data }) => {
         if (data.id !== id) return;
         if (data.type === 'progress') onProgress(data);
-        else if (data.type === 'quant-done') { stopListening(); current = null; resolve(data); }
+        else if (data.type === 'quant-done' && current?.cancelRequested) {
+          // The worker finished the sample before it read the cancel: the user asked to cancel, so the counts are not used.
+          stopListening(); current = null; reject(Object.assign(new Error('Cancelled.'), { kind: 'cancelled' }));
+        } else if (data.type === 'quant-done') { stopListening(); current = null; resolve(data); }
         else if (data.type === 'error') { stopListening(); current = null; reject(Object.assign(new Error(data.message), { kind: data.kind })); }
       };
       worker.addEventListener('message', listener);
@@ -51,12 +66,13 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
     reject(Object.assign(new Error(`The page worker was replaced (${detail?.reason || 'unknown reason'}), so the kallisto index is gone. Build the genome index again (step 1), then count the reads again.`), { kind: 'lost' }));
   });
 
-  async function run(jobs, pairs) {
+  /** `pairs`: the page field (an upper bound). `limitOverride`: the measurement option ?preview_pairs (replaces the read-length limit), or 0. */
+  async function run(jobs, pairs, limitOverride = 0) {
     const mine = ++runNumber;
     const state = app.state;
-    state.preview = { n: pairs, label: previewLabel(pairs) };
+    state.preview = { n: null, label: '' };
     state.samples = jobs.map((j) => ({ name: j.name, covariates: { ...j.covariates }, status: 'waiting', nPairs: 0, processed: 0, pseudoaligned: 0,
-      fraction: 0, allPairs: false, geneCounts: null, error: '', warning: '', reruns: 0 }));
+      fraction: 0, allPairs: false, previewN: 0, readLength: 0, geneCounts: null, error: '', warning: '', reruns: 0 }));
     state.samplesPhase = 'running';
     state.samples.forEach(onChange);
     for (const [i, job] of jobs.entries()) {
@@ -64,12 +80,12 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
       sample.status = 'running';
       onChange(sample);
       try {
-        const done = await request({ name: job.name, mate1: job.mate1, mate2: job.mate2, pairs, fragment: job.fragment, nTranscripts: state.nTranscripts });
+        const done = await request({ name: job.name, mate1: job.mate1, mate2: job.mate2, pairs, limitOverride, fragment: job.fragment, nTranscripts: state.nTranscripts });
         const counts = JSON.parse(gene_counts(done.abundance, state.tx2gene));
         Object.assign(sample, {
           status: 'done', nPairs: done.nPairs, processed: done.runInfo.n_processed, pseudoaligned: done.runInfo.n_pseudoaligned,
           fraction: done.nPairs ? done.runInfo.n_pseudoaligned / done.nPairs : 0, allPairs: done.wholeFile, geneCounts: counts.counts,
-          reruns: done.reruns, args: done.args, warning: done.warning || '',
+          reruns: done.reruns, args: done.args, warning: done.warning || '', previewN: done.previewN, readLength: done.readLength,
         });
       } catch (error) {
         if (mine !== runNumber) return; // a newer run took over
@@ -85,6 +101,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
         job.mate1 = null; // the page keeps no reference to the files of a finished sample
         job.mate2 = null;
       }
+      state.preview = previewOf(state.samples);
       onChange(sample);
       if (mine !== runNumber) return;
     }
@@ -95,6 +112,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
   /** Stop the running sample. The worker stops reading or terminates its kallisto worker and answers `error` kind `cancelled`. */
   function cancel() {
     if (!current) return;
+    current.cancelRequested = true;
     current.worker.postMessage({ type: 'quant-cancel', id: current.id });
   }
 

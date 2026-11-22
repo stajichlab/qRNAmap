@@ -1,0 +1,22 @@
+// The preview size N (read pairs per sample) for a read length. N depends on the read length because longer reads need more memory
+// (docs/browser/page-v1-measurements.md, "Page quantification path: peak memory"): CI run 45049907640, quant phase at 200,000 pairs,
+// whole-browser Pss: 150-base reads (C. neoformans H99) Chromium 1,204 MiB, Firefox 1,663 to 1,759 MiB, WebKit 1,993 to 2,044 MiB,
+// above the 1.5 GiB rule; 101-base reads (yeast) up to 1,508 MiB in WebKit.
+// PROVISIONAL: the row for reads longer than 101 bases (100,000 pairs) is not measured yet. The candidates 100,000, 125,000 and
+// 150,000 pairs are measured by .github/workflows/page-quant-memory.yml; the table must be set from that run.
+// No imports: the page worker and Node (unit tests) load this file.
+
+/** The largest N the page ever uses (the Task 3 hard limit, measured with 101-base reads only). */
+export const HARD_LIMIT = 200000;
+
+/** Rows: reads of at most `maxLength` bases get N = `pairs`. The last row covers every longer read. */
+export const PREVIEW_TABLE = [
+  { maxLength: 101, pairs: 200000, measured: 'yes: 101-base reads (SRR3396381), Task 3 and run 45049907640' },
+  { maxLength: Infinity, pairs: 100000, measured: 'PROVISIONAL: not measured yet' },
+];
+
+/** N for reads of `readLength` bases (the longest first record of the two mates). */
+export function previewLimit(readLength) {
+  if (!(readLength > 0)) throw new RangeError(`read length must be above 0, not ${readLength}`);
+  return PREVIEW_TABLE.find((row) => readLength <= row.maxLength).pairs;
+}

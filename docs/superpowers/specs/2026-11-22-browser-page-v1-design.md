@@ -17,7 +17,7 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
 3. **Genomes:** a menu of the built-in catalog (155 fungal genomes, NCBI RefSeq except three GenBank assemblies), downloaded from NCBI by the page. NCBI sets are preferred. Also: upload of the user's own FASTA and GFF3. Both paths feed the same transcript builder.
 4. **Reads:** local FASTQ files (plain or gzip), plus a "Load test set" button. No free ENA accession box in version 1.
    **Sample info (added 2026-11-22, user request):** two ways in. (a) Enter it in a table in the page: sample name, condition and other columns, and a mate 1 and mate 2 file picker per row. (b) Upload a CLI-format sample sheet and pick the FASTQ files; the page matches each row's `fastq1`/`fastq2` to a picked file by file name, ignoring the folder part. Unmatched rows are flagged with a picker on the row; a duplicate file name is a clear error. The sheet the page writes has only file names, because the page cannot know disk paths; an optional "reads folder" box adds the user's cluster path to the downloaded sheet and to the `qrnamap de` command, and the page says so when it is empty.
-5. **Large inputs:** a preview of the first N read pairs per sample, labelled "preview of the first N pairs" on every table and plot, with the full command-line command shown. Above a hard limit the page stops with a message. N and the limit are measured, not guessed (see "To measure").
+5. **Large inputs:** (amended 2026-11-22, user decision: N depends on the read length; the page takes N from `previewLimit(readLength)`; 200,000 pairs for reads of up to 101 bases, the value for longer reads from the page quantification memory job, see docs/browser/page-v1-measurements.md) a preview of the first N read pairs per sample, labelled "preview of the first N pairs" on every table and plot, with the full command-line command shown. Above a hard limit the page stops with a message. N and the limit are measured, not guessed (see "To measure").
 6. **Results step:**
    - mapping summary per sample (reads processed, reads pseudoaligned, fraction);
    - sortable, searchable gene count table (transcript counts summed per gene with the same transcript-to-gene table the CLI uses, rounded as the CLI does);
@@ -86,7 +86,7 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
 6. Genome menu limits: download size and transcript-building time for the larger genomes in the catalog.
 
 Results (2026-11-22): `docs/browser/page-v1-measurements.md`. In short (headless Playwright browsers on a GitHub runner, SRR3396381, yeast transcripts):
-item 1: N = 200,000 pairs, hard limit = 200,000 pairs, reads given to kallisto as plain FASTQ; item 2: a cut gzip goes through kallisto (exit 0, it stops at the
+item 1: N = 200,000 pairs, hard limit = 200,000 pairs (for 101-base reads; amended 2026-11-22: N depends on the read length, see below), reads given to kallisto as plain FASTQ; item 2: a cut gzip goes through kallisto (exit 0, it stops at the
 shorter mate), and cutting both mates at N records works in all three browsers, but ENA failed in 11 of 30 sessions and the release-asset fallback is blocked by CORS
 (a same-origin fallback is UNVERIFIED; the CORS test used a release asset of stajichlab/genomics-wasm); item 3: the 409 genes of Supplementary Table S3
 match the RefSeq H99 locus tags and the qRNAmap gene names (column-to-run mapping UNVERIFIED); item 4: measured (ENA portal API); item 5: not measured;
