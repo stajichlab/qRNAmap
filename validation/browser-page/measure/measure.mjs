@@ -395,6 +395,17 @@ async function truncatedInPage(cfg) {
     const body = new Uint8Array(await r.arrayBuffer());
     return { status: r.status, body, ms: performance.now() - t, contentRange: r.headers.get('Content-Range') };
   };
+  // Fallback route check: can a page read a GitHub release asset (CORS)? Public fixture of the spike 0 release.
+  for (const [test, headers] of [['github_release_asset_get', {}], ['github_release_asset_range', { Range: 'bytes=0-1048575' }]]) {
+    try {
+      const t = performance.now();
+      const r = await fetch(cfg.ghAsset.url, { headers, mode: 'cors', credentials: 'omit' });
+      const body = new Uint8Array(await r.arrayBuffer());
+      const sha = await s.sha256(body);
+      const ok = test.endsWith('get') ? r.status === 200 && sha === cfg.ghAsset.sha256 : r.status === 206 && body.length === 1048576;
+      add(test, ok ? 'pass' : 'fail', `status=${r.status}; bytes=${body.length}; ms=${(performance.now() - t).toFixed(0)}; final_url_host=${new URL(r.url).host}; sha256_equal=${sha === cfg.ghAsset.sha256}`);
+    } catch (e) { add(test, 'fail', errText(e)); }
+  }
   const R = cfg.rangeMiB * 1048576, R2 = Math.round(cfg.rangeMiB * 0.75) * 1048576;
   const cut = {};
   for (const mate of [1, 2]) {
@@ -508,7 +519,9 @@ async function suiteTruncated(playwright) {
       const port = server.address().port;
       const rows = await session.eval(truncatedInPage, { stepsUrl: `http://127.0.0.1:${port}/measure/steps.mjs`, gzUrl: `http://127.0.0.1:${port}/measure/qm/gz.js?v=__BUILD__`,
         urls: pageUrls(), timeoutMs: TIMEOUT_MS, txUrl: '/data/yeast.transcripts.fa', ena: ENA, n: Number(options['n-method']), rangeMiB: Number(options['range-mib']),
-        filereport: `https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${RUN}&result=read_run&fields=run_accession,read_count,fastq_bytes&format=tsv` });
+        filereport: `https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${RUN}&result=read_run&fields=run_accession,read_count,fastq_bytes&format=tsv`,
+        ghAsset: { url: 'https://github.com/stajichlab/genomics-wasm/releases/download/qrnamap-spike0-fixtures-v1/yeast_sub_1.fastq.gz',
+          sha256: '65b5ecb478e51c37ed775932ab2d94d374009accb7e0429406096f929d93dbc4' } });
       for (const r of rows) lines.push([options.engine, rep, r.test, r.result, clean(r.detail), session.version].join('\t'));
     } catch (error) {
       lines.push([options.engine, rep, 'harness', errorOutcome(String(error)), clean(String(error?.message || error)), session?.version ?? ''].join('\t'));
