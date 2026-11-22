@@ -16,12 +16,12 @@ use std::io::{self, BufRead, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use qrnamap_core::{
-    assemble, assigned_fraction, build_transcripts, feature_counts, gene_counts_from_abundance,
-    gene_counts_from_salmon, gene_table, gene_table_tsv, hisat2_align, hisat2_build,
-    kallisto_index, kallisto_quant, parse_featurecounts, parse_featurecounts_summary, saf,
-    salmon_index, salmon_quant, splice_sites, tx2gene_tsv, unlisted_genes, write_fasta, BuildError,
-    ConfigError, CountError, CountMatrix, Mode, Quantifier, RunConfig, Sample, StrandReport,
-    Strandedness, ToolCall,
+    assigned_fraction, build_transcripts, count_matrix, feature_counts, gene_counts_from_abundance,
+    gene_counts_from_salmon, gene_table, gene_table_tsv, genes_from_tx2gene, hisat2_align,
+    hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts, parse_featurecounts_summary,
+    parse_tx2gene, saf, salmon_index, salmon_quant, splice_sites, tx2gene_tsv, write_fasta,
+    BuildError, ConfigError, CountError, CountMatrix, MatrixError, Mode, Quantifier, RunConfig,
+    Sample, StrandReport, Strandedness, ToolCall,
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
@@ -32,9 +32,6 @@ use crate::io::{file_format, open_input, Format, InputError};
 /// 0.5 is a chosen value. UNMEASURED: not calibrated on real libraries. A wrongly set
 /// strandedness gives a fraction near 0 on the simulated data in the tests.
 pub const LOW_ASSIGNED_FRACTION: f64 = 0.5;
-
-/// At most this many gene names are listed in one warning.
-const MAX_LISTED: usize = 20;
 
 #[derive(Debug)]
 pub enum PipelineError {
@@ -1294,37 +1291,11 @@ pub struct QuantContext {
 
 /// Read a `transcript\tgene` table (no header).
 pub fn read_tx2gene(path: &Path) -> Result<HashMap<String, String>, PipelineError> {
-    let text = read_table(path)?;
-    let mut m = HashMap::new();
-    for (i, l) in text.lines().enumerate() {
-        if l.trim().is_empty() {
-            continue;
-        }
-        match l
-            .trim_end_matches('\r')
-            .split('\t')
-            .collect::<Vec<_>>()
-            .as_slice()
-        {
-            [t, g] if !t.is_empty() && !g.is_empty() => {
-                if m.insert(t.to_string(), g.to_string()).is_some() {
-                    return Err(PipelineError::BadTable {
-                        path: path.to_path_buf(),
-                        line: i + 1,
-                        detail: format!("transcript '{t}' occurs twice"),
-                    });
-                }
-            }
-            _ => {
-                return Err(PipelineError::BadTable {
-                    path: path.to_path_buf(),
-                    line: i + 1,
-                    detail: "expected 'transcript<TAB>gene'".into(),
-                })
-            }
-        }
-    }
-    Ok(m)
+    parse_tx2gene(&read_table(path)?).map_err(|e| PipelineError::BadTable {
+        path: path.to_path_buf(),
+        line: e.line,
+        detail: e.detail,
+    })
 }
 
 /// Build the index of `config.quantifier` once: kallisto in `<out_dir>/transcripts.kidx`,
@@ -1982,17 +1953,23 @@ fn gene_list_from_text(
     text: &str,
     path: &Path,
 ) -> Result<Vec<String>, PipelineError> {
+    if kind == GenesFrom::Tx2Gene {
+        return genes_from_tx2gene(text).map_err(|e| PipelineError::BadTable {
+            path: path.to_path_buf(),
+            line: e.line,
+            detail: e.detail,
+        });
+    }
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for (i, l) in text.lines().enumerate() {
         let l = l.trim_end_matches('\r');
-        if l.trim().is_empty() || (kind == GenesFrom::Saf && l.starts_with("GeneID\t")) {
+        if l.trim().is_empty() || l.starts_with("GeneID\t") {
             continue;
         }
         let f: Vec<&str> = l.split('\t').collect();
-        let g = match (kind, f.as_slice()) {
-            (GenesFrom::Tx2Gene, [_, g]) => *g,
-            (GenesFrom::Saf, [g, _, _, _, _]) => *g,
+        let g = match f.as_slice() {
+            [g, _, _, _, _] => *g,
             _ => {
                 return Err(PipelineError::BadTable {
                     path: path.to_path_buf(),
@@ -2024,42 +2001,9 @@ pub fn build_matrix(
     per_sample: &[(String, BTreeMap<String, u64>)],
     genes: Option<&[String]>,
 ) -> Result<(CountMatrix, Vec<String>), PipelineError> {
-    for (_, m) in per_sample {
-        m.keys().try_for_each(|g| check_label(g))?;
-    }
-    let mut warnings = Vec::new();
-    let rows: Vec<String> = match genes {
-        Some(g) => {
-            g.iter().try_for_each(|x| check_label(x))?;
-            let extra = unlisted_genes(per_sample, g);
-            if !extra.is_empty() {
-                let shown: Vec<&str> = extra.iter().take(MAX_LISTED).map(String::as_str).collect();
-                let more = if extra.len() > MAX_LISTED {
-                    ", ..."
-                } else {
-                    ""
-                };
-                warnings.push(format!(
-                    "{} gene(s) in the sample tables are not in the gene list and are left out of the matrix: {}{more}",
-                    extra.len(),
-                    shown.join(", ")
-                ));
-            }
-            g.to_vec()
-        }
-        None => per_sample
-            .iter()
-            .flat_map(|(_, m)| m.keys().cloned())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect(),
-    };
-    for (s, m) in per_sample {
-        if let Some(w) = zero_warning(s, m) {
-            warnings.push(w);
-        }
-    }
-    Ok((assemble(per_sample, &rows), warnings))
+    count_matrix(per_sample, genes).map_err(|e| match e {
+        MatrixError::BadGeneLabel(l) => PipelineError::BadGeneLabel(l),
+    })
 }
 
 /// `qrnamap matrix`: read `<out>/<sample>.genecounts.tsv.zst` for each sample in sheet order

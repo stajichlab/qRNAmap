@@ -5,6 +5,8 @@ pub mod counts;
 pub mod de;
 pub mod design;
 pub mod genes;
+pub mod matrix;
+pub mod qc;
 pub mod saf;
 pub mod sheet;
 pub mod splice;
@@ -24,6 +26,8 @@ pub use counts::{
 };
 pub use design::{Contrast, Design, DesignError};
 pub use genes::{gene_table, gene_table_tsv, GeneClass, GeneRow};
+pub use matrix::{count_matrix, genes_from_tx2gene, parse_tx2gene, MatrixError, Tx2GeneError};
+pub use qc::{log_cpm, pca, sample_correlation, Pca, QcError};
 pub use saf::saf;
 pub use sheet::{ColType, Sample, SampleSheet, SheetError};
 pub use splice::splice_sites;

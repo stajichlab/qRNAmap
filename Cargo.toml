@@ -6,6 +6,7 @@ members = [
     "crates/genome-fetch",
     "crates/qrnamap-core",
     "crates/qrnamap-cli",
+    "crates/qrnamap-wasm",
 ]
 
 [workspace.package]
