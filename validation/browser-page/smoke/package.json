@@ -1,0 +1,9 @@
+{
+  "name": "qrnamap-page-v1-smoke",
+  "private": true,
+  "type": "module",
+  "description": "Site smoke test: link check on dist-site and page loads in headless Playwright browsers",
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}

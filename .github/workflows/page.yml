@@ -9,6 +9,8 @@ on:
     paths:
       - 'validation/browser-page/**'
       - '!validation/browser-page/measure/results/**'
+      - 'site/**'
+      - 'scripts/build-site.sh'
       - '.github/workflows/page.yml'
   workflow_dispatch:
     inputs:
@@ -193,3 +195,32 @@ jobs:
           path: reports/
           if-no-files-found: warn
           retention-days: 30
+
+  # Site smoke test: build dist-site, check its links, and load / and /analyze/ in three engines.
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          locked: true
+          cache: true
+      - run: pixi run build-wasm-web
+      - run: bash scripts/build-site.sh
+        env:
+          SITE_CNAME: qrnamap.fungalgenomes.org
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22.23.5'
+          cache: npm
+          cache-dependency-path: validation/browser-page/smoke/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: validation/browser-page/smoke
+      - name: Link test
+        run: node validation/browser-page/smoke/check-links.mjs "$PWD/dist-site"
+      - name: Install the Playwright browsers
+        working-directory: validation/browser-page/smoke
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Browser smoke test
+        run: node validation/browser-page/smoke/smoke.mjs "$PWD/dist-site"
