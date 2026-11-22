@@ -56,6 +56,7 @@ Evidence: `validation/browser-spike0/` (README, `baseline.tsv`, `results/*.tsv`)
   (program path); DESeq2 per value absolute difference 1e-12 or less, or relative difference 1e-6 or less. The DESeq2 tolerance
   was written before the run and was not changed after it.
 - featureCounts parity read the native HISAT2 SAM. It tests featureCounts alone.
+- The featureCounts output SHA-256 in Node (`5186a514...`) differs from the browser value (`8e375993...`) because the first comment line holds the program path (worker path in Node, `./this.program` in browsers). Parity ignores that line.
 - The parity browser runs used `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`
   (`crossOriginIsolated` true). Part 0c tested the tools without these headers.
 - Native references ran on the UCR cluster (SLURM jobs 32356703 and 32356735), with one thread. Native and WASM times come
@@ -85,10 +86,10 @@ Per-engine values are in the next table.
 
 | tool | parity Node / Chromium / Firefox / WebKit | index time, s | index peak memory, MiB | needs isolation headers (measured) | result against criteria | verdict |
 |---|---|---|---|---|---|---|
-| kallisto 0.52.0 | pass / pass / pass / pass (`abundance.tsv` byte-identical, 6,478 targets) | yeast transcripts 19.34 to 37.03; Af293 transcripts 43.96 to 84.41 | yeast 274.7 to 828.8; Af293 411.0 to 1,176.5; WASM heap 117.1 and 204.4 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) not the criterion case (genome index); transcript indexes within 600 s and 2 GiB | `go with a stated caveat`: index bytes differ between every run, cause unknown; quant output identical |
-| HISAT2 2.2.2 | pass / pass / pass / pass (430,922 records, header without `@PG` identical) | yeast 12 Mb 5.33 to 7.49; Af293 29 Mb 11.71 to 16.21 | yeast 298.9 to 675.6; Af293 412.3 to 835.3; WASM heap 113.3 and 134.7 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) pass: max 7.49 s and 675.6 MiB | `go`: all criteria pass |
-| featureCounts 2.1.1 | pass / pass / pass / pass (6,477 genes and summary identical) | no index; not measured | not measured | yes: fails without isolation in all 3 browsers (`SharedArrayBuffer is not defined`), also with `-T 1` | (1) pass, (2) pass with isolation, (3) not applicable | `go with a stated caveat`: needs COOP/COEP headers or the service worker with one reload |
-| DESeq2 1.52.0 (WASM) vs 1.50.2 (native) | fail / not run / not run / not run | no index; not measured | not measured | not tested | tolerance: fail on 1 of 38,203 values (YPR148C pvalue, rel 5.36e-06 against 1e-6); (2) not tested | `not decided`: browser run not done, and the failure cannot be split from the version difference |
+| kallisto 0.52.0 | pass / pass / pass / pass (`abundance.tsv` byte-identical, 6,478 targets) | yeast transcripts 19.34 to 37.03; Af293 transcripts 43.96 to 84.41 | yeast 274.7 to 828.8; Af293 411.0 to 1,176.5; WASM heap 117.1 and 204.4 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) not the criterion case (genome index); transcript indexes within 600 s and 2 GiB | `go with a stated caveat` (criteria 1-3, 200,000-pair subset, headless runner): index bytes differ between every run, cause unknown; quant output identical |
+| HISAT2 2.2.2 | pass / pass / pass / pass (430,922 records, header without `@PG` identical) | yeast 12 Mb 5.33 to 7.49; Af293 29 Mb 11.71 to 16.21 | yeast 298.9 to 675.6; Af293 412.3 to 835.3; WASM heap 113.3 and 134.7 | no (ran in all 3 browsers without headers) | (1) pass, (2) pass, (3) pass: max 7.49 s and 675.6 MiB | `go` (criteria 1-3, 200,000-pair subset, headless runner): all criteria pass |
+| featureCounts 2.1.1 | pass / pass / pass / pass (6,477 genes and summary identical) | no index; not measured | not measured | yes: fails without isolation in all 3 browsers (`SharedArrayBuffer is not defined`), also with `-T 1` | (1) pass, (2) pass with isolation, (3) not applicable | `go with a stated caveat` (criteria 1-2, 200,000-pair subset, headless runner): needs COOP/COEP headers or the service worker with one reload |
+| DESeq2 1.52.0 (WASM) vs 1.50.2 (native) | fail / not run / not run / not run | no index; not measured | not measured | not tested | tolerance: fail on 1 of 38,203 values (YPR148C pvalue, rel 5.36e-06 against 1e-6); (2) not tested | `not decided` (Node only, one count matrix, one run): browser run not done, and the failure cannot be split from the version difference |
 
 Why DESeq2 is `not decided` and not `no-go` or `go with a stated caveat`:
 - Criterion (2) needs a real browser run. DESeq2 did not run in any browser. So the criteria cannot give a `go` of any kind.
@@ -183,7 +184,7 @@ Every request: `fetch(url, {mode: 'cors', credentials: 'omit'})` from a page on 
 - The service worker was not tested on a real https host. No real host was tested.
 - The placeholder site https://qrnamap.fungalgenomes.org/ is live (HTTP 200, recorded after its deploy on 2026-11-21). It is
   deployed from `site/` on `main` by `.github/workflows/pages.yml` (commit `f834efc`). The site files set no isolation header
-  and register no service worker. Its live response headers were not recorded in this spike (UNVERIFIED).
+  and register no service worker. The spike runs did not test this site. Its live headers are listed under "Not tested" below.
 - The DESeq2 package zip is about 438 MB (inner zip 437,694,988 bytes). Host size limits were not checked.
 
 ## Failed, skipped, not tested and UNVERIFIED items
@@ -200,7 +201,12 @@ Skipped:
 - Salmon: out of scope. It ran in the upstream `quant.yml` matrix only because that workflow was not edited. Its artifacts were not used.
 
 Not tested (UNVERIFIED):
-- A real https host, GitHub Pages headers, and a service worker on a non-localhost origin.
+- A real https host, GitHub Pages headers, and a service worker on a non-localhost origin. Whether GitHub Pages can send COOP/COEP headers is not measured.
+- The live placeholder site in a browser. One header check exists, made by the reviewer, not by a spike run: on 2026-11-22 00:10 UTC,
+  `curl -sI https://qrnamap.fungalgenomes.org/` gave HTTP/2 200, server GitHub.com via Fastly, `access-control-allow-origin: *`,
+  `cache-control: max-age=600`, and no `cross-origin-opener-policy`, `cross-origin-embedder-policy` or `cross-origin-resource-policy` header.
+- No-cors requests (for example plain `<img>` or `<script>`) to NCBI, ENA or Ensembl under COEP `require-corp`.
+- DESeq2 with and without cross-origin isolation (DESeq2 ran in Node only).
 - The upstream `examples/` pages, COEP `credentialless`, headed browsers, mobile browsers, user devices with less than 16 GB.
 - Full-size read downloads in the browser (the 669 MB ENA file), and the browser read count check against ENA.
 - The per-sample read size cap and chunked processing (spike 0f), and browser gzip decompression speed.
@@ -227,10 +233,8 @@ Unexplained observations (cause UNVERIFIED):
    notices, upstream licence clarification, DESeq2 package licence table, pin by release asset or by commit).
 2. Hosting: which host for the page, and how it gets cross-origin isolation for featureCounts (host headers, or the service
    worker with one reload). GitHub Pages header ability and a real https host are not measured.
-3. DESeq2: which path to take for a decision. Facts: one value outside tolerance with a version difference, no browser run,
-   upstream build fails on a missing source URL, release package not validated by us.
-4. Genome mode limits: which genome size and read size limits the page shows. Measured: genomes up to 29 Mb and 200,000 pairs only.
-   The read size cap (spike 0f) is not measured.
+3. DESeq2: which path to take to reach a decision.
+4. Genome mode limits: which genome size and read size limits the page shows.
 5. Whether a kallisto index made in the browser may differ in bytes from run to run, given identical quant output in this test.
 6. The first page: whether and when to start it. This file gives no recommendation beyond the decision table.
 
