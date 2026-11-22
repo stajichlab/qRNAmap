@@ -7,8 +7,8 @@ Writes to OUT_DIR: quant_runs.tsv, quant_summary.tsv, limits.tsv, truncated.tsv,
 
 Rules (from the Task 3 brief; the values are inputs, not results):
   time   per sample = prep_s + quant_s (the index is built once per genome, so it is not in this sum) <= 300 s
-  memory N:          quant_tree_pss_peak_kb (whole browser) <= 1.5 GiB = 1,572,864 kB
-  memory hard limit: quant_tree_pss_peak_kb <= 2 GiB = 2,097,152 kB
+  memory N:          max(prep_tree_pss_peak_kb, quant_tree_pss_peak_kb) (whole browser) <= 1.5 GiB = 1,572,864 kB
+  memory hard limit: the same peak <= 2 GiB = 2,097,152 kB
   a count passes for an engine only when all its runs finished and every run meets the rule.
   N and the hard limit are the largest passing count in all three browsers (Chromium, Firefox, WebKit), per mode.
 """
@@ -61,7 +61,13 @@ summary = []
 for (engine, mode, pairs), rs in sorted(groups.items()):
     rs.sort(key=lambda r: int(r['rep']))
     sample_s = [None if num(r['prep_s']) is None or num(r['quant_s']) is None else num(r['prep_s']) + num(r['quant_s']) for r in rs]
-    peak = [num(r['quant_tree_pss_peak_kb']) if engine != 'node' else num(r['node_maxrss_kb']) for r in rs]
+    # Peak memory of one sample = the higher of the preparation peak and the quant peak (browsers); Node: maxRSS of the process.
+    def peak_of(r):
+        if engine == 'node':
+            return num(r['node_maxrss_kb'])
+        vals = [v for v in (num(r['prep_tree_pss_peak_kb']), num(r['quant_tree_pss_peak_kb'])) if v is not None]
+        return max(vals) if vals else None
+    peak = [peak_of(r) for r in rs]
     finished = sum(r['outcome'] == 'finished' for r in rs)
     ok_time = finished == len(rs) and all(v is not None and v <= TIME_S for v in sample_s)
     ok_n = ok_time and all(v is not None and v <= N_KB for v in peak)
@@ -71,7 +77,9 @@ for (engine, mode, pairs), rs in sorted(groups.items()):
         'outcomes': ', '.join(r['outcome'] for r in rs),
         'index_s': fmt([num(r['index_s']) for r in rs]), 'prep_s': fmt([num(r['prep_s']) for r in rs]),
         'quant_s': fmt([num(r['quant_s']) for r in rs]), 'sample_s': fmt(sample_s),
-        'peak_probe': 'node_maxrss_kb' if engine == 'node' else 'quant_tree_pss_peak_kb',
+        'peak_probe': 'node_maxrss_kb' if engine == 'node' else 'max(prep, quant) tree_pss_peak_kb',
+        'prep_peak_mib': fmt([None if num(r['prep_tree_pss_peak_kb']) is None else num(r['prep_tree_pss_peak_kb']) / 1024 for r in rs], 1),
+        'quant_peak_mib': fmt([None if num(r['quant_tree_pss_peak_kb']) is None else num(r['quant_tree_pss_peak_kb']) / 1024 for r in rs], 1),
         'peak_mib': fmt([None if v is None else v / 1024 for v in peak], 1),
         'baseline_mib': fmt([None if num(r['quant_tree_pss_baseline_kb']) is None else num(r['quant_tree_pss_baseline_kb']) / 1024 for r in rs], 1),
         'quant_heap_mib': fmt([None if num(r['quant_heap_final_bytes']) is None else num(r['quant_heap_final_bytes']) / 1048576 for r in rs], 1),

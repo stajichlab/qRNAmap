@@ -215,6 +215,20 @@ async function phasePrep(cfg) {
   const started = performance.now();
   const out = { };
   globalThis.measureReads = {};
+  if (cfg.mode === 'wgz' || cfg.mode === 'wplain') {
+    // Preparation in a dedicated worker; the result arrays are transferred to the page.
+    const worker = new Worker(new URL('/measure/prep_worker.mjs', location.href), { type: 'module' });
+    const msg = await new Promise((done, fail) => {
+      worker.onmessage = e => done(e.data);
+      worker.onerror = e => fail(new Error(`prep worker: ${e.message || 'error event'}`));
+      worker.postMessage({ urls: cfg.readUrls, pairs: cfg.pairs, mode: cfg.mode });
+    }).finally(() => worker.terminate());
+    if (!msg.ok) throw new Error(msg.error);
+    for (const mate of [1, 2]) { globalThis.measureReads[mate] = msg.bytes[mate - 1]; out[`reads${mate}`] = msg.reads[mate - 1]; out[`bytes${mate}`] = msg.bytes[mate - 1].length; }
+    out.ms = performance.now() - started;
+    out.worker_ms = msg.ms;
+    return out;
+  }
   for (const mate of [1, 2]) {
     const reader = cfg.open ? await cfg.open(mate) : (await (async () => {
       const r = await fetch(cfg.readUrls[mate]); if (!r.ok) throw new Error(`fetch mate ${mate}: HTTP ${r.status}`); return r.body.getReader();
@@ -228,7 +242,7 @@ async function phasePrep(cfg) {
 }
 async function phaseQuant(cfg) {
   const s = await import(cfg.stepsUrl);
-  const ext = cfg.mode === 'gz' ? '.fastq.gz' : '.fastq';
+  const ext = cfg.mode === 'gz' || cfg.mode === 'wgz' ? '.fastq.gz' : '.fastq';
   const files = [{ path: 'yeast.idx', data: globalThis.measureIdx }, { path: `r_1${ext}`, data: globalThis.measureReads[1] }, { path: `r_2${ext}`, data: globalThis.measureReads[2] }];
   const r = await s.runKallisto({ ...cfg.urls, args: s.KALLISTO_ARGS.quant('yeast.idx', 'kq', `r_1${ext}`, `r_2${ext}`), files,
     outputs: ['kq/abundance.tsv', 'kq/run_info.json'], timeoutMs: cfg.timeoutMs });
@@ -741,7 +755,7 @@ async function main() {
   const meta = { suite: options.suite, engine: options.engine, node: process.version, startedAt: new Date().toISOString(), sampleMs: SAMPLE_MS,
     timeoutMs: TIMEOUT_MS, guardKb: GUARD_KB, stopKb: STOP_KB, options, files: {} };
   for (const f of ['kallisto.mjs', 'kallisto.wasm', 'runtime/index.mjs', 'runtime/worker.mjs', 'runtime/execute.mjs']) meta.files[`site/vendor/kallisto/${f}`] = hash(await readFile(join(vendorDir, f)));
-  for (const f of ['measure.mjs', 'steps.mjs', 'heap_wrap.mjs', 'qm/reads.js', 'qm/gz.js', 'qm/vendor/fflate.js']) meta.files[`measure/${f}`] = hash(await readFile(join(here, f)));
+  for (const f of ['measure.mjs', 'steps.mjs', 'heap_wrap.mjs', 'prep_worker.mjs', 'qm/reads.js', 'qm/gz.js', 'qm/vendor/fflate.js']) meta.files[`measure/${f}`] = hash(await readFile(join(here, f)));
   if (pkgDir) for (const f of readdirSync(pkgDir)) meta.files[`pkg/${f}`] = hash(await readFile(join(pkgDir, f)));
   try { meta.memTotalKb = Number(/^MemTotal:\s+(\d+)/m.exec(readFileSync('/proc/meminfo', 'utf8'))[1]); meta.cpus = (await import('node:os')).cpus().length; } catch {}
   let playwright;

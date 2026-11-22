@@ -24,6 +24,10 @@ on:
         description: 'Runs per case'
         required: false
         default: '3'
+      modes:
+        description: 'Comma list of quant modes: gz, plain, wgz, wplain (wgz and wplain: browsers only)'
+        required: false
+        default: 'gz,plain'
       engines:
         description: 'Comma list: node, chromium, firefox, webkit'
         required: false
@@ -31,7 +35,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: page-${{ github.ref }}-${{ github.event_name }}-${{ inputs.suites }}
+  group: page-${{ github.ref }}-${{ github.event_name }}-${{ inputs.suites }}-${{ inputs.modes }}
   cancel-in-progress: false
 # A push has no inputs: it runs a short check (2 counts, 1 run per case). The full measurement runs on dispatch.
 env:
@@ -39,6 +43,7 @@ env:
   COUNTS: ${{ inputs.counts || '100000,200000' }}
   REPS: ${{ inputs.reps || '1' }}
   ENGINES: ${{ inputs.engines || 'node,chromium,firefox,webkit' }}
+  MODES: ${{ inputs.modes || 'gz,plain' }}
 
 # Action versions are pinned to exact tags (checkout and setup-pixi as in pages.yml; the others checked on 2026-11-22).
 jobs:
@@ -55,7 +60,8 @@ jobs:
           engines = [e.strip() for e in os.environ['ENGINES'].split(',') if e.strip()]
           inc = []
           if 'quant' in suites:
-              inc += [{'suite': 'quant', 'engine': e, 'mode': m} for e in ['node', 'chromium', 'firefox', 'webkit'] for m in ['gz', 'plain']]
+              inc += [{'suite': 'quant', 'engine': e, 'mode': m} for e in ['node', 'chromium', 'firefox', 'webkit']
+                      for m in os.environ['MODES'].split(',') if not (e == 'node' and m.startswith('w'))]
           if 'truncated' in suites:
               inc += [{'suite': 'truncated', 'engine': e, 'mode': '-'} for e in ['chromium', 'firefox', 'webkit']]
           if 'genomes' in suites:
