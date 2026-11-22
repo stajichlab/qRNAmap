@@ -1,0 +1,3 @@
+engine	tool	step	status	exit_code	seconds	args	detail	outputs
+node	kallisto	index	ok	0	28.89	index -i yeast.idx yeast.transcripts.fa		yeast.idx=ad505a84ff9d70a7e75306cd40376bc885e17a0f0c9c88453903e5d60351e26d
+node	kallisto	quant	ok	0	6.65	quant -i yeast.idx -o kq -t 1 --plaintext yeast_sub_1.fastq.gz yeast_sub_2.fastq.gz		kq/abundance.tsv=c7ffce5b6f5f6afee9a222f0acdd6e31aff65b83b9a9ede93cb86fecaa2f79c9;kq/run_info.json=eb935e0867edeb1e0894695dce3b201ddf0ff28db4ec17191f16b037f5f69d71

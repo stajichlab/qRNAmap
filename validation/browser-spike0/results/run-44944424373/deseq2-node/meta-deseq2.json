@@ -1,0 +1,33 @@
+{
+  "engine": "node",
+  "node": "v22.23.5",
+  "startedAt": "2026-11-21T20:06:01.149Z",
+  "root": "/home/runner/work/genomics-wasm/genomics-wasm",
+  "tools": [
+    "deseq2"
+  ],
+  "builds": {
+    "deseq2": {
+      "runtime": "eb20b1d20a780183b012e21d5d619b3ab3a2ac2d425f59695c919641b17cc33e",
+      "manifest": "75b540e06c8f4700b99756e103de9287aa94d7d870401c528259080d5d5cda3d",
+      "versions": {
+        "deseq2": "1.52.0",
+        "r": "4.6.0",
+        "webr": "0.6.0"
+      },
+      "script": "946cadb2940c8455952dcf0e9019efff4bdca4f6669015684077a7b88ac296c4"
+    }
+  },
+  "inputs": {
+    "amb_gene_counts.tsv": {
+      "bytes": 210817,
+      "sha256": "3f7b9ac92d9b01efa88be5eda20812fd3a664ced254160ea90b3d56ef1c9b213"
+    }
+  },
+  "runtime": {
+    "index.mjs": "08629fe9067e5e7e0b85fba6e49c050c9b0850b6253c148f3fc458427f7ef3e7",
+    "worker.mjs": "19ac7d452ace47900eb93b7a65a55ff47d3cd5df33ddee35664b93cf7d9ddc4a",
+    "execute.mjs": "b911f4edb82100d0f76da0143aef0ee52b6b777944721fa15f68313d511f2da7"
+  },
+  "finishedAt": "2026-11-21T20:06:46.382Z"
+}

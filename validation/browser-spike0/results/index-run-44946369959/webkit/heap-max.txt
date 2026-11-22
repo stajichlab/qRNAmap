@@ -1,0 +1,2 @@
+dist/kallisto/kallisto.mjs:getHeapMax=()=>2147483648
+dist/hisat2/hisat2.mjs:getHeapMax=()=>2147483648

@@ -1,0 +1,2 @@
+engine	tool	step	status	exit_code	seconds	args	detail	outputs
+node	deseq2	wald	ok	0	45.23	deseq2_ref.R input/amb_gene_counts.tsv output/amb		amb.results.csv=20ff08cafb5ec61066957562db02990ac5050d9c3cd16ca94999a8737758bd38;amb.versions.txt=5c8a766a52deb266506950bc34df406962518e92d77c93ef64147ce0e61ce12f

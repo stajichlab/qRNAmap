@@ -1,0 +1,272 @@
+# Browser spike 0
+
+This directory holds the evidence for spike 0 of a future browser (WebAssembly) build of qRNAmap.
+Spike 0 tests whether kallisto, HISAT2, featureCounts and DESeq2 builds from `comparativechrono/genomics-wasm` work.
+
+## Fork and pin
+
+- Fork: https://github.com/stajichlab/genomics-wasm (public fork of `comparativechrono/genomics-wasm`).
+- Upstream pin: commit `0b015f63e8048eb57b72ffd2706b79b803862b7c` (release `v0.1.0-rc.1`).
+- Work branch `qrnamap-spike0` in the fork was created at the pin. At creation, the fork `main` was also at the pin.
+- All baseline runs used the unmodified upstream workflow files from the pin. No workflow edit, no patch.
+- Allowed outward actions: create the fork, push `qrnamap-spike0` to the fork, run workflows in the fork. Nothing else.
+
+## Files
+
+- `baseline.tsv`: one row per tool with the run ID, conclusion, wall time, artifact names, source commit and notes.
+- Release copies used for the hash comparison: `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0-recon/` (`core-packages.zip`, `rna-analysis-packages.zip`).
+- DESeq2 fallback: `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/baseline/release/deseq2-package.zip`.
+- Artifacts are not in git. They are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/baseline/`.
+
+## Baseline result (all measured, 2026-11-21)
+
+- kallisto (quant.yml): build job passed in 248 s. Salmon is out of scope. It ran in the same matrix because the workflow was not edited.
+- HISAT2 (ci.yml): passed. The package zip hash equals the release asset.
+- featureCounts (rna-analysis.yml): passed. The package zip hash differs from the release asset. Only release.json, SHA256SUMS and the validation reports differ. The WASM file is identical.
+- DESeq2 (deseq2.yml): failed. An upstream source URL now returns HTTP 404. The run uploaded only `deseq2-validation-node`. DESeq2 is not rebuilt. The release `deseq2-package.zip` is the fallback.
+- Browser validation results (Node, Chromium, Firefox, WebKit) are upstream data, not ours.
+
+## Fixtures and native references (Task 2, measured 2026-11-21)
+
+Data are in `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/` (not in git). `manifest.tsv` here is a copy of
+`fixtures/manifest.tsv` (file, bytes, SHA-256, how made). Check a fixture directory with
+`check_manifest.sh /absolute/path/to/fixtures`. It exits 1 on a missing file or a mismatch.
+
+- Reads: 200,000 pairs from SRR3396381 (AmpB_1, ENA read_count 8,405,534, both mates checked). Seed 20261121 (`subset_reads.py`).
+- Genomes: S. cerevisiae R64 (GCF_000146045.2) and A. fumigatus Af293 (GCF_000002655.1) from NCBI through `qrnamap fetch`.
+- Native tools (pixi env): kallisto 0.52.0, HISAT2 2.2.2, featureCounts 2.1.1, DESeq2 1.50.2 with R 4.5.3.
+  The WASM comparison for DESeq2 uses R 4.6.0 upstream (CI), so the R versions differ.
+- The Af293 HISAT2 run uses the yeast reads. Only 0.10% of reads align. It measures index build cost, not alignment quality.
+- featureCounts uses a SAF file made by `qrnamap transcripts` (6,477 yeast genes), `-p --countReadPairs -s 0`.
+- DESeq2 input: the six kallisto gene-count tables of the AMB run (6,477 genes), design `~ condition`, AmpB vs Control, no shrinkage.
+- Times and peak RSS: `native/native_times.tsv` in the fixture directory. Run-to-run repeatability of HISAT2 SAM output was not tested.
+- Scripts: `fixtures.sh` (stages `fetch`, `build`), `native_refs.sh`, `subset_reads.py`, `merge_counts.py`, `deseq2_ref.R`,
+  `make_manifest.sh`, `how_made.tsv`, `check_manifest.sh`.
+- Job requests (see `submit_fixtures_and_native.sh`): partition short, 2 CPUs, 8 GB, 2 h, for both jobs. The script was written
+  after the jobs ran and was not executed as a script. Its parameters match `sacct` for jobs 32356703 and 32356735. Measured peak MaxRSS:
+  111040K (fixtures job 32356703, 1m12s) and 1231516K (native job 32356735, 8m24s). The 8 GB request was not a measured need.
+  The peak was 1.2 GB, so the default memory would likely have been enough. This was not tested.
+- Exclude kallisto `run_info.json` from any comparison. It holds a start time and absolute paths.
+- `fixtures.sh build` falls back to the hard-coded ENA read count (8,405,534) when ENA is unreachable. The record-count
+  check in `subset_reads.py` is the check that enforces it.
+
+## Parity runs (Task 3, measured 2026-11-21)
+
+- Workflow: `workflow/qrnamap-spike0.yml`. `sync.sh SRC_DIR FORK_DIR "message" [--push]` copies it to
+  `.github/workflows/` of the fork and copies `*.mjs`, `*.py`, `deseq2_ref.R` and `manifest.tsv` to `spike0/`.
+  It pushes only branch `qrnamap-spike0`. It stops when the branch differs from the pin outside these two paths.
+- Fork head: `955963bd1b67587e401b3c5c8acae3eb804bd01e` (two commits on the pin). Run 44944424373.
+- Tools: the compiled artifacts of the Task 1 runs (kallisto 44939577353, HISAT2 44939585268,
+  featureCounts 44939587731). Their `.wasm` and `.mjs` SHA-256 equal the local baseline copies.
+  DESeq2: release `deseq2-package.zip` (DESeq2 1.52.0, R 4.6.0, webR), not rebuilt.
+- Inputs: release `qrnamap-spike0-fixtures-v1` of the fork (reads, transcripts, SAF, native yeast SAM, count matrix)
+  and the yeast genome from NCBI. Every file is checked against `manifest.tsv` in the workflow.
+  Each WASM tool reads the same bytes as its native reference (`results/run-*/<engine>/staged.sha256`).
+- featureCounts reads the native HISAT2 SAM. This tests featureCounts alone.
+- `parity.mjs` writes `<tool>.steps.tsv` per tool and engine. `compare_parity.py` writes `results/parity_results.tsv`.
+  Test: `python3 -m pytest validation/browser-spike0/test_compare_parity.py`.
+- Result: kallisto, HISAT2 and featureCounts pass in Node, Chromium, Firefox and WebKit.
+  DESeq2 (Node) fails the stated tolerance (absolute 1e-12 or relative 1e-6) on 1 of 38,203 numeric values.
+  The table has 6,477 genes x 6 columns = 38,862 cells. 659 cells are NA on both sides (same NA pattern),
+  so 38,203 numeric values were compared. DESeq2 in browsers was not run.
+- DESeq2 versions: native DESeq2 1.50.2 with R 4.5.3, WASM DESeq2 1.52.0 with R 4.6.0. No same-version native
+  reference was run. The failure cannot be attributed to WASM or to the version difference.
+- kallisto index bytes differ between all four engines and from the native index. The quant output
+  (`abundance.tsv`) is identical in all cases. The cause is UNVERIFIED.
+- Any push to the fork branch without `[skip ci]` starts 11 upstream workflows (`on: push` with no filter).
+  They were cancelled by hand after the trigger push of run 44944424373. The spike workflow is now registered
+  (ID 426260115). Dispatch by workflow ID works: Task 4 run 44946369959 was started with
+  `gh workflow run 426260115 --ref qrnamap-spike0 -f suite=index` (no push, no upstream runs).
+- Full outputs: `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/parity/run-44944424373/` (SAM files zstd).
+
+## Index size and time (Task 4, measured 2026-11-21)
+
+### Commands in the packages
+
+- HISAT2 package: `build` runs `hisat2-build-s` (README of `tools/hisat2` at the pin). So index building was measured,
+  not index loading. kallisto package: `index` exists (README of `tools/kallisto`).
+- Both built modules have `getHeapMax=()=>2147483648` in their `.mjs` (`results/index-run-*/<engine>/heap-max.txt`).
+  The kallisto README states "The WebAssembly heap can grow to 2 GiB". This 2 GiB is a stated limit. It is not a measurement.
+
+### Method
+
+- Workflow job `index-size` in `workflow/qrnamap-spike0.yml` (matrix node, chromium, firefox, webkit).
+  Input `suite` (`parity`, `index`, `all`) selects jobs on dispatch. After this change a push runs only the index job.
+  The Task 3 parity jobs (`parity`, `deseq2-node`) run only on dispatch with `suite=parity` or `suite=all`.
+- Run 44946369959 (dispatch by workflow ID 426260115, ref `qrnamap-spike0`), fork head
+  `4333f4f56d5a57cd69817aaefe87c21f2e9c15bb`. All four jobs passed. One run in total.
+- Runner: ubuntu-24.04 GitHub runner, 16,367,524 kB RAM, 3,145,724 kB swap (`free-before.txt`). Node v22.23.5.
+  Chromium 156.0.8078.4, Firefox 157.0, WebKit 27.2. `crossOriginIsolated` was true in all three browsers.
+- Tool files: same `.wasm` and `.mjs` SHA-256 as Task 3. Upstream runtime `ToolRunner` (one worker per run).
+- Inputs (staged SHA-256 equal to local decompression of the fixtures):
+  - `yeast.fa` 12,310,392 bytes, 12,157,105 bases, 17 sequences (gunzip of the NCBI R64 `.fna.gz`).
+  - `afum.fa` 29,752,955 bytes, 29,384,958 bases, 8 sequences (gunzip of the NCBI Af293 `.fna.gz`).
+  - `yeast.transcripts.fa` 6,478 transcripts. `afum.transcripts.fa` 10,086 transcripts (zstd -d of the fixtures).
+  - `afum.transcripts.fa.zst` was added to the fixture release `qrnamap-spike0-fixtures-v1` (GitHub digest equals `manifest.tsv`).
+- Arguments equal the native arguments: `build -p 1 X.fa X.hs`; `index -i X.idx X.transcripts.fa`.
+- `index_size.mjs`: 4 cases x 3 runs per engine. Each run uses a fresh process: a child Node process, or a new
+  browser launch. Per-run timeout 45 min (not reached; the longest run was 84.41 s).
+- `index_size_wrap.mjs` is given to `ToolRunner` as the module URL. It calls the real tool factory with the same
+  options and wraps `callMain`. It reads `Module.HEAPU8.length` before and after `callMain`. The tool code is not changed.
+- `summarize_index_size.py` writes `results/index_size_runs.tsv` (48 runs) and `results/index_size_summary.tsv`.
+
+### Memory probes and their limits
+
+| probe | engines | method | limit |
+|---|---|---|---|
+| WASM linear memory | all | `Module.HEAPU8.length` after `callMain`, in the tool worker (`wasm_heap_final_bytes`) | This is the final size. It equals the peak only if linear memory never shrinks during the run; WebAssembly memory can only grow, but this was not measured here. It excludes MEMFS files (JS arrays), input copies and engine overhead. |
+| `node_maxrss_kb` | node | `process.resourceUsage().maxRSS` of the child process | Kernel peak RSS of the whole process (main thread, worker, WASM, input and output copies). |
+| `node_rss_peak_kb` | node | `process.memoryUsage().rss` every 250 ms | Can miss a peak shorter than 250 ms. |
+| `tree_pss_*_kb` | browsers | sum of `Pss` in `/proc/PID/smaps_rollup` over all descendants of the harness process, every 250 ms | Whole browser (all processes), not only the tool. Can miss a peak shorter than 250 ms. Baseline = after page load and input fetch, before the run. Pss was readable for all processes in all runs. |
+| `cdp_js_heap_*` | chromium | CDP `Performance.getMetrics` `JSHeapUsedSize`, every 1 s | Page main thread only. It does not include the worker or WASM memory. |
+
+- All browsers ran headless: `index_size.mjs` and `parity.mjs` call `launch({ headless: true })`.
+- Firefox and WebKit have no CDP in Playwright. For them, the process probe (`/proc` Pss) and the WASM probe are the only methods.
+- `performance.measureUserAgentSpecificMemory()` was not used.
+
+### Results (3 runs each; run_s = `ToolRunner.run`, includes worker start and file copies)
+
+| case | engine | run_s | WASM heap MiB | peak memory MiB (probe) | outcome |
+|---|---|---|---|---|---|
+| HISAT2 yeast 12 Mb | node | 5.36, 5.39, 5.33 | 113.3 x3 | 298.9, 300.4, 305.5 (maxRSS) | finished x3 |
+| HISAT2 yeast 12 Mb | chromium | 6.95, 6.98, 7.00 | 113.3 x3 | 449.7, 450.3, 447.0 (tree Pss) | finished x3 |
+| HISAT2 yeast 12 Mb | firefox | 7.38, 7.38, 7.36 | 113.3 x3 | 670.4, 669.8, 671.7 (tree Pss) | finished x3 |
+| HISAT2 yeast 12 Mb | webkit | 7.46, 7.49, 7.43 | 113.3 x3 | 675.6, 667.1, 667.0 (tree Pss) | finished x3 |
+| HISAT2 Af293 29 Mb | node | 11.71, 11.99, 12.14 | 134.7 x3 | 412.3, 424.7, 413.5 | finished x3 |
+| HISAT2 Af293 29 Mb | chromium | 14.60, 14.65, 14.66 | 134.7 x3 | 531.4, 531.1, 533.9 | finished x3 |
+| HISAT2 Af293 29 Mb | firefox | 15.29, 15.40, 16.21 | 134.7 x3 | 754.2, 717.3, 718.8 | finished x3 |
+| HISAT2 Af293 29 Mb | webkit | 15.97, 15.88, 15.79 | 134.7 x3 | 834.9, 835.3, 834.2 | finished x3 |
+| kallisto yeast | node | 19.44, 19.34, 19.58 | 117.1 x3 | 289.8, 280.3, 274.7 | finished x3 |
+| kallisto yeast | chromium | 20.95, 20.78, 21.14 | 117.1 x3 | 369.9, 371.2, 371.7 | finished x3 |
+| kallisto yeast | firefox | 36.80, 37.03, 36.80 | 117.1 x3 | 650.0, 653.5, 649.7 | finished x3 |
+| kallisto yeast | webkit | 21.77, 21.38, 22.28 | 117.1 x3 | 824.4, 823.9, 828.8 | finished x3 |
+| kallisto Af293 | node | 43.96, 44.18, 44.12 | 204.4 x3 | 411.0, 412.0, 415.4 | finished x3 |
+| kallisto Af293 | chromium | 46.99, 47.08, 47.15 | 204.4 x3 | 483.0, 491.9, 481.1 | finished x3 |
+| kallisto Af293 | firefox | 84.41, 84.37, 83.89 | 204.4 x3 | 781.1, 780.2, 770.2 | finished x3 |
+| kallisto Af293 | webkit | 49.52, 49.79, 49.42 | 204.4 x3 | 1170.4, 1176.5, 1170.1 | finished x3 |
+
+- Browser tree Pss baseline (before the run, browser idle with the input loaded): chromium 187 to 198 MiB,
+  firefox 442 to 521 MiB, webkit 364 to 412 MiB. All values: `results/index_size_summary.tsv`.
+- Chromium CDP JS heap used (page main thread): 0.7 to 0.8 MiB peak in all runs.
+- Native reference (Task 2, cluster, `/usr/bin/time -v`, one run): HISAT2 yeast 8.83 s, 107.0 MiB peak RSS;
+  HISAT2 Af293 24.63 s, 128.2 MiB; kallisto yeast 21.7 s, 136.5 MiB. kallisto Af293: not measured natively.
+  Native and WASM ran on different machines, so the times are not a direct speed comparison.
+- HISAT2 index files: identical SHA-256 in all 12 runs per genome (4 engines x 3). Total bytes equal the native
+  index (yeast 22,818,973; Af293 48,273,818). Native index bytes were not kept, so no byte comparison with native.
+- kallisto index files: all 12 runs per transcript set give different bytes and slightly different sizes, also
+  between runs in the same engine (yeast 5,831,519 to 5,832,013 bytes; Af293 10,611,076 to 10,611,476 bytes).
+  The cause is not known. Task 3 showed identical quant output from such indexes.
+
+### Criteria
+
+- 12 Mb yeast index in 600 s or less and under 2 GiB: pass in node, chromium, firefox and webkit (all 3 runs).
+  Browser tree Pss peaks include the idle browser baseline (all browser processes), not only the tool.
+  The largest yeast value on any probe is 675.6 MiB (webkit tree Pss); the longest run is 7.49 s.
+- The other cases are within 600 s and 2 GiB on every probe in every engine (information, not a criterion).
+  The largest value is 1176.5 MiB (kallisto Af293, webkit tree Pss, whole browser).
+- No run failed, ran out of memory, crashed or timed out. No tool is "CLI only" on the basis of this test.
+- Failures: none. Skipped: none. Not tested: genomes larger than 29 Mb, multi-threaded builds, devices with less
+  memory than the 16 GB runner, browsers other than the Playwright builds.
+
+## Isolation and cross-origin downloads (Task 5, spike 0c and 0d, measured 2026-11-21)
+
+- Run: fork workflow run 44963830025 (`suite=isolation`), started 2026-11-21 23:51 UTC. One run, no reruns.
+  Fork head `7cba1e97b8d25175789a8ed83c042a3485284648` (on the pin `0b015f63e8048eb57b72ffd2706b79b803862b7c`).
+  The workflow input `suite` now has the values `parity | index | isolation | all`. `all` runs the parity, index and isolation jobs.
+- Browsers: Playwright Chromium 156.0.8078.4, Firefox 157.0, WebKit 27.2. All headless, on a GitHub `ubuntu-24.04` runner.
+  Tools: the same compiled artifacts and fixtures as Task 3 (`staged.sha256` and `tool-hashes.txt` in `results/isolation-run-44963830025/`).
+- Script: `isolation.mjs`. It runs 3 modes per browser. Each mode has its own local server and its own browser launch.
+  - `none`: no isolation header.
+  - `coop-coep`: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: same-origin`.
+  - `service-worker`: the server sends no isolation header. The page registers `isolation-sw.js` (scope `/`), waits for `ready`, then reloads.
+    The worker adds the three headers to same-origin GET responses. Its fetch logic follows `examples/rna-analysis/isolation-worker.js`
+    of upstream. It is a copy written for this test (whole-origin scope, no asset map), not the upstream file. The upstream example page was not run.
+- Tables: `results/isolation_pages.tsv` (page facts), `results/isolation_tools.tsv` (tool steps), `results/cors_results.tsv`
+  (117 rows: 13 requests x 3 modes x 3 browsers), `results/cors_node_probe.tsv` (headers seen by `node:https`, no browser).
+  `summarize_isolation.py RUN_DIR OUT_DIR` merges the three browser downloads.
+
+### 0c: isolation (page facts, and tools)
+
+| browser | mode | crossOriginIsolated | SharedArrayBuffer | featureCounts -T 1 / 2 / 4 | kallisto index + quant | HISAT2 build + align |
+|---|---|---|---|---|---|---|
+| chromium | none | false | not defined | error x3 (`SharedArrayBuffer is not defined`, 0.5 s) | ok | ok |
+| chromium | coop-coep | true | defined | ok x3 (1.63, 1.45, 1.31 s) | ok | ok |
+| chromium | service-worker | true after reload (false before) | defined after reload | ok x3 (2.02, 1.78, 1.73 s) | ok | ok |
+| firefox | none | false | not defined | error x3 (0.6 to 0.75 s) | ok | ok |
+| firefox | coop-coep | true | defined | ok x3 (1.51, 1.18, 1.17 s) | ok | ok |
+| firefox | service-worker | true after reload (false before) | defined after reload | ok x3 (2.01, 1.76, 1.59 s) | ok | ok |
+| webkit | none | false | not defined | error x3 (0.7 to 0.8 s) | ok | ok |
+| webkit | coop-coep | true | defined | ok x3 (1.43, 1.32, 1.25 s) | ok | ok |
+| webkit | service-worker | true after reload (false before) | defined after reload | ok x3 (1.58, 1.40, 1.34 s) | ok | ok |
+
+- Without isolation, featureCounts fails in all three browsers at module start, for every `-T` value (even `-T 1`), with a
+  `SharedArrayBuffer` reference error. kallisto and HISAT2 run without isolation in all three browsers.
+  This confirms the design statement "featureCounts needs the headers" only for this compiled build (the RNA analysis artifact of the pinned commit), in headless Playwright browsers on a GitHub runner. kallisto and HISAT2 ran without isolation under the same conditions, with these fixtures.
+- Output equality (browser, any mode, compared with the Task 3 outputs of the Chromium parity run):
+  featureCounts `fc.tsv` without line 1 (command line, differs with `-T`), kallisto `abundance.tsv`, HISAT2 SAM without `@` lines.
+  The SHA-256 is identical in every ok step of every mode and browser, for `-T 1`, `-T 2` and `-T 4`, and equal to the Task 3 files:
+  `fc.tsv` body `2ed1401e...ed2e4`, `abundance.tsv` `c7ffce5b...79c9`, SAM body `7dc29088...6b66`.
+- Threads: `-T 2` and `-T 4` finished with correct counts in the isolated modes. This test does not show that more than one thread ran
+  in parallel, and the times (1.2 to 2.0 s) do not allow a speed-up claim. The tool README says `-T 1` to `-T 4` are supported.
+- Service worker (all three browsers): `crossOriginIsolated` was false on the first load, false after registration and activation
+  without a reload, and true after one reload. `navigator.serviceWorker.controller` was set after the reload. The worker file and the
+  tools were then served through the worker. Tool results are as for `coop-coep`. Service workers worked in headless WebKit here.
+- Unexpected, unexplained: in WebKit, after registration and before the reload, a dedicated worker reported `crossOriginIsolated` true while
+  `SharedArrayBuffer` was not defined in it. The page was not isolated. Chromium and Firefox reported false for both. The cause was not investigated.
+- `new WebAssembly.Memory({shared: true})` succeeded in every mode and browser, also without isolation. It is not a test of isolation here.
+  The failure comes from the `SharedArrayBuffer` global.
+- Not tested: real hosting headers (for example GitHub Pages: whether it can send COOP/COEP headers was not measured here); a service worker on a non-localhost https origin;
+  upstream `examples/` pages; `Cross-Origin-Embedder-Policy: credentialless`; headed browsers; mobile browsers.
+
+### 0d: cross-origin downloads (CORS)
+
+Every request: `fetch(url, {mode: 'cors', credentials: 'omit'})` from a page on `http://127.0.0.1:PORT` (secure context). A Range request
+uses a single `Range: bytes=a-b` header (CORS-safelisted, no preflight needed). The page cannot read `Access-Control-Allow-Origin` or
+`Cross-Origin-Resource-Policy` (not exposed to script), so the table shows the values that Playwright saw on the network event (`seen`).
+`bytes` and the SHA-256 come from the page. Result for 12 of 13 requests: identical in all 3 modes and all 3 browsers (108 of 117 rows).
+The 9 other rows are the Ensembl Genomes request, which failed in all 9 combinations.
+
+| id | URL | method | status (page) | ACAO seen | CORP seen | body read from page script |
+|---|---|---|---|---|---|---|
+| ncbi_fna | https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz | GET | 200 | `*` | none | yes, 3,843,460 bytes; SHA-256 equals `manifest.tsv` |
+| ncbi_fna_range | same URL | GET Range 0-1023 | 206 | `*` | none | yes, 1,024 bytes |
+| ncbi_gff | https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.gff.gz | GET | 200 | `*` | none | yes, 2,203,839 bytes; SHA-256 equals `manifest.tsv` |
+| ena_filereport | https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRR3396381&result=read_run&fields=run_accession,fastq_ftp,fastq_bytes,read_count&format=tsv | GET | 200 | `*` | none | yes, 232 bytes |
+| ena_small_head | https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR227/085/SRR22732385/SRR22732385_1.fastq.gz | HEAD | 200 | `*` | none | no body; `Content-Length` 1,280,744 readable |
+| ena_small_get | same URL | GET | 200 | `*` | none | yes, 1,280,744 bytes (gzip magic `1f8b`) |
+| ena_large_head | https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_1.fastq.gz | HEAD | 200 | `*` | none | no body; `Content-Length` 669,296,728 readable |
+| ena_large_range_start | same URL | GET Range 0-1048575 | 206 | `*` | none | yes, 1,048,576 bytes (`1f8b`) |
+| ena_large_range_mid | same URL | GET Range 300000000-300065535 | 206 | `*` | none | yes, 65,536 bytes |
+| ensembl_gff3_mito | https://ftp.ensembl.org/pub/current_gff3/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.chromosome.Mito.gff3.gz | GET | 200 | `*` | none | yes, 6,844 bytes (`1f8b`) |
+| ensembl_fa_mito | https://ftp.ensembl.org/pub/current_fasta/saccharomyces_cerevisiae/dna/Saccharomyces_cerevisiae.R64-1-1.dna.chromosome.Mito.fa.gz | GET | 200 | `*` | none | yes, 22,560 bytes (`1f8b`) |
+| ensembl_fa_checksums | https://ftp.ensembl.org/pub/current_fasta/saccharomyces_cerevisiae/dna/CHECKSUMS | GET | 200 | `*` | none | yes, 3,741 bytes |
+| ensemblgenomes_fungi | https://ftp.ensemblgenomes.org/pub/fungi/current/gff3/ | GET | none | none | none | no: blocked, TLS certificate name mismatch (below) |
+
+- The body SHA-256 of each readable URL is the same in all 9 mode and browser combinations. The NCBI SHA-256 values equal `manifest.tsv`.
+- An empty `seen_corp` or `seen_aceh` in `cors_results.tsv` means that Playwright saw no such header. It is not a verified absence for every host. The node probe columns (`cors_node_probe.tsv`) support the absence only for the rows checked.
+- Under `Cross-Origin-Embedder-Policy: require-corp` (modes `coop-coep` and `service-worker` after reload), every readable URL
+  was readable. The servers send `Access-Control-Allow-Origin: *` and no `Cross-Origin-Resource-Policy`, so CORS mode is the path that works.
+  Only `mode: 'cors'` was tested. A no-cors request (for example a plain `<img>` or `<script>`) to these hosts under `require-corp` was not tested;
+  it would need a CORP header, which none of these servers sent.
+- Range requests worked on NCBI and ENA: status 206 with the exact byte count. `Content-Range` is readable from script on NCBI (`bytes 0-1023/3843460`, its `Access-Control-Expose-Headers` lists it) and not readable on ENA (empty in all ENA rows; ENA sends no expose header). `Content-Length` is readable on both. `node:https` saw `Content-Range: bytes 0-1048575/669296728` from ENA. Preflight: the `Access-Control-Allow-Headers` of NCBI lists `RANGE`; ENA lists `Range`. No preflight was needed for these requests.
+- Ensembl Genomes: `ftp.ensemblgenomes.org` presents a TLS certificate whose name does not match the host. The browser fetch failed in
+  all 3 browsers (Chromium `net::ERR_CERT_COMMON_NAME_INVALID`, Firefox `SSL_ERROR_BAD_CERT_DOMAIN`, WebKit `Unacceptable TLS certificate`).
+  `node:https` also failed (`ERR_TLS_CERT_ALTNAME_INVALID`). So no CORS result exists for this host. A `curl` HEAD from the cluster login node on the
+  same day gave the same certificate error. This is a result, not a CORS block. Other Ensembl Genomes hosts or paths were not tested.
+- `ftp.ensembl.org` over https (Ensembl, `current_gff3` and `current_fasta` paths): readable from the page, `ACAO: *`. The `current_*` paths
+  move with each release; the file names above (release 63 GFF3 file name, `R64-1-1`) were valid on 2026-11-21. Ensembl is therefore CHECKED
+  for `ftp.ensembl.org` on this date and for these 3 files; it is not tested for large Ensembl files or for other species.
+- Chromium logged `net::ERR_ABORTED` for the 2 HEAD requests to ENA in the Playwright `requestfailed` event (`seen_failure`) while the
+  page fetch succeeded with status 200. The cause was not investigated; this is not a page-level failure.
+- ENA read count rule: this test did not download the 669 MB file, so no read count was checked from the browser. The ENA filereport
+  (`ena_filereport`) is readable from the page; it has `read_count` 8,405,534 for SRR3396381 (the value in `fixtures.sh`; the body text itself
+  was not stored). A browser FASTQ pipeline can use this API for the check.
+- NOT TESTED: FungiDB (needs an API key, no CORS header per the earlier qmutfind measurement; key not used or stored anywhere).
+  Large downloads in full (669 MB), long-running connections, `Origin` values other than `http://127.0.0.1:PORT`
+  (the servers send `*`, so other origins are expected to work, but only this origin was tested), and downloads from an https page.
+
+### Limits (Task 5)
+
+- Headless Playwright browsers on one GitHub runner, one date (2026-11-21), one network, one run. Server headers can change.
+- `crossOriginIsolated` and the tool runs were tested on a local `http://127.0.0.1` server. Real hosts and https were not tested.
+- Browser versions are Playwright builds, not the current release of each browser for users.

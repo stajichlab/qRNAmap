@@ -1,0 +1,51 @@
+{
+  "engine": "firefox",
+  "node": "v22.23.5",
+  "startedAt": "2026-11-21T20:28:37.665Z",
+  "sampleMs": 250,
+  "timeoutMs": 2700000,
+  "cases": [
+    "hisat2_yeast",
+    "hisat2_afum",
+    "kallisto_afum",
+    "kallisto_yeast"
+  ],
+  "reps": 3,
+  "builds": {
+    "hisat2": {
+      "hisat2.mjs": "7155712db99fa9a4faf176bd30f79439320c458c910d034c028271a51bf2b038",
+      "hisat2.wasm": "068a3bea1c430ddcbf46b72c19398b9c72fe2976fffbca5c2ba87e3c78c97c32"
+    },
+    "kallisto": {
+      "kallisto.mjs": "9836e42fc304d7616ec73d89262498b31cc96e2b35d2d7460b64f358b823b9f1",
+      "kallisto.wasm": "01ef635d8438b7e6ac9c74c9d04a89f83f6801959f799f9f657523c90d37adfc"
+    }
+  },
+  "inputs": {
+    "yeast.fa": {
+      "bytes": 12310392,
+      "sha256": "fe42735d3e6242f8c40b457a232940e34ef15eb4502717e54a34ed118face4c1"
+    },
+    "afum.fa": {
+      "bytes": 29752955,
+      "sha256": "03195c5ccd7c78394f68076e0df4d13ad2ed0eb8d6429ef18fe7bd68b34cd76a"
+    },
+    "afum.transcripts.fa": {
+      "bytes": 19061020,
+      "sha256": "72fcc797afca0598161a0ff58859173f27a34c0b218b030976cf36688c7cca9d"
+    },
+    "yeast.transcripts.fa": {
+      "bytes": 9226153,
+      "sha256": "d476bd033e8fe7b4345d3e39b2a93fcc54fd2b8a4c45555782e90713da6976d9"
+    }
+  },
+  "wrapper": "f0522e1dbb12f10cee4497f9bc0549035cf6ba2b6f63fe075e36e3c8b342edf5",
+  "runtime": {
+    "index.mjs": "08629fe9067e5e7e0b85fba6e49c050c9b0850b6253c148f3fc458427f7ef3e7",
+    "worker.mjs": "19ac7d452ace47900eb93b7a65a55ff47d3cd5df33ddee35664b93cf7d9ddc4a",
+    "execute.mjs": "b911f4edb82100d0f76da0143aef0ee52b6b777944721fa15f68313d511f2da7"
+  },
+  "memTotalKb": 16078412,
+  "cpus": 4,
+  "finishedAt": "2026-11-21T20:36:21.647Z"
+}

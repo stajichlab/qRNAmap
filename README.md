@@ -305,6 +305,9 @@ staged scratch files, as measured in the AMB experiments (`validation/amb/README
 
 - No browser page and no WASM build of the tool. Only the three pure crates are compiled for
   `wasm32-unknown-unknown` as a check.
+  Browser spike 0 (2026-11-21, `docs/browser/spike0.md`) tested the `genomics-wasm` builds: kallisto, HISAT2 and featureCounts
+  matched native output in headless Chromium, Firefox and WebKit on a 16 GB GitHub runner, one 200,000-pair yeast subset.
+  featureCounts needs cross-origin isolation. DESeq2 is not decided (Node only, version difference).
 - Salmon limits: no genome decoys (transcripts-only index), no bootstrap or Gibbs sampling, no
   Salmon in align mode, no Salmon in the browser build.
 - Salmon and transcripts shorter than the reads: with Salmon defaults, such transcripts can get 0 reads,

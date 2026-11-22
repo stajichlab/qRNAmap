@@ -1,0 +1,48 @@
+file	bytes	sha256	how_made
+counts/amb_gene_counts.tsv	210817	3f7b9ac92d9b01efa88be5eda20812fd3a664ced254160ea90b3d56ef1c9b213	merge_counts.py of amb/run_quant/*.genecounts.tsv.zst (kallisto gene counts of the AMB run, 6 samples)
+genomes/afum/GCF_000002655.1_ASM265v1_genomic.fna.gz	9003172	c6ca1a1a2543df8c74a9f38460d0093280a904fbdd754f7265b2292dc3d80c48	qrnamap fetch --source ncbi --id GCF_000002655.1 (NCBI FTP, catalog URL)
+genomes/afum/GCF_000002655.1_ASM265v1_genomic.gff.gz	1984609	32bebe26a2693076a976d148d064ce1ebeebe63c3a7a0ce4086714ad2f32d2d5	qrnamap fetch --source ncbi --id GCF_000002655.1 (NCBI FTP, catalog URL)
+genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz	3843460	1ec41f951b35f2752d5065edeafe6972455609d4383fb36dae12519a60b27a73	qrnamap fetch --source ncbi --id GCF_000146045.2 (NCBI FTP, catalog URL)
+genomes/yeast/GCF_000146045.2_R64_genomic.gff.gz	2203839	bbcb56dec2d2a00101fb85be4752fbda9895e27023e0c5e08340fc30d0ad5510	qrnamap fetch --source ncbi --id GCF_000146045.2 (NCBI FTP, catalog URL)
+native/deseq2.stderr.txt	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/deseq2.time.txt	1019	526ec584ea1ceb1f9b80511a1275c2fd4093b06481950f22a4d2e53c274279d0	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/deseq2/amb.results.csv	761448	664042598728fb08690136cd402d5494001a3b4e3c5a3afabd799d0768aee1fb	native DESeq2 (see native/versions.txt) deseq2_ref.R on counts/amb_gene_counts.tsv
+native/deseq2/amb.versions.txt	119	55b513c1324c0b07e9e8e3d40fea558a61117070d73bbfe020ff60d80ffc2d71	native DESeq2 (see native/versions.txt) deseq2_ref.R on counts/amb_gene_counts.tsv
+native/featurecounts.stderr.txt	3610	fc394fa958cd2f9ffeef2e6df6d701b609ec4319278e197ad56c30451e31bb66	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/featurecounts.time.txt	885	fa50b9ede74ba2afa10a78522627227c63da9d6976d333171ed827d59326300f	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/featurecounts/yeast.counts.summary	364	d3a13a69af1c151c478798162a94b4d06adccce08bcf15940d66c9e878382d93	native featureCounts 2.1.1 (-T 1 -F SAF -p --countReadPairs -s 0) on native/hisat2/yeast.sam.zst, native_refs.sh
+native/featurecounts/yeast.counts.tsv.zst	81458	190cd6857067540715bbfe3df2dfa93feb16c28aee2d10f775dac38dfd5c0da5	native featureCounts 2.1.1 (-T 1 -F SAF -p --countReadPairs -s 0) on native/hisat2/yeast.sam.zst, native_refs.sh
+native/hisat2/afum.align_summary.txt	599	cd1fb835284b70fe7464bc600dfd6e55da265c379ab9cba1a132e246ac108bd2	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/hisat2/afum.index_bytes.txt	9	3483e450fcf0c632e3eaf7b709b1d2e3060d1d4dda2b9630d1b5cfe33a7aa476	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/hisat2/afum.sam.zst	22585808	4c8a291738c151e4457922d31bdad3ca3c0d2dcf97fe70d389d68c9ab7f64c3f	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/hisat2/yeast.align_summary.txt	608	9464c50892244cda1c78f503898b7ac3efe310320d907a17524c1063d1df492b	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/hisat2/yeast.index_bytes.txt	9	f25814306cc5b346b2fa8c11218fdb612e162547825906a5bd3cfea61475b56d	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/hisat2/yeast.sam.zst	27361027	06fe9634d8c804756bf8f714a39aae6a4410586ba999f6979ecb5abf0a2a49ea	native HISAT2 2.2.2 (hisat2-build-s, hisat2-align-s -p 1, no annotation), native_refs.sh
+native/hisat2_align_afum.stderr.txt	599	cd1fb835284b70fe7464bc600dfd6e55da265c379ab9cba1a132e246ac108bd2	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_align_afum.time.txt	795	46bce9d493c0257de297d1fcabf6805219b74699a70d921334613969d24d4cb5	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_align_yeast.stderr.txt	608	9464c50892244cda1c78f503898b7ac3efe310320d907a17524c1063d1df492b	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_align_yeast.time.txt	798	a4678c71a791a6a7d132f78b81c12fcee05d5cec5eae0c62a88a0cac43570991	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_build_afum.stderr.txt	2191	c2083d077ba6ed2a95129fd2ca9407ea1b98f3ff47ee7800abfe71e363ce9b90	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_build_afum.time.txt	758	12c3be2c5965f629a39b6c597266cec7b411e116a85296e559526d0a88c00562	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_build_yeast.stderr.txt	2190	0c556ad9966687f71772a0112a2d04570f43ac7cb9ae863e3684b7f9f64a7f8f	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/hisat2_build_yeast.time.txt	759	2f73262ecf450859bbfc784e33c8d4431a4e5d5aeb06165eb57e2ba7137a2b8b	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/kallisto/abundance.tsv	267489	c7ffce5b6f5f6afee9a222f0acdd6e31aff65b83b9a9ede93cb86fecaa2f79c9	native kallisto 0.52.0 (index, quant -t 1 --plaintext), native_refs.sh
+native/kallisto/run_info.json	529	1c85b863d95bc594da5c886223b8a8bf8e10d682f420928f1c3068535047142c	native kallisto 0.52.0 (index, quant -t 1 --plaintext), native_refs.sh
+native/kallisto/yeast.idx.zst	3990887	c47742f4008d616ffc70bd34b5e54919baf8dcb5d350a7987fedf6d0751d512c	native kallisto 0.52.0 (index, quant -t 1 --plaintext), native_refs.sh
+native/kallisto_index.stderr.txt	292	db8f4af3e3f18926c8bf03dfafcf31d1cdeaa8f9da0a252627e7e99f748ca6b3	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/kallisto_index.time.txt	772	24a66a909ab3f839d4cf9bce3a4a2d31f3fd3082e1d93a666f4fd4c7be1a39d7	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/kallisto_quant.stderr.txt	724	12f253082affa241e6651e45f36316e276457c4d8578762f4a9e29de759800a4	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/kallisto_quant.time.txt	958	2075d02b231bdfbf7c7db3b7791f606775ef701b834885223b302b8f16980d66	native_refs.sh step output (stderr, /usr/bin/time -v record, or size) of the native job
+native/native_times.tsv	1244	f046452354fcf94d0becee4d7028b4ae5867d3c17221ea6c9ec434ffa3a077b8	/usr/bin/time -v wall seconds and peak RSS per step, native_refs.sh
+native/versions.txt	183	387824b496362ee2ded579d15806d342e445de5e11a6875b0ad1ccb8309635f4	tool versions printed in the native job
+reads/ena_SRR3396381.tsv	88	c77d885d4964a8c0bd3c0574c56e04891582681f837adabb50be6a5628174677	ENA filereport of SRR3396381 (read_count)
+reads/yeast_sub_1.fastq.gz	17187475	65b5ecb478e51c37ed775932ab2d94d374009accb7e0429406096f929d93dbc4	subset_reads.py: 200000 pairs of SRR3396381 (AmpB_1), random.Random(20261121).sample, file order, gzip mtime 0
+reads/yeast_sub_2.fastq.gz	17446415	7365754abc272461952c22d5a71682061a2bfb7d8d37a5ea773c9b5d178062bc	subset_reads.py: 200000 pairs of SRR3396381 (AmpB_1), random.Random(20261121).sample, file order, gzip mtime 0
+transcripts/afum.genes.saf	1346844	95028802a7db28ee3b0b0cc3a9b1d1d02efe316b408321494a209768ba5d9c42	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/afum.splice_sites.txt	637410	312d82281273930665e34cdc748a4922fc9a2d6e4ca64adb8b7c7172ca06b123	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/afum.transcripts.fa.zst	6215254	9aaec42e0bc0f6bde611e8909c39c664f2d0e04b6109159a11958a39493a3b2d	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/afum.tx2gene.tsv.zst	57126	75074aefcd6ef7596847f242e1bf21c783670ea8e8324e4efb8dcda29722eb73	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/yeast.genes.saf	248000	945c07d2f9dffdc87ab3603b55ab6d0a87799825c21fead8f02dbb4f1fbac7ff	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/yeast.splice_sites.txt	9928	3b9324204652af895f8d77a24336ac8bfac23d395ff2e27611f2cf43f33f78b8	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/yeast.transcripts.fa.zst	2863282	01fcf7d955b4fdb6b2df46cfc7f4f4ecc11194b769d80eaabc9781f2367cb572	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism
+transcripts/yeast.tx2gene.tsv.zst	38536	557bef9dbe61cff4acb105d359d22f30b8fc94b3a96378c70a86dcdae3a38176	qrnamap transcripts (CLI built from main) from the genome and GFF3 of that organism

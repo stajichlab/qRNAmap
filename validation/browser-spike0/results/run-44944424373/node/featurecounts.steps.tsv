@@ -1,0 +1,2 @@
+engine	tool	step	status	exit_code	seconds	args	detail	outputs
+node	featurecounts	count	ok	0	1.46	-T 1 -F SAF -a yeast.genes.saf -p --countReadPairs -s 0 -o fc.tsv yeast.sam		fc.tsv=5186a5143dcebbb858387367a07ee40e9dd7672e249a99e9258377329e8b8f28;fc.tsv.summary=d3a13a69af1c151c478798162a94b4d06adccce08bcf15940d66c9e878382d93
