@@ -370,7 +370,7 @@ Times in seconds, 3 runs. Peaks: whole-browser tree Pss (browsers) or sampled RS
   yeast 101-base: WebKit up to 1,508 MiB. The 150-base values are above the N rule (1.5 GiB in all three browsers). So N must depend on the read length.
 - User decision (2026-11-22): the preview size N depends on the read length. The page takes N from `previewLimit(readLength)`
   (`site/analyze/preview-limit.js`; read length = the longer first record of the two mates). Table now: reads of up to 101 bases: 200,000 pairs
-  (measured, Task 3 and this section); longer reads: 75,000 pairs (measured, see "Results" below). The page field "Read pairs per sample" can only lower N.
+  (measured, Task 3 and this section); longer reads: 100,000 pairs (measured with the prep worker, see "Results" below). The page field "Read pairs per sample" can only lower N.
 - N rule: all 3 runs finish, at most 300 s per sample, and a whole-browser Pss of at most 1.5 GiB (1,572,864 kB) in all three browsers.
 
 ### Results (CI runs; highest value over 3 runs; tree Pss in kB; times all under 15 s per sample)
@@ -401,8 +401,21 @@ page option `?prep_worker=0` turns it off). Highest of all phases (genome, index
 | prep worker, N = 75,000 | 666,758 | 1,094,731 | 1,467,306 |
 
 Genome-step time was the same with and without the prep worker (Chromium about 41 s, Firefox 118 to 124 s, WebKit 59 to 63 s).
-The prep worker is the page default, and N = 75,000 for reads longer than 101 bases is the largest value measured to meet the rule.
-N = 100,000 with the prep worker is UNVERIFIED (the next run measures it, with H99 at 75,000 and one 75,000 case without the prep worker).
+The prep worker is the page default.
+
+Final run 45111397838 (commit 2fa8411, prep worker on, 3 runs per case, all finished, at most 16 s per sample). Highest of all phases (kB):
+
+| Case | Chromium | Firefox | WebKit |
+|---|---|---|---|
+| yeast, 101 bases, N = 200,000, gzip | 781,325 | 1,250,067 | 1,450,575 |
+| yeast, 101 bases, N = 200,000, plain | 779,092 | 1,255,986 | 1,424,803 |
+| H99, 150 bases, N = 75,000 | 670,358 | 1,080,402 | 1,423,276 |
+| H99, 150 bases, N = 100,000 | 769,371 | 1,167,731 | 1,498,957 |
+| H99, 150 bases, N = 75,000, `?prep_worker=0` | 812,133 | 1,285,185 | 1,575,591 |
+
+The rule (1,572,864 kB) is met in all three browsers by every case with the prep worker. Without it, WebKit at N = 75,000 is over the rule by 2,727 kB.
+Decision: N = 100,000 for reads longer than 101 bases, the largest N measured to meet the rule. The WebKit margin is 73,907 kB (4.7%); the same case
+varied by about 50 MB between runs earlier, so the margin is small. N = 125,000 with the prep worker is UNVERIFIED.
 Reads longer than 150 bases and other genomes are not measured.
 
 - Job that measures them: `.github/workflows/page-quant-memory.yml` (script `validation/browser-page/tests/quant-memory.mjs`, reads from
