@@ -74,6 +74,12 @@ footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem;
 #samples-progress { width: 100%; }
 ul.error { padding-left: 2rem; }
 
+.testset-buttons { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+#testset-section { margin-bottom: 1rem; }
+#testset-section button { font: inherit; padding: .35rem .8rem; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+#testset-section button:hover { border-color: var(--accent); }
+#testset-status { margin-top: .5rem; }
+
 /* Step 3: results */
 #results-panel button:not(.button) { font: inherit; padding: .3rem .8rem; border-radius: 6px; border: 1px solid var(--line); background: var(--note); color: var(--fg); cursor: pointer; }
 #results-panel .button { cursor: pointer; }

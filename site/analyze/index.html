@@ -27,6 +27,15 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
   <p class="reason" id="reason-genome">Choose the genome first. The tool builds the transcript index from it.</p>
   <fieldset id="fs-genome">
     <div id="genome-panel">
+      <div id="testset-section" class="note">
+        <p><strong>Load an example test set:</strong></p>
+        <p class="testset-buttons">
+          <button type="button" id="load-testset-yeast">Load test set: Yeast AmpB (GSE80357)</button>
+          <button type="button" id="load-testset-cneo">Load test set: C. neoformans H99 Lkh1 (PRJNA976751)</button>
+        </p>
+        <p id="testset-status" class="small" role="status" aria-live="polite"></p>
+        <ul id="testset-errors" class="error" role="alert" hidden></ul>
+      </div>
       <div id="genome-choose">
         <div class="choice" role="radiogroup" aria-label="Where the genome comes from">
           <label><input type="radio" name="genome-source" value="catalog" checked> A genome from the catalog (NCBI)</label>

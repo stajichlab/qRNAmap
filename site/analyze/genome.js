@@ -337,7 +337,20 @@ export async function createGenomeStep({ $, shell }) {
     backToChoose();
   });
 
+  async function loadCatalogAccession(accession) {
+    const entry = entries.find((x) => x.accession === accession);
+    if (!entry) throw new Error(`Genome accession ${accession} not in catalog`);
+    const radio = document.querySelector('input[name="genome-source"][value="catalog"]');
+    if (radio) radio.checked = true;
+    $('genome-catalog').hidden = false;
+    $('genome-upload').hidden = true;
+    $('genome-filter').value = accession;
+    fillMenu();
+    $('genome-menu').value = accession;
+    return build({ entry, label: entry.label, accession });
+  }
+
   setPhase('choose');
   section.dataset.ready = 'menu'; // the tests wait for this
-  return { state, getWorker, cancel, nextId };
+  return { state, getWorker, cancel, nextId, loadCatalogAccession };
 }

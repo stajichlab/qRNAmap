@@ -2,6 +2,7 @@
 import { createGenomeStep } from './genome.js?v=__BUILD__';
 import { createSamplesStep } from './samples.js?v=__BUILD__';
 import { createResultsStep } from './results.js?v=__BUILD__';
+import { createTestsets } from './testsets.js?v=__BUILD__';
 import * as wasm from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 
 const ORDER = ['genome', 'samples', 'results'];
@@ -45,7 +46,17 @@ window.qrnamapWasm = wasm;
 
 const $ = (id) => document.getElementById(id);
 const genomeStep = await createGenomeStep({ $, shell: { markDone: completeStep, resetFrom } });
-window.qrnamapApp = { state: genomeStep.state, getWorker: genomeStep.getWorker, cancelGenome: genomeStep.cancel, nextId: genomeStep.nextId };
-createSamplesStep({ $, app: window.qrnamapApp, shell: { markDone: completeStep, resetFrom } });
-createResultsStep({ $, app: window.qrnamapApp, shell: { completeStep, resetFrom } });
+window.qrnamapApp = {
+  state: genomeStep.state,
+  getWorker: genomeStep.getWorker,
+  cancelGenome: genomeStep.cancel,
+  nextId: genomeStep.nextId,
+  loadCatalogAccession: genomeStep.loadCatalogAccession,
+};
+const samplesStep = createSamplesStep({ $, app: window.qrnamapApp, shell: { markDone: completeStep, resetFrom } });
+window.qrnamapApp.samplesStep = samplesStep;
+const resultsStep = createResultsStep({ $, app: window.qrnamapApp, shell: { completeStep, resetFrom } });
+window.qrnamapApp.resultsStep = resultsStep;
+const testsets = createTestsets({ $, app: window.qrnamapApp, shell: { completeStep, resetFrom } });
+window.qrnamapApp.testsets = testsets;
 document.getElementById('step-samples').dataset.ready = 'table'; // the tests wait for this

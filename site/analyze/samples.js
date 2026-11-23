@@ -308,6 +308,18 @@ export function createSamplesStep({ $, app, shell }) {
     }, 0);
   });
 
+  function setSamples({ columns = ['condition'], rows = [] }) {
+    model.columns = columns.map((name, i) => ({ key: i + 1, name }));
+    model.rows = rows.map((r, i) => ({
+      key: i + 1,
+      name: r.name,
+      values: { 1: r.values?.[0] ?? r.condition ?? '' },
+      files: { 1: r.files?.[1] ?? r.file1 ?? null, 2: r.files?.[2] ?? r.file2 ?? null },
+      expect: { 1: r.expect?.[1] ?? '', 2: r.expect?.[2] ?? '' },
+    }));
+    render();
+  }
+
   $('preview-pairs').max = String(MAX_PAIRS);
   $('preview-pairs').value = String(MAX_PAIRS);
   app.state.samples = [];
@@ -315,5 +327,5 @@ export function createSamplesStep({ $, app, shell }) {
   app.state.samplesPhase = 'edit';
   render();
   $('step-samples').dataset.phase = 'edit';
-  return { quant, model };
+  return { quant, model, setSamples };
 }

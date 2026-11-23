@@ -23,11 +23,13 @@ It downloads static files from the release `page-v1-test-data-v1` (pre-release) 
   (`mito.fna`, `mito.gff3`, and gzip copies). `fixtures/PROVENANCE.tsv` has the SHA-256 of the sources and the outputs.
   `fixtures/expected.tsv` has the counts of `qrnamap transcripts` on the fixture (46 genes, 47 transcripts).
 
-## Samples and Results step tests (`tests/samples.test.mjs`, `tests/results.test.mjs`, `tests/units.test.mjs`)
+## Step tests (`tests/genome.test.mjs`, `tests/samples.test.mjs`, `tests/results.test.mjs`, `tests/testsets.test.mjs`, `tests/units.test.mjs`)
 
+- `tests/genome.test.mjs`: browser tests of step 1 of `/analyze/` (catalog menu, uploads, limits, progress, cancel).
 - `tests/samples.test.mjs`: browser tests of step 2 of `/analyze/` (sample table, sheet upload, checks, quantification, cancel, the abundance check).
 - `tests/results.test.mjs`: browser tests of step 3 of `/analyze/` (count table, alias search, mapping summary, downloads, SVG heatmap and PCA, persistence).
-  Run: `DIST=$PWD/dist-site ENGINE=chromium node --test validation/browser-page/tests/results.test.mjs`.
+- `tests/testsets.test.mjs`: browser tests of Task 8 (test sets metadata, filling genome and samples, fetching reads, ENA errors).
+  Run: `DIST=$PWD/dist-site ENGINE=chromium node --test validation/browser-page/tests/testsets.test.mjs`.
   Each test uploads the fixture genome in step 1 first. Same job as the genome step tests (`genome-step`, one job per engine).
   Run: `DIST=$PWD/dist-site ENGINE=chromium node --test validation/browser-page/tests/samples.test.mjs`.
 - The local test server can replace `vendor/kallisto/kallisto.mjs` after the index is built: a module that writes the largest `est_counts` token of
