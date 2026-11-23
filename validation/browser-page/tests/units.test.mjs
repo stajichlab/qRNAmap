@@ -116,17 +116,17 @@ test('firstNameStem: first word, without @ and without /1 or /2', () => {
   assert.equal(firstNameStem(enc('@x/2\r\nA\r\n')), 'x');
 });
 
-test('previewLimit: 200,000 pairs up to 101 bases, 100,000 (provisional) above; never above the hard limit', async () => {
+test('previewLimit: 200,000 pairs up to 101 bases, 75,000 above; never above the hard limit', async () => {
   const { previewLimit, PREVIEW_TABLE, HARD_LIMIT } = await import('../../../site/analyze/preview-limit.js');
   assert.equal(previewLimit(50), 200000);
   assert.equal(previewLimit(101), 200000);
-  assert.equal(previewLimit(102), 100000);
-  assert.equal(previewLimit(150), 100000);
-  assert.equal(previewLimit(250), 100000);
+  assert.equal(previewLimit(102), 75000);
+  assert.equal(previewLimit(150), 75000);
+  assert.equal(previewLimit(250), 75000);
   assert.throws(() => previewLimit(0), RangeError);
   assert.throws(() => previewLimit(undefined), RangeError);
   assert.ok(PREVIEW_TABLE.every((r) => r.pairs <= HARD_LIMIT));
-  assert.match(PREVIEW_TABLE[1].measured, /PROVISIONAL/);
+  assert.ok(PREVIEW_TABLE.every((r) => !/PROVISIONAL/.test(r.measured)));
 });
 
 test('firstReadLength: the sequence length of the first record (CRLF ok)', () => {

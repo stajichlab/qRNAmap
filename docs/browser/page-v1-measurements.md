@@ -370,9 +370,41 @@ Times in seconds, 3 runs. Peaks: whole-browser tree Pss (browsers) or sampled RS
   yeast 101-base: WebKit up to 1,508 MiB. The 150-base values are above the N rule (1.5 GiB in all three browsers). So N must depend on the read length.
 - User decision (2026-11-22): the preview size N depends on the read length. The page takes N from `previewLimit(readLength)`
   (`site/analyze/preview-limit.js`; read length = the longer first record of the two mates). Table now: reads of up to 101 bases: 200,000 pairs
-  (measured, Task 3 and this section); longer reads: 100,000 pairs, PROVISIONAL (not measured). The page field "Read pairs per sample" can only lower N.
-- Candidates for reads longer than 101 bases: 100,000, 125,000 and 150,000 pairs, measured with 150-base H99 reads by the job below. UNVERIFIED until that run.
-  The table must then be set from it (the largest candidate that meets the N rule in all three browsers).
+  (measured, Task 3 and this section); longer reads: 75,000 pairs (measured, see "Results" below). The page field "Read pairs per sample" can only lower N.
+- N rule: all 3 runs finish, at most 300 s per sample, and a whole-browser Pss of at most 1.5 GiB (1,572,864 kB) in all three browsers.
+
+### Results (CI runs; highest value over 3 runs; tree Pss in kB; times all under 15 s per sample)
+
+Yeast 101-base reads, N = 200,000 (run 45063764607): Chromium 861,919, Firefox 1,366,284, WebKit 1,483,056 (quant phase). The rule is met.
+(Run 45099586699 used the prep worker, see below; yeast has not been re-measured with it yet.)
+
+H99 150-base reads, default path (transcripts built in the page worker), WebKit:
+
+| N | quant phase, run 45063764607 | quant phase, run 45094297581 | highest of all phases, run 45094297581 |
+|---|---|---|---|
+| 50,000 | not run | 1,552,121 | 1,573,977 |
+| 75,000 | not run | 1,571,705 | 1,593,941 |
+| 100,000 | 1,611,032 | 1,655,965 | 1,655,965 |
+| 125,000 | 1,752,310 | not run | not run |
+| 150,000 | 1,854,361 | not run | not run |
+
+The same N gave 1,611,032 and 1,655,965 kB in two runs, so the run-to-run difference is about 50 MB. Chromium and Firefox met the rule at all these N
+(Firefox 1,492,485 at N = 150,000; Chromium 1,024,984). In WebKit the default path met the rule in no case when all phases count.
+
+Prep worker (run 45099586699, commit 6d638e6; the page reads the genome files and builds the transcripts in a worker that ends before the kallisto index starts;
+page option `?prep_worker=0` turns it off). Highest of all phases (genome, index, prep, quant), 3 runs each:
+
+| H99 150-base | Chromium | Firefox | WebKit |
+|---|---|---|---|
+| default path, N = 50,000 | 797,884 | 1,148,810 | 1,586,569 |
+| prep worker, N = 50,000 | 645,805 | 989,096 | 1,491,448 |
+| prep worker, N = 75,000 | 666,758 | 1,094,731 | 1,467,306 |
+
+Genome-step time was the same with and without the prep worker (Chromium about 41 s, Firefox 118 to 124 s, WebKit 59 to 63 s).
+The prep worker is the page default, and N = 75,000 for reads longer than 101 bases is the largest value measured to meet the rule.
+N = 100,000 with the prep worker is UNVERIFIED (the next run measures it, with H99 at 75,000 and one 75,000 case without the prep worker).
+Reads longer than 150 bases and other genomes are not measured.
+
 - Job that measures them: `.github/workflows/page-quant-memory.yml` (script `validation/browser-page/tests/quant-memory.mjs`, reads from
   `validation/browser-page/tests/quant-memory-reads.sh`). It starts by `workflow_dispatch` (only when the file is on the default branch), or by a push to branch
   `page-v1` that changes `validation/browser-page/memory-run.trigger` or the workflow file. It loads the real page in Chromium, Firefox and WebKit, 3 runs per engine and case.

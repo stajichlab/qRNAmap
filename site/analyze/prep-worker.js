@@ -1,5 +1,4 @@
-// A short-lived module worker: reads the genome files and builds the transcripts, then the page worker ends it (page option
-// `?prep_worker=1`; see prep.js). It posts { type: 'prepared', built } with the transcript FASTA transferred, or { type: 'error' }.
+// A short-lived module worker: reads the genome files and builds the transcripts, then the page worker ends it (see prep.js; `?prep_worker=0` turns it off). It posts { type: 'prepared', built } with the transcript FASTA transferred, or { type: 'error' }.
 import { prepareTranscripts, StepError } from './prep.js?v=__BUILD__';
 
 self.onmessage = async ({ data }) => {

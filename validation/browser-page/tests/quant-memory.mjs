@@ -18,7 +18,7 @@ const root = resolve(process.argv[2] ?? '');
 const outFile = process.argv[3];
 const engines = (process.argv[4] ?? '').split(',').filter(Boolean);
 const RUNS = Number(process.argv[5]);
-const cases = process.argv.slice(6).map((c) => { const [label, accession, mate1, mate2, n, prep] = c.split(':'); return { label, accession, mate1, mate2, n: n ? Number(n) : 0, prep: prep === 'prep' }; });
+const cases = process.argv.slice(6).map((c) => { const [label, accession, mate1, mate2, n, prep] = c.split(':'); return { label, accession, mate1, mate2, n: n ? Number(n) : 0, noprep: prep === 'noprep' }; });
 if (!process.argv[2] || !outFile || !existsSync(join(root, 'analyze/index.html')) || !engines.length || !(RUNS > 0) || !cases.length ||
     cases.some((c) => !c.accession || !existsSync(c.mate1) || !existsSync(c.mate2) || !(c.n === 0 || (Number.isInteger(c.n) && c.n > 0)))) {
   console.error('usage: node quant-memory.mjs <absolute path of dist-site> <out.tsv> <engines> <runs> <label>:<accession>:<mate1>:<mate2>...');
@@ -104,7 +104,7 @@ const clean = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').slice(0, 500);
 for (const c of cases) {
   for (const engine of engines) {
     for (let run = 1; run <= RUNS; run++) {
-      const row = { engine, case: c.label, accession: c.accession, run, mate1_bytes: statSync(c.mate1).size, mate2_bytes: statSync(c.mate2).size, n_option: c.n || '', prep_worker: c.prep ? 'yes' : 'no' };
+      const row = { engine, case: c.label, accession: c.accession, run, mate1_bytes: statSync(c.mate1).size, mate2_bytes: statSync(c.mate2).size, n_option: c.n || '', prep_worker: c.noprep ? 'no' : 'yes' };
       let browser;
       let sampler;
       const peaks = Object.fromEntries(PHASES.map((p) => [p, 0]));
@@ -112,7 +112,7 @@ for (const c of cases) {
         browser = await { chromium, firefox, webkit }[engine].launch();
         row.browser_version = browser.version();
         const page = await browser.newPage();
-        await page.goto(`${base}/analyze/?${[c.n ? `preview_pairs=${c.n}` : '', c.prep ? 'prep_worker=1' : ''].filter(Boolean).join('&')}`);
+        await page.goto(`${base}/analyze/?${[c.n ? `preview_pairs=${c.n}` : '', c.noprep ? 'prep_worker=0' : ''].filter(Boolean).join('&')}`);
         await page.waitForSelector('#step-samples[data-ready="table"]', { timeout: 60_000 });
         await page.waitForTimeout(500);
         row.load_tree_pss_kb = sampleTree().pss;

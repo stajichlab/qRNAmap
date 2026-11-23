@@ -1,5 +1,4 @@
-// Reading the genome files and building the transcripts. Used by the page worker (worker.js) and, when the page option
-// `?prep_worker=1` is on, by a short-lived prep worker (prep-worker.js), so the memory of the genome bytes goes back to the
+// Reading the genome files and building the transcripts. Used by the page worker (worker.js) and, by a short-lived prep worker (prep-worker.js), so the memory of the genome bytes goes back to the
 // system when that worker ends (before the kallisto index is built).
 import init, { build_transcriptome } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { VerifyingGunzip } from '../gz.js?v=__BUILD__';

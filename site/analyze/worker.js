@@ -28,8 +28,9 @@ function memoryLike(text) {
 const indexArgs = () => JSON.parse(kallisto_args(JSON.stringify({ kind: 'index', fasta: 'transcripts.fa', index: 'transcripts.idx' })));
 
 /**
- * Page option `?prep_worker=1` (a measurement option, off by default): read the genome files and build the transcripts in a
- * short-lived worker and end it, so the memory of the genome bytes is released before the kallisto index is built.
+ * Read the genome files and build the transcripts in a short-lived worker and end it, so the memory of the genome bytes is
+ * released before the kallisto index is built (default; `?prep_worker=0` builds them in this worker, for measurements). In
+ * WebKit this lowered the peak of H99 from 1,586,569 to 1,491,448 kB (docs/browser/page-v1-measurements.md).
  */
 function prepareInWorker(message, progress) {
   return new Promise((resolve, reject) => {
