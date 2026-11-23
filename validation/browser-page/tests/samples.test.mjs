@@ -537,11 +537,11 @@ function writeBig(dir, n) {
   return files;
 }
 
-test('the read length sets N: 150-base reads use 100,000 pairs, 50-base reads 200,000; the label shows both', async (t) => {
+test('the read length sets N: 150-base reads use 75,000 pairs, 50-base reads 200,000; the label shows both', async (t) => {
   const { page, errors } = await open(t);
   const dir = mkdtempSync(join(tmpdir(), 'qrnamap-long-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const [big1, big2] = writeBig(dir, 100010);
+  const [big1, big2] = writeBig(dir, 75010);
   await fillRow(page, 0, { name: 'S1', condition: 'x', mate1: 's1_R1.fastq.gz', mate2: 's1_R2.fastq.gz' });
   await fillRow(page, 1, { name: 'Long', condition: 'y', mate1: big1, mate2: big2 });
   const samples = await run(page);
@@ -549,11 +549,11 @@ test('the read length sets N: 150-base reads use 100,000 pairs, 50-base reads 20
   assert.equal(samples[0].previewN, 200000);
   assert.equal(samples[0].readLength, 50);
   assert.equal(samples[1].status, 'done', samples[1].error);
-  assert.deepEqual([samples[1].readLength, samples[1].previewN, samples[1].nPairs, samples[1].processed, samples[1].allPairs], [150, 100000, 100000, 100000, false]);
-  assert.match(await row(page, 1).locator('.status').textContent(), /^100,000 pairs processed, .* Preview of the first 100,000 pairs\. Reads of 150 bases: N = 100,000\.$/);
+  assert.deepEqual([samples[1].readLength, samples[1].previewN, samples[1].nPairs, samples[1].processed, samples[1].allPairs], [150, 75000, 75000, 75000, false]);
+  assert.match(await row(page, 1).locator('.status').textContent(), /^75,000 pairs processed, .* Preview of the first 75,000 pairs\. Reads of 150 bases: N = 75,000\.$/);
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview),
-    { n: null, label: 'preview of the first 100,000 to 200,000 pairs (the N of each sample is in its row)' });
-  assert.match(await page.textContent('#preview-label'), /preview of the first 100,000 to 200,000 pairs/);
+    { n: null, label: 'preview of the first 75,000 to 200,000 pairs (the N of each sample is in its row)' });
+  assert.match(await page.textContent('#preview-label'), /preview of the first 75,000 to 200,000 pairs/);
   assert.deepEqual(errors, []);
 });
 

@@ -93,7 +93,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p><label for="preview-pairs">Read pairs per sample (at most)</label>
           <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
           <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of
-            up to 101 bases (measured), 100,000 pairs for longer reads (measured with 150-base reads; docs/browser/page-v1-measurements.md).
+            up to 101 bases (measured), 75,000 pairs for longer reads (measured with 150-base reads; docs/browser/page-v1-measurements.md).
             This field can only lower N. Results are a preview of the first pairs, not a full run. For a full run, use the command-line tool.</span></p>
         <button id="run-samples" type="button" class="button">Count reads</button>
       </fieldset>

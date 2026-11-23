@@ -370,7 +370,7 @@ Times in seconds, 3 runs. Peaks: whole-browser tree Pss (browsers) or sampled RS
   yeast 101-base: WebKit up to 1,508 MiB. The 150-base values are above the N rule (1.5 GiB in all three browsers). So N must depend on the read length.
 - User decision (2026-11-22): the preview size N depends on the read length. The page takes N from `previewLimit(readLength)`
   (`site/analyze/preview-limit.js`; read length = the longer first record of the two mates). Table now: reads of up to 101 bases: 200,000 pairs
-  (measured, Task 3 and this section); longer reads: 100,000 pairs (measured with the prep worker, see "Results" below). The page field "Read pairs per sample" can only lower N.
+  (measured, Task 3 and this section); longer reads: 75,000 pairs (measured with the prep worker, see "Results" below). The page field "Read pairs per sample" can only lower N.
 - N rule: all 3 runs finish, at most 300 s per sample, and a whole-browser Pss of at most 1.5 GiB (1,572,864 kB) in all three browsers.
 
 ### Results (CI runs; highest value over 3 runs; tree Pss in kB; times all under 15 s per sample)
@@ -414,8 +414,8 @@ Final run 45111397838 (commit 2fa8411, prep worker on, 3 runs per case, all fini
 | H99, 150 bases, N = 75,000, `?prep_worker=0` | 812,133 | 1,285,185 | 1,575,591 |
 
 The rule (1,572,864 kB) is met in all three browsers by every case with the prep worker. Without it, WebKit at N = 75,000 is over the rule by 2,727 kB.
-Decision: N = 100,000 for reads longer than 101 bases, the largest N measured to meet the rule. The WebKit margin is 73,907 kB (4.7%); the same case
-varied by about 50 MB between runs earlier, so the margin is small. N = 125,000 with the prep worker is UNVERIFIED.
+Decision: N = 75,000 for reads longer than 101 bases. Run 45111397838 met the rule at N = 100,000 (peak 1,498,957 kB), but the margin was small
+(73,907 kB, 4.7%). N = 75,000 was chosen for safety (peak 1,423,276 kB, margin 149,588 kB, 9.5%). N = 125,000 with the prep worker is UNVERIFIED.
 Reads longer than 150 bases and other genomes are not measured.
 
 - Job that measures them: `.github/workflows/page-quant-memory.yml` (script `validation/browser-page/tests/quant-memory.mjs`, reads from
