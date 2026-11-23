@@ -18,7 +18,7 @@ const root = resolve(process.argv[2] ?? '');
 const outFile = process.argv[3];
 const engines = (process.argv[4] ?? '').split(',').filter(Boolean);
 const RUNS = Number(process.argv[5]);
-const cases = process.argv.slice(6).map((c) => { const [label, accession, mate1, mate2, n] = c.split(':'); return { label, accession, mate1, mate2, n: n ? Number(n) : 0 }; });
+const cases = process.argv.slice(6).map((c) => { const [label, accession, mate1, mate2, n, prep] = c.split(':'); return { label, accession, mate1, mate2, n: n ? Number(n) : 0, prep: prep === 'prep' }; });
 if (!process.argv[2] || !outFile || !existsSync(join(root, 'analyze/index.html')) || !engines.length || !(RUNS > 0) || !cases.length ||
     cases.some((c) => !c.accession || !existsSync(c.mate1) || !existsSync(c.mate2) || !(c.n === 0 || (Number.isInteger(c.n) && c.n > 0)))) {
   console.error('usage: node quant-memory.mjs <absolute path of dist-site> <out.tsv> <engines> <runs> <label>:<accession>:<mate1>:<mate2>...');
@@ -94,8 +94,9 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-const PHASES = ['genome', 'prep', 'quant'];
-const COLS = ['engine', 'browser_version', 'case', 'accession', 'mate1_bytes', 'mate2_bytes', 'n_option', 'read_length', 'n', 'run', 'outcome', 'seconds_genome', 'seconds_sample',
+// 'genome' is the genome step before the kallisto index build (read and build the transcripts); 'index' is the index build.
+const PHASES = ['genome', 'index', 'prep', 'quant'];
+const COLS = ['engine', 'browser_version', 'case', 'accession', 'mate1_bytes', 'mate2_bytes', 'n_option', 'prep_worker', 'read_length', 'n', 'run', 'outcome', 'seconds_genome', 'seconds_sample',
   'pairs', 'processed', 'pseudoaligned', 'reruns', 'load_tree_pss_kb', ...PHASES.map((p) => `${p}_tree_pss_peak_kb`), 'peak_tree_rss_sum_kb', 'samples', 'detail'];
 const rows = [];
 const clean = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').slice(0, 500);
@@ -103,7 +104,7 @@ const clean = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').slice(0, 500);
 for (const c of cases) {
   for (const engine of engines) {
     for (let run = 1; run <= RUNS; run++) {
-      const row = { engine, case: c.label, accession: c.accession, run, mate1_bytes: statSync(c.mate1).size, mate2_bytes: statSync(c.mate2).size, n_option: c.n || '' };
+      const row = { engine, case: c.label, accession: c.accession, run, mate1_bytes: statSync(c.mate1).size, mate2_bytes: statSync(c.mate2).size, n_option: c.n || '', prep_worker: c.prep ? 'yes' : 'no' };
       let browser;
       let sampler;
       const peaks = Object.fromEntries(PHASES.map((p) => [p, 0]));
@@ -111,7 +112,7 @@ for (const c of cases) {
         browser = await { chromium, firefox, webkit }[engine].launch();
         row.browser_version = browser.version();
         const page = await browser.newPage();
-        await page.goto(`${base}/analyze/${c.n ? `?preview_pairs=${c.n}` : ''}`);
+        await page.goto(`${base}/analyze/?${[c.n ? `preview_pairs=${c.n}` : '', c.prep ? 'prep_worker=1' : ''].filter(Boolean).join('&')}`);
         await page.waitForSelector('#step-samples[data-ready="table"]', { timeout: 60_000 });
         await page.waitForTimeout(500);
         row.load_tree_pss_kb = sampleTree().pss;
@@ -135,6 +136,7 @@ for (const c of cases) {
         await page.click('#genome-load');
         await wait(async () => {
           if (!(await page.isHidden('#genome-error'))) throw new Error(`genome step error: ${await page.textContent('#genome-error')}`);
+          if (/Building the kallisto index/.test(await page.textContent('#genome-status'))) phase = 'index';
           return (await page.getAttribute('#step-genome', 'data-phase')) === 'ready';
         }, 'genome');
         row.seconds_genome = ((Date.now() - started) / 1000).toFixed(2);

@@ -177,6 +177,27 @@ test('upload FASTA (gzip) and GFF3 (plain) reach "index ready"', async (t) => {
   assert.deepEqual(errors, []);
 });
 
+test('page option ?prep_worker=1: the transcripts are built in a prep worker that ends, and the result equals the default path', async (t) => {
+  const { page, errors } = await open(t, { query: '?prep_worker=1' });
+  await upload(page, join(FIX, 'mito.fna.gz'), join(FIX, 'mito.gff3'));
+  await waitPhase(page, 'ready');
+  assert.equal(await page.textContent('#ready-transcripts'), String(EXPECTED.transcripts));
+  assert.equal(await page.textContent('#ready-genes'), String(EXPECTED.genes));
+  const s = await page.evaluate(() => ({ t: window.qrnamapApp.state.tx2gene, g: window.qrnamapApp.state.genesTsv }));
+  const plain = await open(t);
+  await upload(plain.page, join(FIX, 'mito.fna.gz'), join(FIX, 'mito.gff3'));
+  await waitPhase(plain.page, 'ready');
+  assert.deepEqual(await plain.page.evaluate(() => ({ t: window.qrnamapApp.state.tx2gene, g: window.qrnamapApp.state.genesTsv })), s);
+  assert.deepEqual(errors, []);
+});
+
+test('page option ?prep_worker=1: a bad input gives the same message as the default path', async (t) => {
+  const { page } = await open(t, { query: '?prep_worker=1' });
+  const gff = fixture('mito.gff3').toString().replaceAll('NC_001224.1\t', 'chrM\t');
+  await upload(page, join(FIX, 'mito.fna'), fileArg('renamed.gff3', Buffer.from(gff)));
+  assert.match(await errorText(page), /The transcripts could not be built: gene '.+' is on contig 'chrM'/);
+});
+
 test('FASTA names that do not match the GFF3 give the build_transcriptome message', async (t) => {
   const { page } = await open(t);
   const gff = fixture('mito.gff3').toString().replaceAll('NC_001224.1\t', 'chrM\t');

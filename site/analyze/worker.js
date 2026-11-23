@@ -3,8 +3,8 @@
 // kallisto quant on them (quant.js sends the requests). The message protocol is in site/analyze/PROTOCOL.md.
 // kallisto runs through the vendored ToolRunner (vendor/kallisto/runtime/index.mjs), which starts one more worker per
 // command and terminates it at the end, so a crash of kallisto does not end this worker.
-import init, { build_transcriptome, kallisto_args } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
-import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
+import init, { kallisto_args } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
+import { prepareTranscripts, StepError } from './prep.js?v=__BUILD__';
 import { ToolRunner } from '../vendor/kallisto/runtime/index.mjs?v=__BUILD__';
 import { firstRecords, checkFastq, firstNameStem, firstReadLength, ReadError } from './fastq.js?v=__BUILD__';
 import { previewLimit, HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
@@ -15,135 +15,44 @@ const ready = init({ module_or_path: new URL('../pkg-web/qrnamap_wasm_bg.wasm?v=
 // (a vendored file, not changed).
 const KALLISTO = new URL('../vendor/kallisto/kallisto.mjs?v=__BUILD__', import.meta.url);
 const RUNTIME_WORKER = new URL('../vendor/kallisto/runtime/worker.mjs?v=__BUILD__', import.meta.url);
-// A guard, not a measurement: a GFF3 larger than this after gunzip is refused, so a bad file cannot fill the memory of the tab.
-// The largest GFF3 in the Task 3 genome runs is 64,659,993 bytes after gunzip (Laccaria bicolor, GCF_000143565.1;
-// validation/browser-page/measure/results/genomes_runs.tsv, column gff_bytes). The guard is about 4 times that.
-const MAX_GFF_BYTES = 260e6;
-
 /** The genome of the page, or null. */
 let genome = null;
 
-class StepError extends Error {
-  constructor(kind, message) { super(message); this.kind = kind; }
-}
-
 const post = (message) => self.postMessage(message);
-
-/**
- * Read a File or Blob whole. A gzip file (first bytes 1f 8b) is unpacked through gz.js (fflate plus the CRC-32 and length
- * check of every member). `onChunk(plain)` sees every plain chunk (it can throw to stop). `progress(read, total)` gets the
- * compressed bytes read so far.
- */
-async function readWhole(file, label, { onChunk = () => {}, progress = () => {}, maxBytes = Infinity } = {}) {
-  if (file.size === 0) throw new StepError('input', `${label} is empty (0 bytes).`);
-  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
-  const gz = head.length === 2 && head[0] === 0x1f && head[1] === 0x8b;
-  const parts = [];
-  let size = 0;
-  const keep = (chunk) => {
-    size += chunk.length;
-    if (size > maxBytes) throw new StepError('limit', `${label} unpacks to more than ${Math.round(maxBytes / 1e6)} MB, which the page does not load.`);
-    onChunk(chunk);
-    parts.push(chunk);
-  };
-  const reader = file.stream().getReader();
-  let read = 0;
-  try {
-    const gunzip = gz ? new VerifyingGunzip(keep) : null;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (value) read += value.length;
-      if (gunzip) {
-        try {
-          gunzip.push(value || new Uint8Array(0), done);
-        } catch (error) {
-          if (error instanceof StepError) throw error;
-          throw new StepError('gzip', `${label} is not a complete gzip file (${error.message}). The file is damaged or cut short. Download it again.`);
-        }
-      } else if (value) {
-        keep(value.slice());
-      }
-      progress(read, file.size);
-      if (done) break;
-    }
-  } finally {
-    reader.cancel().catch(() => {});
-  }
-  const out = new Uint8Array(size);
-  let offset = 0;
-  for (const part of parts) { out.set(part, offset); offset += part.length; }
-  if (size === 0) throw new StepError('input', `${label} is empty after gunzip.`);
-  return out;
-}
-
-/** A counter of sequence letters in FASTA chunks (header lines and white space are not counted). */
-function baseCounter(limit, label, limitText) {
-  let bases = 0;
-  let header = false;
-  let lineStart = true;
-  return {
-    get bases() { return bases; },
-    feed(chunk) {
-      for (let i = 0; i < chunk.length; i++) {
-        const b = chunk[i];
-        if (b === 10) { header = false; lineStart = true; continue; }
-        if (lineStart && b === 62) header = true; // '>'
-        lineStart = false;
-        if (!header && b !== 13 && b !== 32 && b !== 9) bases++;
-      }
-      if (bases > limit) throw new StepError('limit', `${label} has more than ${limit.toLocaleString('en-US')} bases. ${limitText}`);
-    },
-  };
-}
 
 function memoryLike(text) {
   return /out of memory|memory access out of bounds|could not allocate|cannot enlarge memory|allocation failed|Array buffer allocation|RangeError|OOM/i.test(text);
 }
 
-/**
- * Read both files and build the transcripts. Everything this function reads (the File objects, the genome bytes, the GFF3
- * bytes and text) is unreachable when it returns: only the transcript FASTA and the small results leave it.
- */
-async function prepareTranscripts(message, progress) {
-  const { fasta, gff, limitBases, limitText } = message;
-  message.fasta = null; // the request object must not keep the files while kallisto runs
-  message.gff = null;
-  const mbText = (n) => `${(n / 1e6).toFixed(1)} MB`;
-  progress('read', `Reading the genome FASTA (${fasta.name || 'FASTA'})`);
-  const counter = baseCounter(limitBases, `The genome FASTA (${fasta.name || 'FASTA'})`, limitText);
-  const fastaBytes = await readWhole(fasta, `The genome FASTA (${fasta.name || 'FASTA'})`, {
-    onChunk: (c) => counter.feed(c),
-    progress: (r, t) => progress('read', `Reading the genome FASTA: ${mbText(r)} of ${mbText(t)}`, r, t),
-  });
-  progress('read', `Reading the GFF3 (${gff.name || 'GFF3'})`);
-  const gffText = new TextDecoder().decode(await readWhole(gff, `The GFF3 (${gff.name || 'GFF3'})`, {
-    maxBytes: MAX_GFF_BYTES,
-    progress: (r, t) => progress('read', `Reading the GFF3: ${mbText(r)} of ${mbText(t)}`, r, t),
-  }));
-
-  progress('build', `Building the transcripts (${counter.bases.toLocaleString('en-US')} bases)`);
-  await ready;
-  let tr;
-  try {
-    tr = build_transcriptome(fastaBytes, gffText);
-  } catch (error) {
-    throw new StepError('input', `The transcripts could not be built: ${typeof error === 'string' ? error : error?.message || error}`);
-  }
-  try {
-    return { transcripts: tr.fasta, tx2gene: tr.tx2gene, genesTsv: tr.genes_tsv, nTranscripts: tr.n_transcripts, nGenes: tr.n_genes, bases: counter.bases };
-  } finally {
-    tr.free();
-  }
-}
-
 /** The kallisto index argument list, from qrnamap-core (the same list as the Task 3 measurements). */
 const indexArgs = () => JSON.parse(kallisto_args(JSON.stringify({ kind: 'index', fasta: 'transcripts.fa', index: 'transcripts.idx' })));
+
+/**
+ * Page option `?prep_worker=1` (a measurement option, off by default): read the genome files and build the transcripts in a
+ * short-lived worker and end it, so the memory of the genome bytes is released before the kallisto index is built.
+ */
+function prepareInWorker(message, progress) {
+  return new Promise((resolve, reject) => {
+    const prep = new Worker(new URL('./prep-worker.js?v=__BUILD__', import.meta.url), { type: 'module' });
+    const done = (fn, value) => { prep.terminate(); fn(value); };
+    prep.onmessage = ({ data }) => {
+      if (data.type === 'progress') progress(data.phase, data.text, data.done, data.total);
+      else if (data.type === 'prepared') { data.built.transcripts = new Uint8Array(data.built.transcripts.buffer || data.built.transcripts); done(resolve, data.built); }
+      else done(reject, new StepError(data.kind, data.message));
+    };
+    prep.onerror = (event) => done(reject, new StepError('internal', `The prep worker failed: ${event.message || 'unknown error'}`));
+    const { fasta, gff, limitBases, limitText } = message;
+    message.fasta = null;
+    message.gff = null;
+    prep.postMessage({ fasta, gff, limitBases, limitText });
+  });
+}
 
 async function buildGenome(message) {
   const { id, label, accession } = message;
   genome = null; // a new genome replaces the old one at once, so no step can use a stale index
   const progress = (phase, text, done = 0, total = 0) => post({ type: 'progress', id, phase, text, done, total });
-  const built = await prepareTranscripts(message, progress);
+  const built = message.prepWorker ? await prepareInWorker(message, progress) : await prepareTranscripts(message, progress);
 
   progress('index', `Building the kallisto index of ${built.nTranscripts.toLocaleString('en-US')} transcripts. This can take one to two minutes for a large genome.`);
   const args = indexArgs();

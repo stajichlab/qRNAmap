@@ -267,7 +267,7 @@ export async function createGenomeStep({ $, shell }) {
       if (mine !== run) return;
       setPhase('read');
       const saved = entry ? { source: 'catalog', accession, label } : { source: 'upload', fasta: fasta.name, gff: gff.name };
-      const request = { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry) };
+      const request = { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry), prepWorker: new URLSearchParams(location.search).get('prep_worker') === '1' };
       fasta = null; // the page keeps no reference to the genome bytes while the worker runs
       gff = null;
       const answer = runInWorker(request, (p) => {
