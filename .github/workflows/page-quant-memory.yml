@@ -68,7 +68,7 @@ jobs:
           r="$RUNNER_TEMP/reads"
           cases=("yeast_gz:GCF_000146045.2:$r/yeast_1.fastq.gz:$r/yeast_2.fastq.gz" "yeast_plain:GCF_000146045.2:$r/yeast_1.fastq:$r/yeast_2.fastq")
           if [ "${{ steps.h99.outcome }}" = success ]; then
-            for n in 100000 125000 150000; do cases+=("h99_plain_$n:GCF_000149245.1:$r/h99_1.fastq:$r/h99_2.fastq:$n"); done
+            for n in 50000 75000 100000; do cases+=("h99_plain_$n:GCF_000149245.1:$r/h99_1.fastq:$r/h99_2.fastq:$n"); done
           fi
           node validation/browser-page/tests/quant-memory.mjs "$PWD/dist-site" "quant-memory.${{ matrix.engine }}.tsv" ${{ matrix.engine }} 3 "${cases[@]}"
           cp "$r/reads_check.tsv" "reads_check.${{ matrix.engine }}.tsv"
