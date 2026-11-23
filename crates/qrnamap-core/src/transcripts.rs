@@ -224,6 +224,7 @@ mod tests {
             cds: cds.to_vec(),
             utr5: utr5.to_vec(),
             utr3: utr3.to_vec(),
+            proteins: vec![],
         }
     }
 

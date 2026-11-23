@@ -48,6 +48,7 @@ test('build_transcriptome gives the bytes of `qrnamap transcripts`', { skip }, (
     assert.ok(Buffer.from(t.fasta).equals(readFileSync(join(dir, 't.fa'))), 'transcripts.fa differs');
     assert.equal(t.tx2gene, readFileSync(join(dir, 't2g.tsv'), 'utf8'), 'tx2gene differs');
     assert.equal(t.genes_tsv, readFileSync(join(dir, 'genes.tsv'), 'utf8'), 'genes table differs');
+    assert.equal(t.gene_info_tsv, readFileSync(join(dir, 'gene_info.tsv'), 'utf8'), 'gene_info differs');
     t.free();
   } finally {
     rmSync(dir, { recursive: true, force: true });

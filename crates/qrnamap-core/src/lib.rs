@@ -25,7 +25,7 @@ pub use counts::{
     parse_featurecounts_summary, unlisted_genes, CountError, CountMatrix,
 };
 pub use design::{Contrast, Design, DesignError};
-pub use genes::{gene_table, gene_table_tsv, GeneClass, GeneRow};
+pub use genes::{gene_info_tsv, gene_table, gene_table_tsv, GeneClass, GeneRow};
 pub use matrix::{
     count_matrix, genes_from_tx2gene, parse_tx2gene, zero_warning, MatrixError, Tx2GeneError,
 };

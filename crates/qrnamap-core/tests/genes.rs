@@ -10,6 +10,7 @@ fn tx(kind: &str) -> Transcript {
         cds: vec![],
         utr5: vec![],
         utr3: vec![],
+        proteins: vec![],
     }
 }
 
@@ -19,6 +20,10 @@ fn gene(label: &str, contig: &str, strand: Strand, biotype: Option<&str>, kinds:
         contig: contig.to_string(),
         strand,
         biotype: biotype.map(|s| s.to_string()),
+        symbol: None,
+        gene_id: None,
+        dbxref: vec![],
+        old_locus_tag: None,
         transcripts: kinds.iter().map(|k| tx(k)).collect(),
     }
 }
@@ -194,4 +199,29 @@ fn rows_follow_model_order() {
     );
     let names: Vec<String> = gene_table(&m, &[]).into_iter().map(|r| r.gene).collect();
     assert_eq!(names, vec!["z", "a", "m"]);
+}
+
+#[test]
+fn gene_info_tsv_exact_bytes_for_snippet() {
+    let s = "##gff-version 3\n\
+chr1\tsrc\tgene\t100\t1000\t.\t+\t.\tID=g1;locus_tag=LOC1;Name=SYM%3B1;Dbxref=GeneID:1001,SGD:S001;old_locus_tag=OLD%2C1\n\
+chr1\tsrc\tmRNA\t100\t1000\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\tsrc\texon\t100\t500\t.\t+\t.\tID=e1;Parent=t1\n\
+chr1\tsrc\tCDS\t200\t500\t.\t+\t0\tID=c1;Parent=t1;protein_id=PROT1\n\
+chr1\tsrc\tmRNA\t100\t800\t.\t+\t.\tID=t2;Parent=g1\n\
+chr1\tsrc\texon\t100\t800\t.\t+\t.\tID=e2;Parent=t2\n\
+chr1\tsrc\tCDS\t200\t800\t.\t+\t0\tID=c2;Parent=t2;protein_id=PROT2\n\
+chr1\tsrc\tgene\t2000\t2500\t.\t+\t.\tID=g2;Name=NAME2;Dbxref=GeneID:1002\n\
+chr1\tsrc\ttRNA\t2000\t2500\t.\t+\t.\tID=t3;Parent=g2\n\
+chr1\tsrc\texon\t2000\t2500\t.\t+\t.\tID=e3;Parent=t3\n\
+chr1\tsrc\tgene\t3000\t3500\t.\t-\t.\tID=g3;gene_biotype=pseudogene\n\
+chr1\tsrc\tpseudogenic_transcript\t3000\t3500\t.\t-\t.\tID=t4;Parent=g3\n\
+chr1\tsrc\texon\t3000\t3500\t.\t-\t.\tID=e4;Parent=t4\n";
+    let m = qseq_io::parse_gff3(std::io::Cursor::new(s.as_bytes())).unwrap();
+    let tsv = qrnamap_core::gene_info_tsv(&m, &[]);
+    let want = "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\n\
+LOC1\tSYM;1\t1001\tOLD,1\tt1,t2\tPROT1,PROT2\tmRNA\tprotein_coding\tchr1\t+\n\
+NAME2\tNAME2\t1002\t\tt3\t\ttRNA\ttRNA\tchr1\t+\n\
+g3\t\t\t\tt4\t\tpseudogene\tpseudogene\tchr1\t-\n";
+    assert_eq!(tsv, want);
 }

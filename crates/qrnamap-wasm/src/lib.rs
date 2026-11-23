@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 use std::io::Cursor;
 
 use qrnamap_core::{
-    build_transcripts, count_matrix, gene_counts_from_abundance, gene_table, gene_table_tsv,
-    genes_from_tx2gene, kallisto_index, kallisto_quant, log_cpm, parse_tx2gene, pca,
-    reserved_output_name, sample_correlation, tx2gene_tsv, write_fasta, ColType, CountMatrix,
+    build_transcripts, count_matrix, gene_counts_from_abundance, gene_info_tsv, gene_table,
+    gene_table_tsv, genes_from_tx2gene, kallisto_index, kallisto_quant, log_cpm, parse_tx2gene,
+    pca, reserved_output_name, sample_correlation, tx2gene_tsv, write_fasta, ColType, CountMatrix,
     QcError, RunConfig, Sample, SampleSheet, Strandedness,
 };
 use qseq_io::{parse_gff3, read_fasta};
@@ -61,6 +61,7 @@ pub struct TranscriptomeOut {
     pub fasta: Vec<u8>,
     pub tx2gene: String,
     pub genes_tsv: String,
+    pub gene_info_tsv: String,
     pub n_transcripts: usize,
     pub n_genes: usize,
 }
@@ -109,6 +110,7 @@ pub fn build_transcriptome_native(fasta: &[u8], gff3: &str) -> Result<Transcript
     write_fasta(&records, &mut fasta_out).map_err(|e| e.to_string())?;
     let tx2gene = tx2gene_tsv(&records);
     let genes_tsv = gene_table_tsv(&gene_table(&model, &[]));
+    let gene_info_tsv = gene_info_tsv(&model, &[]);
     let n_genes = genes_from_tx2gene(&tx2gene)
         .map_err(|e| e.to_string())?
         .len();
@@ -118,6 +120,7 @@ pub fn build_transcriptome_native(fasta: &[u8], gff3: &str) -> Result<Transcript
         fasta: fasta_out,
         tx2gene,
         genes_tsv,
+        gene_info_tsv,
     })
 }
 
@@ -143,6 +146,11 @@ impl Transcriptome {
     #[wasm_bindgen(getter)]
     pub fn genes_tsv(&self) -> String {
         self.inner.genes_tsv.clone()
+    }
+    /// The gene alias table (same bytes as `qrnamap transcripts` writes next to `genes.tsv`).
+    #[wasm_bindgen(getter)]
+    pub fn gene_info_tsv(&self) -> String {
+        self.inner.gene_info_tsv.clone()
     }
     #[wasm_bindgen(getter)]
     pub fn n_transcripts(&self) -> usize {

@@ -346,6 +346,7 @@ pub const RESERVED_OUTPUT_NAMES: &[&str] = &[
     "genes.saf",
     "splice_sites.txt",
     "genes.tsv.zst",
+    "gene_info.tsv.zst",
     "mapping_summary.tsv.zst",
     "counts.tsv.zst",
     "strand_check.tsv",

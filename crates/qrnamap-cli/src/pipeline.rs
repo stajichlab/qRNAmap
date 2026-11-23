@@ -17,11 +17,11 @@ use std::path::{Path, PathBuf};
 
 use qrnamap_core::{
     assigned_fraction, build_transcripts, count_matrix, feature_counts, gene_counts_from_abundance,
-    gene_counts_from_salmon, gene_table, gene_table_tsv, genes_from_tx2gene, hisat2_align,
-    hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts, parse_featurecounts_summary,
-    parse_tx2gene, saf, salmon_index, salmon_quant, splice_sites, tx2gene_tsv, write_fasta,
-    zero_warning, BuildError, ConfigError, CountError, CountMatrix, MatrixError, Mode, Quantifier,
-    RunConfig, Sample, StrandReport, Strandedness, ToolCall,
+    gene_counts_from_salmon, gene_info_tsv, gene_table, gene_table_tsv, genes_from_tx2gene,
+    hisat2_align, hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts,
+    parse_featurecounts_summary, parse_tx2gene, saf, salmon_index, salmon_quant, splice_sites,
+    tx2gene_tsv, write_fasta, zero_warning, BuildError, ConfigError, CountError, CountMatrix,
+    MatrixError, Mode, Quantifier, RunConfig, Sample, StrandReport, Strandedness, ToolCall,
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
@@ -456,6 +456,9 @@ fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), P
 /// Name of the gene table in a run directory.
 pub const GENES_TABLE: &str = "genes.tsv.zst";
 
+/// Name of the gene aliases table in a run directory.
+pub const GENE_INFO_TABLE: &str = "gene_info.tsv.zst";
+
 /// Write the gene table (class, biotype, mitochondrial flag per gene) to `path`. The suffix
 /// picks `.zst`, `.gz` or plain. A gene label with a tab, newline or carriage return is
 /// refused before anything is written. `mito_contigs` are extra contig names to flag; they
@@ -470,10 +473,36 @@ pub fn write_genes_table(
     }
     let rows = gene_table(model, mito_contigs);
     write_output(path, gene_table_tsv(&rows).as_bytes())?;
+
+    let ext = match path.file_name().and_then(|n| n.to_str()) {
+        Some(name) if name.ends_with(".tsv.zst") => ".tsv.zst",
+        Some(name) if name.ends_with(".tsv.gz") => ".tsv.gz",
+        Some(name) if name.ends_with(".zst") => ".tsv.zst",
+        Some(name) if name.ends_with(".gz") => ".tsv.gz",
+        _ => ".tsv",
+    };
+    let parent = path.parent().unwrap_or(Path::new(""));
+    let gene_info_path = parent.join(format!("gene_info{ext}"));
+    write_gene_info_table(&gene_info_path, model, mito_contigs)?;
+
     // R35-7: a name that matches no contig is a note, not an error (the match is exact).
     for c in unmatched_mito_contigs(model, mito_contigs) {
         eprintln!("note: --mito-contig '{c}' matches no contig of the GFF3 (the match is exact and case-sensitive); it flags no gene");
     }
+    Ok(())
+}
+
+/// Write the gene aliases table to `path`.
+pub fn write_gene_info_table(
+    path: &Path,
+    model: &GeneModel,
+    mito_contigs: &[String],
+) -> Result<(), PipelineError> {
+    for g in &model.genes {
+        check_label(&g.label)?;
+    }
+    let tsv = gene_info_tsv(model, mito_contigs);
+    write_output(path, tsv.as_bytes())?;
     Ok(())
 }
 
@@ -521,9 +550,14 @@ pub fn check_tx2gene_in_model(
     })
 }
 
-/// Remove an old `<out>/genes.tsv.zst` (and its `.partial`) before a run (ruling R24).
+/// Remove an old `<out>/genes.tsv.zst` and `<out>/gene_info.tsv.zst` (and their `.partial`) before a run (ruling R24).
 pub fn remove_old_genes_table(out_dir: &Path) -> Result<(), PipelineError> {
-    for name in [GENES_TABLE.to_string(), format!("{GENES_TABLE}.partial")] {
+    for name in [
+        GENES_TABLE.to_string(),
+        format!("{GENES_TABLE}.partial"),
+        GENE_INFO_TABLE.to_string(),
+        format!("{GENE_INFO_TABLE}.partial"),
+    ] {
         let p = out_dir.join(name);
         match fs::remove_file(&p) {
             Ok(()) => {}
@@ -552,7 +586,9 @@ pub fn run_transcripts(
     saf_out: Option<&Path>,
     splice_out: Option<&Path>,
 ) -> Result<usize, PipelineError> {
-    run_transcripts_with_genes(reference, gff, out, tx2gene, saf_out, splice_out, None)
+    run_transcripts_with_genes(
+        reference, gff, out, tx2gene, saf_out, splice_out, None, None,
+    )
 }
 
 /// `run_transcripts`, and the gene table too when `genes` is `Some((path, mito_contigs))`.
@@ -564,6 +600,7 @@ pub fn run_transcripts_with_genes(
     saf_out: Option<&Path>,
     splice_out: Option<&Path>,
     genes: Option<(&Path, &[String])>,
+    gene_info: Option<&Path>,
 ) -> Result<usize, PipelineError> {
     let (genome, model) = load_reference(reference, gff)?;
     let records = build_transcripts(&genome, &model).map_err(PipelineError::Build)?;
@@ -579,6 +616,9 @@ pub fn run_transcripts_with_genes(
     }
     if let Some((p, mito)) = genes {
         write_genes_table(p, &model, mito)?;
+    }
+    if let Some(p) = gene_info {
+        write_gene_info_table(p, &model, &[])?;
     }
     Ok(records.len())
 }
@@ -2031,6 +2071,7 @@ mod tests {
         // name that this crate writes directly in the output directory.
         for name in [
             GENES_TABLE,
+            GENE_INFO_TABLE,
             MAPPING_SUMMARY,
             "counts.tsv.zst",
             "index",

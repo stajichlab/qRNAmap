@@ -116,6 +116,21 @@ fn transcripts_writes_genes_table() {
 }
 
 #[test]
+fn transcripts_writes_gene_info_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let _ = transcripts(dir.path(), &[]);
+    let info = dir.path().join("gene_info.tsv.zst");
+    assert!(
+        info.exists(),
+        "gene_info.tsv.zst must exist next to genes.tsv.zst"
+    );
+    let content = read_table(&info).unwrap();
+    assert!(content.starts_with(
+        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\n"
+    ));
+}
+
+#[test]
 fn mito_contig_flag_marks_genes() {
     let dir = tempfile::tempdir().unwrap();
     let table = transcripts(
@@ -409,6 +424,10 @@ fn gene(label: &str) -> Gene {
         contig: "chrA".into(),
         strand: Strand::Plus,
         biotype: None,
+        symbol: None,
+        gene_id: None,
+        dbxref: vec![],
+        old_locus_tag: None,
         transcripts: vec![Transcript {
             id: "t1".into(),
             kind: "mRNA".into(),
@@ -416,6 +435,7 @@ fn gene(label: &str) -> Gene {
             cds: vec![],
             utr5: vec![],
             utr3: vec![],
+            proteins: vec![],
         }],
     }
 }
@@ -891,4 +911,134 @@ fn quant_task_id_mito_contig_prints_note() {
         "{err}"
     );
     assert_eq!(fs::read(out.join("genes.tsv.zst")).unwrap(), before);
+}
+
+#[test]
+fn real_genomes_gene_info_validation() {
+    use flate2::read::GzDecoder;
+    use qrnamap_core::{build_transcripts, gene_info_tsv, tx2gene_tsv};
+    use qseq_io::{parse_gff3, read_fasta};
+    use std::collections::HashSet;
+    use std::io::BufReader;
+
+    let genomes = [
+        (
+            "yeast",
+            "/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/genomes/yeast/GCF_000146045.2_R64_genomic.fna.gz",
+            "/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/genomes/yeast/GCF_000146045.2_R64_genomic.gff.gz",
+        ),
+        (
+            "afum",
+            "/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/genomes/afum/GCF_000002655.1_ASM265v1_genomic.fna.gz",
+            "/bigdata/stajichlab/jstajich/projects/qRNAmap_data/spike0/fixtures/genomes/afum/GCF_000002655.1_ASM265v1_genomic.gff.gz",
+        ),
+        (
+            "h99",
+            "/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1/dl_h99/GCF_000149245.1_CNA3_genomic.fna.gz",
+            "/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1/dl_h99/GCF_000149245.1_CNA3_genomic.gff.gz",
+        ),
+    ];
+
+    for (name, fna_path, gff_path) in genomes {
+        if !Path::new(fna_path).exists() || !Path::new(gff_path).exists() {
+            eprintln!("skip {name}: files not found");
+            continue;
+        }
+        let gff_file = fs::File::open(gff_path).unwrap();
+        let model = parse_gff3(BufReader::new(GzDecoder::new(gff_file))).unwrap();
+        let fna_file = fs::File::open(fna_path).unwrap();
+        let genome = read_fasta(BufReader::new(GzDecoder::new(fna_file))).unwrap();
+        let records = build_transcripts(&genome, &model).unwrap();
+        let tx2gene = tx2gene_tsv(&records);
+
+        let tsv = gene_info_tsv(&model, &[]);
+        let lines: Vec<&str> = tsv.lines().collect();
+        assert!(!lines.is_empty(), "{name}: gene_info.tsv must not be empty");
+        assert_eq!(
+            lines[0],
+            "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand"
+        );
+
+        let mut n_symbol = 0;
+        let mut n_gene_id = 0;
+        let mut n_old_locus_tag = 0;
+        let mut n_proteins = 0;
+        let mut all_txs_in_info = HashSet::new();
+
+        for line in &lines[1..] {
+            let cols: Vec<&str> = line.split('\t').collect();
+            assert_eq!(cols.len(), 10, "10 columns required on {line}");
+            let _gene = cols[0];
+            let symbol = cols[1];
+            let gene_id = cols[2];
+            let old_locus_tag = cols[3];
+            let transcripts = cols[4];
+            let proteins = cols[5];
+
+            if !symbol.is_empty() {
+                n_symbol += 1;
+            }
+            if !gene_id.is_empty() {
+                n_gene_id += 1;
+            }
+            if !old_locus_tag.is_empty() {
+                n_old_locus_tag += 1;
+            }
+            if !proteins.is_empty() {
+                n_proteins += 1;
+            }
+            if !transcripts.is_empty() {
+                for tx in transcripts.split(',') {
+                    all_txs_in_info.insert(tx.to_string());
+                }
+            }
+        }
+
+        eprintln!(
+            "{name}: total_genes={} symbol={} gene_id={} old_locus_tag={} proteins={}",
+            lines.len() - 1,
+            n_symbol,
+            n_gene_id,
+            n_old_locus_tag,
+            n_proteins
+        );
+
+        for line in tx2gene.lines() {
+            let tx = line.split('\t').next().unwrap();
+            assert!(
+                all_txs_in_info.contains(tx),
+                "{name}: transcript '{tx}' from tx2gene must appear in gene_info.tsv"
+            );
+        }
+
+        assert!(n_symbol > 0, "{name}: must have symbols");
+        assert!(n_gene_id > 0, "{name}: must have gene_ids");
+        assert!(n_proteins > 0, "{name}: must have proteins");
+        if name == "afum" {
+            assert!(n_old_locus_tag > 0, "afum must have old_locus_tags");
+        }
+    }
+
+    // Every locus name in counts.tsv (expected_quant.tsv for the fixture) appears in gene_info.tsv
+    let mito_gff = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../validation/browser-page/fixtures/mito.gff3");
+    let exp_quant = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../validation/browser-page/fixtures/expected_quant.tsv");
+    if mito_gff.exists() && exp_quant.exists() {
+        let model = parse_gff3(BufReader::new(fs::File::open(&mito_gff).unwrap())).unwrap();
+        let tsv = gene_info_tsv(&model, &[]);
+        let info_genes: HashSet<&str> = tsv
+            .lines()
+            .skip(1)
+            .map(|l| l.split('\t').next().unwrap())
+            .collect();
+        let quant_text = fs::read_to_string(&exp_quant).unwrap();
+        for line in quant_text.lines().skip(1) {
+            let gene = line.split('\t').nth(1).unwrap();
+            assert!(
+                info_genes.contains(gene),
+                "locus '{gene}' from counts must appear in gene_info.tsv"
+            );
+        }
+    }
 }
