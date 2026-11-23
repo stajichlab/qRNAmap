@@ -35,7 +35,7 @@ function limitText(entry) {
 }
 
 /** The state that the later steps read. `indexReady` is true only while the worker holds the index of `genome`. */
-export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', indexArgs: null, downloadNotes: [] };
+export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [] };
 
 let worker = null;
 let pending = null; // { id, resolve, reject, onProgress }
@@ -111,7 +111,7 @@ export async function createGenomeStep({ $, shell }) {
   const changed = () => document.dispatchEvent(new CustomEvent('qrnamap:genome', { detail: { ...state } }));
 
   function clearGenome() {
-    Object.assign(state, { genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', indexArgs: null, downloadNotes: [] });
+    Object.assign(state, { genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [] });
     $('genome-ready').hidden = true;
     shell.resetFrom('genome');
   }
@@ -281,7 +281,7 @@ export async function createGenomeStep({ $, shell }) {
       if (mine !== run) return;
       Object.assign(state, {
         genome: { label, accession, source: entry ? 'catalog' : 'upload', bases: ready.bases },
-        nTranscripts: ready.nTranscripts, nGenes: ready.nGenes, indexReady: true, tx2gene: ready.tx2gene, genesTsv: ready.genesTsv, indexArgs: ready.indexArgs,
+        nTranscripts: ready.nTranscripts, nGenes: ready.nGenes, indexReady: true, tx2gene: ready.tx2gene, genesTsv: ready.genesTsv, geneInfoTsv: ready.geneInfoTsv, indexArgs: ready.indexArgs,
       });
       setPhase('ready');
       busy(false);

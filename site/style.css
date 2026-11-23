@@ -73,3 +73,19 @@ footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem;
 .mate-name.missing, tr[data-invalid="true"] .status, tr[data-status="error"] .status { color: var(--warn); font-weight: 600; }
 #samples-progress { width: 100%; }
 ul.error { padding-left: 2rem; }
+
+/* Step 3: results */
+#results-panel button:not(.button) { font: inherit; padding: .3rem .8rem; border-radius: 6px; border: 1px solid var(--line); background: var(--note); color: var(--fg); cursor: pointer; }
+#results-panel .button { cursor: pointer; }
+.download-buttons { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+#reads-folder { width: 100%; max-width: 20rem; font: inherit; margin: .25rem 0; }
+#results-downloads { margin-bottom: 1.5rem; }
+#results-mapping-table, #results-count-table { width: 100%; margin: .5rem 0 1rem; }
+#results-count-table th { cursor: pointer; user-select: none; }
+#results-count-table th:hover { background: var(--note); }
+#results-count-table th[data-sort="asc"]::after { content: " \25B2"; font-size: .8em; }
+#results-count-table th[data-sort="desc"]::after { content: " \25BC"; font-size: .8em; }
+#count-search { width: 100%; max-width: 20rem; font: inherit; padding: .25rem .5rem; }
+#heatmap-container, #pca-container { margin: .5rem 0 1.5rem; overflow-x: auto; }
+.qc-message { color: var(--muted); font-style: italic; }
+svg.heatmap, svg.pca-plot { max-width: 100%; height: auto; font-family: system-ui, sans-serif; }

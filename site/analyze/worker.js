@@ -77,7 +77,7 @@ async function buildGenome(message) {
   // The worker keeps only the index. tx2gene and the gene table go to the page, which keeps them.
   genome = { label, accession, index };
   post({ type: 'genome-ready', id, label, accession, nTranscripts: built.nTranscripts, nGenes: built.nGenes, bases: built.bases,
-    indexBytes: index.length, indexSeconds: (performance.now() - started) / 1000, indexArgs: args, tx2gene: built.tx2gene, genesTsv: built.genesTsv });
+    indexBytes: index.length, indexSeconds: (performance.now() - started) / 1000, indexArgs: args, tx2gene: built.tx2gene, genesTsv: built.genesTsv, geneInfoTsv: built.geneInfoTsv });
 }
 
 // ------------------------------------------------------------------ quantification of one sample

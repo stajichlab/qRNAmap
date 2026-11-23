@@ -112,7 +112,48 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
   <h2 id="h-results">3. Results</h2>
   <p class="reason" id="reason-results">Locked. Finish step 2 (at least one sample counted) to see results.</p>
   <fieldset id="fs-results" disabled>
-    <div id="results-panel"><p>Results come in a later release of this page. Each result will carry the label "preview of the first 200,000 read pairs".</p></div>
+    <div id="results-panel">
+      <p id="results-preview-label" class="preview-label"></p>
+
+      <div id="results-downloads" class="note">
+        <h3>Downloads</h3>
+        <p><label for="reads-folder">Folder where your reads are stored (optional):</label>
+          <input id="reads-folder" type="text" placeholder="/path/to/reads/">
+          <span id="reads-folder-note" class="small">Using bare file names in samples.tsv and de-command.txt.</span></p>
+        <p class="download-buttons">
+          <button id="dl-counts" class="button" type="button">Download counts.tsv</button>
+          <button id="dl-sheet" type="button">Download samples.tsv</button>
+          <button id="dl-de" type="button">Download de-command.txt</button>
+          <button id="dl-gene-info" type="button">Download gene_info.tsv</button>
+        </p>
+      </div>
+
+      <div id="mapping-summary-section">
+        <h3>Mapping summary</h3>
+        <p id="mapping-summary-label" class="small"></p>
+        <table id="results-mapping-table"></table>
+      </div>
+
+      <div id="count-table-section">
+        <h3>Gene counts</h3>
+        <p id="count-table-label" class="small"></p>
+        <p><label for="count-search">Search gene or alias (symbol, GeneID, transcript, protein):</label>
+          <input id="count-search" type="search" placeholder="Search locus, symbol, GeneID, protein..."></p>
+        <table id="results-count-table"></table>
+      </div>
+
+      <div id="qc-section">
+        <h3>Quality control</h3>
+        <div id="heatmap-section">
+          <h4>Sample correlation</h4>
+          <div id="heatmap-container"></div>
+        </div>
+        <div id="pca-section">
+          <h4>Principal component analysis</h4>
+          <div id="pca-container"></div>
+        </div>
+      </div>
+    </div>
   </fieldset>
 </section>
 

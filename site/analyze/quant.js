@@ -71,7 +71,8 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
     const mine = ++runNumber;
     const state = app.state;
     state.preview = { n: null, label: '' };
-    state.samples = jobs.map((j) => ({ name: j.name, covariates: { ...j.covariates }, status: 'waiting', nPairs: 0, processed: 0, pseudoaligned: 0,
+    state.samples = jobs.map((j) => ({ name: j.name, covariates: { ...j.covariates }, fastq1: j.mate1?.name || j.fastq1 || '', fastq2: j.mate2?.name || j.fastq2 || '',
+      status: 'waiting', nPairs: 0, processed: 0, pseudoaligned: 0,
       fraction: 0, allPairs: false, previewN: 0, readLength: 0, geneCounts: null, error: '', warning: '', reruns: 0 }));
     state.samplesPhase = 'running';
     state.samples.forEach(onChange);

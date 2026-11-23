@@ -203,8 +203,7 @@ test('manual entry: three samples (gzip, plain, single-end) give the gene counts
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: 200000, label: 'preview of the first 200,000 pairs' });
   assert.deepEqual(await page.evaluate(() => window.__samplesDone), [['done', 'done', 'done']]);
   assert.equal(await page.getAttribute('#step-samples', 'data-state'), 'done');
-  assert.equal(await page.getAttribute('#step-results', 'data-state'), 'locked');
-  assert.match(await page.textContent('#reason-results'), /results view is not built yet/);
+  assert.equal(await page.getAttribute('#step-results', 'data-state'), 'active');
   assert.equal(await page.textContent('#samples-summary'), '3 of 3 samples counted.');
   assert.deepEqual(errors, []);
 });
