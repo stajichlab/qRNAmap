@@ -3,39 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>qRNAmap: RNA-seq counts and differential expression</title>
-<meta name="description" content="qRNAmap maps bulk RNA-seq reads, counts them per gene and tests for differential expression. The command-line tool exists. The browser version is under development.">
-<style>
-:root { --bg:#fbfbfa; --fg:#1d2024; --muted:#5b6470; --line:#d9dde2; --link:#0b5cad; --note:#f1f3f5; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#14171a; --fg:#e6e8ea; --muted:#9aa4af; --line:#2c3238; --link:#6cb2ff; --note:#1c2024; }
-}
-html { background: var(--bg); color: var(--fg); }
-body { font: 16px/1.55 system-ui, sans-serif; margin: 0 auto; max-width: 42rem; padding: 2rem 16px 4rem; }
-h1 { margin: 0 0 .25rem; font-size: 1.8rem; }
-p.lead { margin: 0 0 1.5rem; color: var(--muted); }
-h2 { margin: 2rem 0 .5rem; font-size: 1.15rem; }
-a { color: var(--link); }
-.note { background: var(--note); border: 1px solid var(--line); border-radius: 6px; padding: .75rem 1rem; }
-ul { padding-left: 1.2rem; }
-footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: .9rem; }
-</style>
+<title>qRNAmap: RNA-seq counts in your browser</title>
+<meta name="description" content="qRNAmap counts bulk RNA-seq reads per gene. The command-line tool exists. A web page that runs kallisto in your browser is under construction (version 1: the genome step and the quantification of a read preview work; the results view is not built yet).">
+<script>
+// Apply a saved theme choice before the page is drawn. Without a choice, the system setting (prefers-color-scheme) applies.
+try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+<link rel="stylesheet" href="style.css?v=__BUILD__">
 </head>
 <body>
-<h1>qRNAmap</h1>
+<div class="topbar">
+  <h1>qRNAmap</h1>
+  <nav class="themes" aria-label="Colour theme">
+    <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+    <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
+  </nav>
+</div>
 <p class="lead">Map bulk RNA-seq reads, count them per gene, and test for differential expression.</p>
-<p class="note">The browser version is under development. This page is a placeholder. You cannot run an analysis here yet.</p>
-<h2>What exists today</h2>
+
+<p class="warn"><strong>Status:</strong> under construction. Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet. Step 1 downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. Step 2 counts the first read pairs of each sample with kallisto and shows the mapping numbers per sample. There is no count table, plot or download yet.</p>
+<p><a class="button" id="analyze-link" href="analyze/">Open the tool (genome and samples steps)</a></p>
+<p class="lead">The button leads to the three steps of the tool. Steps 1 (genome) and 2 (samples) work. Step 3 (results) is locked until it is built.</p>
+
+<h2>What qRNAmap is</h2>
 <ul>
-  <li>A command-line tool. It wraps kallisto or Salmon (transcript quantification), or HISAT2 with featureCounts (alignment), and then DESeq2.</li>
+  <li>The command-line tool exists today. It wraps kallisto or Salmon (transcript quantification), or HISAT2 with featureCounts (alignment), and then DESeq2.</li>
   <li>It runs on a laptop or as SLURM jobs on a cluster.</li>
-  <li>Source, install steps and the validation notes are in the <a href="https://github.com/stajichlab/qRNAmap">repository</a>.</li>
+  <li>The web page (version 1, under construction) will run the quantification step only, for a small preview of your data. It will need no server and no install. Your reads will not leave your computer.</li>
 </ul>
-<h2>What is planned</h2>
+
+<h2>What version 1 of the web page will not do</h2>
 <ul>
-  <li>The same steps in a web page, with all computation in your browser and no server.</li>
-  <li>A first measurement of the tools in a browser is published in the <a href="https://github.com/stajichlab/qRNAmap/blob/main/docs/browser/spike0.md">repository</a>. It covers kallisto, HISAT2, featureCounts and DESeq2, tested in headless browsers on one small yeast data set. DESeq2 in a browser is not decided yet.</li>
+  <li>It will not test for differential expression. The command-line tool does that with DESeq2. The page will give a count table, quality plots, and the command that runs DESeq2 with the command-line tool.</li>
+  <li>It will have no alignment mode (HISAT2 and featureCounts). The command-line tool has that mode.</li>
+  <li>It will be a preview. The planned limit is the first 200,000 read pairs of each sample. Every table, plot and file from the page will say so. The limit comes from memory measurements in Chromium, Firefox and WebKit (see the measurements link below).</li>
+  <li>It will not accept an ENA accession typed by the user.</li>
 </ul>
+
+<h2>Test sets</h2>
+<p>Two public data sets are planned as examples for the page (not built yet). A third (<em>Neurospora crassa</em>) comes later.</p>
+<table>
+  <thead><tr><th>Organism</th><th>Study</th><th>Contrast</th></tr></thead>
+  <tbody>
+    <tr><td><em>Saccharomyces cerevisiae</em> (yeast)</td><td>Amphotericin B, GEO GSE80357</td><td>AmpB treated against control, 3 against 3</td></tr>
+    <tr><td><em>Cryptococcus neoformans</em> H99</td><td>Lkh1 study, BioProject PRJNA976751</td><td><em>lkh1</em> deletion against wild type, basal condition, 3 against 3</td></tr>
+  </tbody>
+</table>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://github.com/stajichlab/qRNAmap#install-and-build">Install the command-line tool</a> (README, "Install and build")</li>
+  <li><a href="https://github.com/stajichlab/qRNAmap">Repository</a></li>
+  <li><a href="https://github.com/stajichlab/qRNAmap/blob/main/docs/browser/spike0.md">First browser measurement (spike 0)</a>: kallisto, HISAT2, featureCounts and DESeq2 in headless browsers</li>
+  <li><a href="https://github.com/stajichlab/qRNAmap/blob/main/docs/browser/page-v1-measurements.md">Measurements for the page limits</a>: time and memory of kallisto in a browser, and how the limits were chosen</li>
+</ul>
+
 <footer>qRNAmap, Stajich Lab. <a href="https://github.com/stajichlab/qRNAmap">github.com/stajichlab/qRNAmap</a></footer>
+<script src="theme.js?v=__BUILD__"></script>
 </body>
 </html>

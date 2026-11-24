@@ -22,6 +22,8 @@ pub struct Transcript {
     pub utr5: Vec<(u64, u64)>,
     /// Explicit three_prime_UTR features only.
     pub utr3: Vec<(u64, u64)>,
+    /// Protein accessions from CDS features (CDS `protein_id`).
+    pub proteins: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +33,14 @@ pub struct Gene {
     pub strand: Strand,
     /// Value of the `gene_biotype` attribute (percent-decoded); `None` when absent or empty.
     pub biotype: Option<String>,
+    /// Gene symbol from the `Name` attribute (percent-decoded); `None` when absent or empty.
+    pub symbol: Option<String>,
+    /// NCBI GeneID from `Dbxref` (e.g. `GeneID:123` -> `123`); `None` when absent or empty.
+    pub gene_id: Option<String>,
+    /// All Dbxref entries (percent-decoded).
+    pub dbxref: Vec<String>,
+    /// Old locus tag from `old_locus_tag` attribute (percent-decoded); `None` when absent or empty.
+    pub old_locus_tag: Option<String>,
     pub transcripts: Vec<Transcript>,
 }
 
@@ -167,6 +177,7 @@ struct Children {
     cds: Vec<(u64, u64)>,
     utr5: Vec<(u64, u64)>,
     utr3: Vec<(u64, u64)>,
+    proteins: Vec<String>,
 }
 
 fn percent_decode(s: &str) -> String {
@@ -226,6 +237,7 @@ struct ChildRec {
     parents: Vec<String>,
     start: u64,
     end: u64,
+    protein_id: Option<String>,
 }
 
 struct Builder<'a> {
@@ -250,11 +262,66 @@ impl Builder<'_> {
         if self.label_owner.insert(label.clone(), gi).is_some() {
             return Err(GffError::DuplicateGeneLabel(label));
         }
+
+        // Unknown attributes are ignored; a parse error in one alias never fails the transcriptome build (the alias cell is empty).
+        let symbol = f.get("Name");
+        let mut dbxref = Vec::new();
+        let mut gene_id = None;
+        for (k, v) in &f.attrs {
+            if k == "Dbxref" || k == "dbxref" {
+                for item in v.split(',') {
+                    let item = item.trim();
+                    if item.is_empty() {
+                        continue;
+                    }
+                    let decoded = percent_decode(item);
+                    if let Some(id) = decoded.strip_prefix("GeneID:") {
+                        if gene_id.is_none() && !id.is_empty() {
+                            gene_id = Some(id.to_string());
+                        }
+                    }
+                    if !dbxref.contains(&decoded) {
+                        dbxref.push(decoded);
+                    }
+                }
+            }
+        }
+        if gene_id.is_none() {
+            if let Some(gid) = f.get("gene_id").or_else(|| f.get("GeneID")) {
+                if !gid.is_empty() {
+                    gene_id = Some(gid);
+                }
+            }
+        }
+        let mut old_locus_tags = Vec::new();
+        for (k, v) in &f.attrs {
+            if k == "old_locus_tag" {
+                for tag in v.split(',') {
+                    let tag = tag.trim();
+                    if !tag.is_empty() {
+                        let decoded = percent_decode(tag);
+                        if !old_locus_tags.contains(&decoded) {
+                            old_locus_tags.push(decoded);
+                        }
+                    }
+                }
+            }
+        }
+        let old_locus_tag = if old_locus_tags.is_empty() {
+            None
+        } else {
+            Some(old_locus_tags.join(","))
+        };
+
         self.genes.push(Gene {
             label,
             contig: f.contig.clone(),
             strand,
             biotype: f.get("gene_biotype"),
+            symbol,
+            gene_id,
+            dbxref,
+            old_locus_tag,
             transcripts: Vec::new(),
         });
         self.gene_of_feat.insert(fi, gi);
@@ -306,6 +373,11 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
         };
         if is_child_kind(&feat.kind) {
             let parents = feat.parents();
+            let protein_id = if feat.kind == "CDS" {
+                feat.get("protein_id")
+            } else {
+                None
+            };
             child_recs.push(ChildRec {
                 line: lineno,
                 kind: feat.kind,
@@ -313,6 +385,7 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
                 parents,
                 start,
                 end,
+                protein_id,
             });
         } else {
             if feat.kind == "region"
@@ -369,7 +442,18 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             }
             let ch = children.entry(fi).or_default();
             let list = match c.kind.as_str() {
-                "CDS" => &mut ch.cds,
+                "CDS" => {
+                    if let Some(pid) = &c.protein_id {
+                        // Unknown attributes are ignored; a parse error in one alias never fails the transcriptome build (the alias cell is empty).
+                        for p in pid.split(',') {
+                            let p = p.trim();
+                            if !p.is_empty() && !ch.proteins.iter().any(|x| x == p) {
+                                ch.proteins.push(p.to_string());
+                            }
+                        }
+                    }
+                    &mut ch.cds
+                }
                 "five_prime_UTR" => &mut ch.utr5,
                 "three_prime_UTR" => &mut ch.utr3,
                 _ => &mut ch.exons,
@@ -447,6 +531,15 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
 fn push_transcript(gene: &mut Gene, f: &Feat, id: Option<String>, ch: Option<&Children>) {
     let empty = Children::default();
     let ch = ch.unwrap_or(&empty);
+    let mut proteins = ch.proteins.clone();
+    if let Some(pid) = f.get("protein_id") {
+        for p in pid.split(',') {
+            let p = p.trim();
+            if !p.is_empty() && !proteins.iter().any(|x| x == p) {
+                proteins.push(p.to_string());
+            }
+        }
+    }
     gene.transcripts.push(Transcript {
         id: id.unwrap_or_else(|| format!("{}@line{}", f.kind, f.line)),
         kind: f.kind.clone(),
@@ -454,5 +547,6 @@ fn push_transcript(gene: &mut Gene, f: &Feat, id: Option<String>, ch: Option<&Ch
         cds: finish(ch.cds.clone()),
         utr5: finish(ch.utr5.clone()),
         utr3: finish(ch.utr3.clone()),
+        proteins,
     });
 }

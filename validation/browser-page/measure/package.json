@@ -1,0 +1,9 @@
+{
+  "name": "qrnamap-page-v1-measure",
+  "private": true,
+  "type": "module",
+  "description": "Page-v1 measurements: kallisto in headless Playwright browsers (see docs/browser/page-v1-measurements.md)",
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}

@@ -407,3 +407,49 @@ fn mito_region_without_genes_is_not_an_error() {
     assert!(m.genes.is_empty());
     assert_eq!(m.mito_contigs.len(), 1);
 }
+
+#[test]
+fn gene_aliases_and_protein_ids() {
+    let s = "##gff-version 3\n\
+chr1\tsrc\tgene\t100\t1000\t.\t+\t.\tID=g1;locus_tag=LOC1;Name=SYM%3B1;Dbxref=GeneID:1001,SGD:S001;old_locus_tag=OLD%2C1\n\
+chr1\tsrc\tmRNA\t100\t1000\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\tsrc\texon\t100\t500\t.\t+\t.\tID=e1;Parent=t1\n\
+chr1\tsrc\tCDS\t200\t500\t.\t+\t0\tID=c1;Parent=t1;protein_id=PROT1\n\
+chr1\tsrc\tmRNA\t100\t800\t.\t+\t.\tID=t2;Parent=g1\n\
+chr1\tsrc\texon\t100\t800\t.\t+\t.\tID=e2;Parent=t2\n\
+chr1\tsrc\tCDS\t200\t800\t.\t+\t0\tID=c2;Parent=t2;protein_id=PROT2\n\
+chr1\tsrc\tgene\t2000\t2500\t.\t+\t.\tID=g2;Name=NAME2;Dbxref=GeneID:1002\n\
+chr1\tsrc\ttRNA\t2000\t2500\t.\t+\t.\tID=t3;Parent=g2\n\
+chr1\tsrc\texon\t2000\t2500\t.\t+\t.\tID=e3;Parent=t3\n\
+chr1\tsrc\tgene\t3000\t3500\t.\t-\t.\tID=g3;gene_biotype=pseudogene\n\
+chr1\tsrc\tpseudogenic_transcript\t3000\t3500\t.\t-\t.\tID=t4;Parent=g3\n\
+chr1\tsrc\texon\t3000\t3500\t.\t-\t.\tID=e4;Parent=t4\n";
+    let m = parse(s).unwrap();
+    assert_eq!(m.genes.len(), 3);
+
+    let g1 = &m.genes[0];
+    assert_eq!(g1.label, "LOC1");
+    assert_eq!(g1.symbol.as_deref(), Some("SYM;1"));
+    assert_eq!(g1.gene_id.as_deref(), Some("1001"));
+    assert_eq!(g1.dbxref, vec!["GeneID:1001", "SGD:S001"]);
+    assert_eq!(g1.old_locus_tag.as_deref(), Some("OLD,1"));
+    assert_eq!(g1.transcripts.len(), 2);
+    assert_eq!(g1.transcripts[0].proteins, vec!["PROT1"]);
+    assert_eq!(g1.transcripts[1].proteins, vec!["PROT2"]);
+
+    let g2 = &m.genes[1];
+    assert_eq!(g2.label, "NAME2");
+    assert_eq!(g2.symbol.as_deref(), Some("NAME2"));
+    assert_eq!(g2.gene_id.as_deref(), Some("1002"));
+    assert_eq!(g2.old_locus_tag, None);
+    assert_eq!(g2.transcripts.len(), 1);
+    assert!(g2.transcripts[0].proteins.is_empty());
+
+    let g3 = &m.genes[2];
+    assert_eq!(g3.label, "g3");
+    assert_eq!(g3.symbol, None);
+    assert_eq!(g3.gene_id, None);
+    assert_eq!(g3.old_locus_tag, None);
+    assert_eq!(g3.transcripts.len(), 1);
+    assert!(g3.transcripts[0].proteins.is_empty());
+}

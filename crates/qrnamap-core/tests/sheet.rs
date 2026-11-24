@@ -348,3 +348,16 @@ fn errors_display() {
     assert!(m.contains("s1"));
     let _: &dyn std::error::Error = &SheetError::Empty;
 }
+
+#[test]
+fn reserved_output_names_with_and_without_partial() {
+    use qrnamap_core::reserved_output_name;
+    assert_eq!(reserved_output_name("index"), Some("index".into()));
+    assert_eq!(
+        reserved_output_name("counts.tsv.zst.partial"),
+        Some("counts.tsv.zst.partial".into())
+    );
+    assert_eq!(reserved_output_name("slurm"), Some("slurm".into()));
+    assert_eq!(reserved_output_name("index2"), None);
+    assert_eq!(reserved_output_name("Index"), None);
+}

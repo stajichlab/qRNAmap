@@ -1,0 +1,5 @@
+case	pairs	n_processed	n_pseudoaligned
+s1	300	300	262
+s2	300	300	269
+s3	300	300	272
+s1_first100	100	100	85

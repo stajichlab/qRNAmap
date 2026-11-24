@@ -1,0 +1,2 @@
+fixture	genes	transcripts	transcripts_sha256	how
+mito	46	47	b7397960166ce9968590e8f0b7d8adfeb0e09beab55341157e87c3231425a058	qrnamap 0.1.0 transcripts --reference mito.fna --gff mito.gff3 (genes: distinct gene names in tx2gene)

@@ -5,6 +5,8 @@ pub mod counts;
 pub mod de;
 pub mod design;
 pub mod genes;
+pub mod matrix;
+pub mod qc;
 pub mod saf;
 pub mod sheet;
 pub mod splice;
@@ -23,9 +25,15 @@ pub use counts::{
     parse_featurecounts_summary, unlisted_genes, CountError, CountMatrix,
 };
 pub use design::{Contrast, Design, DesignError};
-pub use genes::{gene_table, gene_table_tsv, GeneClass, GeneRow};
+pub use genes::{gene_info_tsv, gene_table, gene_table_tsv, GeneClass, GeneRow};
+pub use matrix::{
+    count_matrix, genes_from_tx2gene, parse_tx2gene, zero_warning, MatrixError, Tx2GeneError,
+};
+pub use qc::{log_cpm, pca, sample_correlation, Pca, QcError};
 pub use saf::saf;
-pub use sheet::{ColType, Sample, SampleSheet, SheetError};
+pub use sheet::{
+    reserved_output_name, ColType, Sample, SampleSheet, SheetError, RESERVED_OUTPUT_NAMES,
+};
 pub use splice::splice_sites;
 pub use strand::{assigned_fraction, StrandReport, STRAND_THRESHOLD};
 pub use transcripts::{build_transcripts, tx2gene_tsv, write_fasta, BuildError, TxRecord};

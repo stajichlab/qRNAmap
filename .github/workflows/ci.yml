@@ -18,3 +18,7 @@ jobs:
         run: pixi run test
       - name: WASM check
         run: pixi run wasm-check
+      - name: Vendor check
+        run: |
+          bash scripts/check-vendor.sh "$PWD/site/vendor/kallisto"
+          bash scripts/test-check-vendor.sh

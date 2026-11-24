@@ -1,0 +1,195 @@
+# Browser page (version 1) checks in headless Playwright browsers.
+# Job `measure` (Task 3 of docs/superpowers/plans/2026-11-22-browser-page-v1.md): the measurements that fix the page limits.
+# See docs/browser/page-v1-measurements.md for the method and the results.
+# No secrets. Public data only: SRR3396381 reads (the measured runs converted them from the NCBI SRA file; ENA only for metadata and the browser tests), genomes from NCBI, transcripts from the spike 0 fixture release.
+name: Browser page
+on:
+  push:
+    branches: [page-v1]
+    paths:
+      - 'validation/browser-page/measure/**'
+      - '!validation/browser-page/measure/results/**'
+      - '.github/workflows/page.yml'
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Comma list: quant, truncated, genomes, determinism'
+        required: false
+        default: 'quant,truncated,genomes'
+      counts:
+        description: 'Read pairs per quant run (comma list, ascending)'
+        required: false
+        default: '100000,200000,500000,1000000,2000000,3000000,4000000,6000000,8405534'
+      reps:
+        description: 'Runs per case'
+        required: false
+        default: '3'
+      modes:
+        description: 'Comma list of quant modes: gz, plain, wgz, wplain (wgz and wplain: browsers only)'
+        required: false
+        default: 'gz,plain'
+      engines:
+        description: 'Comma list: node, chromium, firefox, webkit'
+        required: false
+        default: 'node,chromium,firefox,webkit'
+permissions:
+  contents: read
+concurrency:
+  group: page-${{ github.ref }}-${{ github.event_name }}-${{ inputs.suites }}-${{ inputs.modes }}
+  cancel-in-progress: false
+# A push has no inputs: it runs a short check (2 counts, 1 run per case). The full measurement runs on dispatch.
+env:
+  SUITES: ${{ inputs.suites || 'quant,truncated,genomes' }}
+  COUNTS: ${{ inputs.counts || '100000,200000' }}
+  REPS: ${{ inputs.reps || '1' }}
+  ENGINES: ${{ inputs.engines || 'node,chromium,firefox,webkit' }}
+  MODES: ${{ inputs.modes || 'gz,plain' }}
+
+# Action versions are pinned to exact tags (checkout and setup-pixi as in pages.yml; the others checked on 2026-11-22).
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      reads_kind: ${{ steps.plan.outputs.reads_kind }}
+    steps:
+      - id: plan
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          suites = [s.strip() for s in os.environ['SUITES'].split(',') if s.strip()]
+          engines = [e.strip() for e in os.environ['ENGINES'].split(',') if e.strip()]
+          inc = []
+          if 'quant' in suites:
+              inc += [{'suite': 'quant', 'engine': e, 'mode': m} for e in ['node', 'chromium', 'firefox', 'webkit']
+                      for m in os.environ['MODES'].split(',') if not (e == 'node' and m.startswith('w'))]
+          if 'truncated' in suites:
+              inc += [{'suite': 'truncated', 'engine': e, 'mode': '-'} for e in ['chromium', 'firefox', 'webkit']]
+          if 'genomes' in suites:
+              inc += [{'suite': 'genomes', 'engine': e, 'mode': '-'} for e in ['node', 'chromium', 'firefox', 'webkit']]
+          if 'determinism' in suites:
+              inc += [{'suite': 'determinism', 'engine': e, 'mode': '-'} for e in ['node', 'chromium', 'firefox', 'webkit']]
+          inc = [x for x in inc if x['engine'] in engines]
+          print('matrix=' + json.dumps({'include': inc}))
+          # Reads: the prefix files (1,000,000 pairs) serve all counts <= 1,000,000; otherwise the full files. Both are release assets.
+          counts = [int(c) for c in os.environ['COUNTS'].replace(' ', '').split(',') if c]
+          print('reads_kind=' + ('prefix' if counts and max(counts) <= 1000000 else 'full'))
+          EOF
+
+  wasm-pkg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          locked: true
+          cache: true
+      - run: pixi run build-wasm-web
+      - run: pixi run build-wasm-node
+      - name: Vendor check (site/vendor/kallisto against PROVENANCE.md)
+        run: bash scripts/check-vendor.sh "$PWD/site/vendor/kallisto"
+      - run: sha256sum pkg-web/* pkg-node/* | tee pkg.sha256 && mv pkg.sha256 pkg-web/
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: measure-pkg
+          path: |
+            pkg-web/
+            pkg-node/
+          retention-days: 7
+
+  reads:
+    needs: [plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # Static files from release page-v1-test-data-v1 (SHA-256 checked against validation/browser-page/measure/reads_prefix.tsv).
+      # prepare_reads.sh (NCBI SRA download and conversion) is the documented way to re-create them; CI does not run it.
+      - name: SRR3396381 reads (${{ needs.plan.outputs.reads_kind }}) and the yeast transcripts from releases
+        run: bash validation/browser-page/measure/fetch_reads_release.sh data/reads "${{ needs.plan.outputs.reads_kind }}"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: measure-reads
+          path: data/reads/
+          compression-level: 0
+          retention-days: 3
+
+  genome-data:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Download the genomes from NCBI (timed)
+        run: python3 -I validation/browser-page/measure/prepare_genomes.py crates/genome-catalog/data/genomes.json data/genomes
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: measure-genomes
+          path: data/genomes/
+          compression-level: 0
+          retention-days: 3
+
+  measure:
+    needs: [plan, wasm-pkg, reads, genome-data]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22.23.5'
+          cache: npm
+          cache-dependency-path: validation/browser-page/measure/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: validation/browser-page/measure
+      - name: Install the Playwright browser
+        if: matrix.engine != 'node'
+        working-directory: validation/browser-page/measure
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: measure-pkg
+          path: .
+      - uses: actions/download-artifact@v8.0.2
+        if: matrix.suite != 'genomes'
+        with:
+          name: measure-reads
+          path: data/reads
+      - uses: actions/download-artifact@v8.0.2
+        if: matrix.suite == 'genomes'
+        with:
+          name: measure-genomes
+          path: data/genomes
+      - name: Runner facts
+        run: |
+          out=reports/${{ matrix.suite }}-${{ matrix.engine }}-${{ matrix.mode }}
+          mkdir -p "$out"
+          { date -u +%Y-%m-%dT%H:%M:%SZ; uname -a; nproc; free -k; grep -E 'MemTotal|SwapTotal' /proc/meminfo; node --version; cat /etc/os-release | head -2; } | tee "$out/runner.txt"
+          cp pkg-web/pkg.sha256 "$out/"
+          if [ -f data/reads/reads_check.tsv ]; then cp data/reads/reads_check.tsv data/reads/sha256.txt "$out/"; fi
+          if [ -f data/genomes/download.tsv ]; then cp data/genomes/download.tsv data/genomes/genomes.tsv "$out/"; fi
+      - name: Run (${{ matrix.suite }}, ${{ matrix.engine }}, ${{ matrix.mode }})
+        run: |
+          set -o pipefail
+          out=reports/${{ matrix.suite }}-${{ matrix.engine }}-${{ matrix.mode }}
+          case "${{ matrix.suite }}" in
+            quant) extra=(--data data/reads --counts "$COUNTS" --modes "${{ matrix.mode }}" --budget-min 300) ;;
+            truncated) extra=(--data data/reads --timeout-min 60) ;;
+            determinism) extra=(--data data/reads --counts "$COUNTS") ;;
+            genomes)
+              pkg=pkg-web; [ "${{ matrix.engine }}" = node ] && pkg=pkg-node
+              extra=(--data data/genomes --genomes data/genomes/genomes.tsv --pkg "$pkg") ;;
+          esac
+          node validation/browser-page/measure/measure.mjs --suite ${{ matrix.suite }} --engine ${{ matrix.engine }} \
+            --reps "$REPS" --out "$out" "${extra[@]}" 2>&1 | tee "$out/measure.log"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: measure-${{ matrix.suite }}-${{ matrix.engine }}-${{ matrix.mode }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
