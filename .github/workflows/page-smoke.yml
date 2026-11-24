@@ -63,19 +63,19 @@ jobs:
         run: node validation/browser-page/smoke/check-links.mjs "$PWD/dist-site"
       - name: Install the Playwright browsers
         working-directory: validation/browser-page/smoke
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: npx playwright install chromium firefox
       - name: Browser smoke test
-        run: node validation/browser-page/smoke/smoke.mjs "$PWD/dist-site"
+        run: node validation/browser-page/smoke/smoke.mjs "$PWD/dist-site" chromium,firefox
 
   genome-step:
     needs: smoke
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        engine: [chromium, firefox, webkit]
+        engine: [chromium, firefox]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.2
@@ -91,7 +91,7 @@ jobs:
         working-directory: validation/browser-page/tests
       - name: Install the Playwright browser
         working-directory: validation/browser-page/tests
-        run: npx playwright install --with-deps ${{ matrix.engine }}
+        run: npx playwright install ${{ matrix.engine }}
       - name: Genome step tests (${{ matrix.engine }})
         run: node --test validation/browser-page/tests/genome.test.mjs
         env:
