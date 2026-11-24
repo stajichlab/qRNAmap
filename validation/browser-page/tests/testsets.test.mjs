@@ -94,11 +94,11 @@ test('Load test set button fills genome, fills sample table with 6 rows, fetches
   });
 
   // Intercept ENA read downloads with fixture reads
-  await page.route('**/ftp.sra.ebi.ac.uk/**', (route) => {
+  await page.route('**/{ftp.sra.ebi.ac.uk,testsets/reads}/**', (route) => {
     const url = route.request().url();
-    if (url.includes('_1.fastq.gz')) {
+    if (url.includes('_1.fastq.gz') || url.includes('_1.fastq')) {
       route.fulfill({ status: 200, contentType: 'application/gzip', headers: { 'access-control-allow-origin': '*' }, body: fixture('s1_R1.fastq.gz') });
-    } else if (url.includes('_2.fastq.gz')) {
+    } else if (url.includes('_2.fastq.gz') || url.includes('_2.fastq')) {
       route.fulfill({ status: 200, contentType: 'application/gzip', headers: { 'access-control-allow-origin': '*' }, body: fixture('s1_R2.fastq.gz') });
     } else {
       route.continue();
@@ -137,8 +137,8 @@ test('ENA failure (HTTP 404 or network error) gives clear message in testset-err
     }
   });
 
-  // Route ENA with 404
-  await page.route('**/ftp.sra.ebi.ac.uk/**', (route) => {
+  // Route ENA and local testset reads with 404
+  await page.route('**/{ftp.sra.ebi.ac.uk,testsets/reads}/**', (route) => {
     route.fulfill({ status: 404, statusText: 'Not Found', body: 'Not found' });
   });
 

@@ -79,6 +79,64 @@ export async function streamCutFastq(url, maxRecords, signal) {
   return { bytes: out, records: Math.floor(newlines / 4) };
 }
 
+export async function fetchTestsetRead(localUrl, enaUrl, maxRecords, signal) {
+  if (localUrl) {
+    try {
+      const res = await fetch(localUrl, { signal });
+      if (res.ok) {
+        const buf = new Uint8Array(await res.arrayBuffer());
+        const isGz = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+        const chunks = [];
+        let newlines = 0;
+        const target = maxRecords * 4;
+        let cut = false;
+
+        if (isGz) {
+          const gunzip = new VerifyingGunzip((chunk) => {
+            if (cut) return;
+            for (let i = 0; i < chunk.length; i++) {
+              if (chunk[i] === 10) {
+                newlines++;
+                if (newlines === target) {
+                  chunks.push(chunk.slice(0, i + 1));
+                  cut = true;
+                  return;
+                }
+              }
+            }
+            chunks.push(chunk);
+          });
+          gunzip.push(buf, true);
+        } else {
+          for (let i = 0; i < buf.length; i++) {
+            if (buf[i] === 10) {
+              newlines++;
+              if (newlines === target) {
+                chunks.push(buf.slice(0, i + 1));
+                cut = true;
+                break;
+              }
+            }
+          }
+          if (!cut) chunks.push(buf);
+        }
+
+        const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
+        const out = new Uint8Array(totalLen);
+        let off = 0;
+        for (const c of chunks) {
+          out.set(c, off);
+          off += c.length;
+        }
+        return { bytes: out, records: Math.floor(newlines / 4) };
+      }
+    } catch (_) {
+      // Fall through to ENA stream
+    }
+  }
+  return await streamCutFastq(enaUrl, maxRecords, signal);
+}
+
 export function createTestsets({ $, app, shell }) {
   let testsets = [];
 
@@ -123,29 +181,47 @@ export function createTestsets({ $, app, shell }) {
       const pairsInput = $('preview-pairs');
       if (pairsInput && ts.n_pairs) pairsInput.value = String(ts.n_pairs);
 
-      // 2. Select catalog genome and initiate download/build
-      setStatus(`Downloading and indexing catalog genome ${ts.catalog_accession} (${ts.organism})...`);
-      if (app.loadCatalogAccession) {
-        await app.loadCatalogAccession(ts.catalog_accession);
+      // 2. Immediately set up the table with all 6 sample rows
+      const covName = ts.design?.replace(/^~\s*/, '') || 'condition';
+      const initialRows = ts.samples.map((s) => {
+        const covVal = s[covName] || s.condition || s.genotype || '';
+        return {
+          name: s.sample,
+          values: [covVal],
+          files: { 1: null, 2: null },
+          expect: { 1: `${s.run}_1.fastq`, 2: `${s.run}_2.fastq` },
+          loading: { 1: 'Waiting to download...', 2: 'Waiting to download...' },
+          statusText: 'Waiting for download...',
+        };
+      });
+      if (app.samplesStep?.setSamples) {
+        app.samplesStep.setSamples({ columns: [covName], rows: initialRows });
       }
 
-      // 3. Populate sample table
-      setStatus(`Setting up sample table with ${ts.samples.length} samples...`);
-      const covName = ts.design?.replace(/^~\s*/, '') || 'condition';
-      const rows = [];
+      // 3. Start catalog genome download and indexing concurrently
+      setStatus(`Downloading and indexing catalog genome ${ts.catalog_accession} (${ts.organism})...`);
+      const genomePromise = app.loadCatalogAccession ? app.loadCatalogAccession(ts.catalog_accession) : Promise.resolve();
 
+      // 4. Download and process sample reads
       for (let i = 0; i < ts.samples.length; i++) {
         const s = ts.samples[i];
-        const covVal = s[covName] || s.condition || s.genotype || '';
-        setStatus(`Fetching reads from ENA for sample ${i + 1} of ${ts.samples.length} (${s.sample}, ${s.run})...`);
+        app.samplesStep?.updateRow?.(i, {
+          loading: { 1: 'Downloading mate 1...', 2: 'Downloading mate 2...' },
+          statusText: 'Downloading reads...',
+        });
+        setStatus(`Fetching reads for sample ${i + 1} of ${ts.samples.length} (${s.sample}, ${s.run})...`);
+
+        const localBase = `../testsets/reads/${ts.id}`;
+        const local1 = `${localBase}/${s.run}_1.fastq.gz`;
+        const local2 = `${localBase}/${s.run}_2.fastq.gz`;
 
         // Check for test mock override function
         const url1 = window.__testSetUrl ? window.__testSetUrl(s.run, 1) : s.fastq1_url;
         const url2 = window.__testSetUrl ? window.__testSetUrl(s.run, 2) : s.fastq2_url;
 
         const [m1, m2] = await Promise.all([
-          streamCutFastq(url1, ts.n_pairs),
-          streamCutFastq(url2, ts.n_pairs),
+          fetchTestsetRead(local1, url1, ts.n_pairs),
+          fetchTestsetRead(local2, url2, ts.n_pairs),
         ]);
 
         if (m1.records !== m2.records) {
@@ -161,26 +237,25 @@ export function createTestsets({ $, app, shell }) {
         const file1 = new File([m1.bytes], `${s.run}_1.fastq`, { type: 'text/plain' });
         const file2 = new File([m2.bytes], `${s.run}_2.fastq`, { type: 'text/plain' });
 
-        rows.push({
-          name: s.sample,
-          values: [covVal],
+        app.samplesStep?.updateRow?.(i, {
           files: { 1: file1, 2: file2 },
-          expect: { 1: file1.name, 2: file2.name },
+          loading: null,
+          statusText: 'Ready',
         });
       }
 
-      if (app.samplesStep?.setSamples) {
-        app.samplesStep.setSamples({ columns: [covName], rows });
-      }
+      // 5. Ensure genome indexing is complete
+      setStatus('Waiting for genome index build to complete...');
+      await genomePromise;
 
-      setStatus(`All samples fetched from ENA. Counting reads...`);
+      setStatus('All samples ready. Counting reads...');
 
-      // 4. Run quantification
+      // 6. Run quantification
       $('run-samples')?.click();
       setStatus('');
     } catch (err) {
       setStatus('');
-      showErrors([`Test set loading failed: ${err.message || err}. Check network access to ENA and try again.`]);
+      showErrors([`Test set loading failed: ${err.message || err}. Check network access and try again.`]);
     }
   }
 
