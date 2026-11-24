@@ -91,7 +91,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
           <label for="sheet-file">Sample sheet (.tsv or .txt)</label>
           <input id="sheet-file" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain">
           <label for="sheet-fastqs">The FASTQ files the sheet names (you can pick several at once)</label>
-          <input id="sheet-fastqs" type="file" multiple>
+          <input id="sheet-fastqs" type="file" multiple accept=".fastq,.fq,.gz,.fastq.gz,application/gzip,application/x-gzip,text/plain,*/*">
         </details>
         <ul id="sheet-error" class="error" role="alert" hidden></ul>
         <table id="sample-table"></table>

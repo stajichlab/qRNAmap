@@ -49,9 +49,15 @@ export function createSamplesStep({ $, app, shell }) {
     let text = '';
     let missing = false;
     if (file) text = expect && file.name === expect ? `${file.name} (matched to the sheet)` : file.name;
+    else if (row.loading && row.loading[mate]) text = row.loading[mate];
     else if (expect) { text = `missing: the sheet names "${expect}". Pick that file.`; missing = true; }
     else if (mate === 2) text = 'none (single-end)';
-    const input = el('input', { type: 'file', className: 'mate-file', ariaLabel: `Mate ${mate} file of sample row ${model.rows.indexOf(row) + 1}` });
+    const input = el('input', {
+      type: 'file',
+      className: 'mate-file',
+      ariaLabel: `Mate ${mate} file of sample row ${model.rows.indexOf(row) + 1}`,
+      accept: '.fastq,.fq,.gz,.fastq.gz,application/gzip,application/x-gzip,text/plain,*/*',
+    });
     input.dataset.mate = mate;
     return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [input, el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text })]);
   }
@@ -74,7 +80,7 @@ export function createSamplesStep({ $, app, shell }) {
         input.dataset.col = col.key;
         tr.append(el('td', {}, [input]));
       }
-      tr.append(mateCell(row, 1), mateCell(row, 2), el('td', { className: 'status' }));
+      tr.append(mateCell(row, 1), mateCell(row, 2), el('td', { className: 'status', textContent: row.statusText || '' }));
       tr.append(el('td', {}, [el('button', { type: 'button', className: 'remove-row', textContent: 'Remove', ariaLabel: `Remove sample row ${i + 1}` })]));
       return tr;
     });
@@ -316,8 +322,17 @@ export function createSamplesStep({ $, app, shell }) {
       values: { 1: r.values?.[0] ?? r.condition ?? '' },
       files: { 1: r.files?.[1] ?? r.file1 ?? null, 2: r.files?.[2] ?? r.file2 ?? null },
       expect: { 1: r.expect?.[1] ?? '', 2: r.expect?.[2] ?? '' },
+      loading: r.loading || null,
+      statusText: r.statusText || '',
     }));
     render();
+  }
+
+  function updateRow(index, updates) {
+    if (model.rows[index]) {
+      Object.assign(model.rows[index], updates);
+      render();
+    }
   }
 
   $('preview-pairs').max = String(MAX_PAIRS);
@@ -327,5 +342,5 @@ export function createSamplesStep({ $, app, shell }) {
   app.state.samplesPhase = 'edit';
   render();
   $('step-samples').dataset.phase = 'edit';
-  return { quant, model, setSamples };
+  return { quant, model, setSamples, updateRow };
 }
