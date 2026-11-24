@@ -1,0 +1,9 @@
+mode	rule	largest_count_passing_all_browsers	first_count_failing_chromium	first_count_failing_firefox	first_count_failing_webkit
+gz	meets_n_rule	100000	2000000	1000000	200000
+gz	meets_hard_rule	200000	3000000	2000000	500000
+plain	meets_n_rule	200000	1000000	500000	500000
+plain	meets_hard_rule	200000	1000000	1000000	500000
+wgz	meets_n_rule		3000000	100000	100000
+wgz	meets_hard_rule		4000000	100000	500000
+wplain	meets_n_rule	200000	1000000	500000	500000
+wplain	meets_hard_rule	200000	2000000	500000	500000

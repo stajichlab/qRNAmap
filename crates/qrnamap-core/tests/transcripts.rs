@@ -56,6 +56,7 @@ fn tx(id: &str, exons: &[(u64, u64)]) -> Transcript {
         cds: vec![],
         utr5: vec![],
         utr3: vec![],
+        proteins: vec![],
     }
 }
 
@@ -65,6 +66,10 @@ fn gene(label: &str, contig: &str, strand: Strand, transcripts: Vec<Transcript>)
         contig: contig.to_string(),
         strand,
         biotype: None,
+        symbol: None,
+        gene_id: None,
+        dbxref: vec![],
+        old_locus_tag: None,
         transcripts,
     }
 }

@@ -1,0 +1,9 @@
+metric	value
+total_genes	8338
+paper_s3_genes	409
+cli_preview_de_genes	0
+overlap_genes	0
+concordant_direction_genes	0
+cli_only_genes	0
+s3_only_genes	409
+jaccard_index	0.0000

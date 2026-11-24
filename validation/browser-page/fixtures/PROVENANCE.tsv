@@ -1,0 +1,15 @@
+file	bytes	sha256	what
+GCF_000146045.2_R64_genomic.fna.gz	3843460	1ec41f951b35f2752d5065edeafe6972455609d4383fb36dae12519a60b27a73	source FASTA (GCF_000146045.2, NCBI catalog URL)
+GCF_000146045.2_R64_genomic.gff.gz	2203839	bbcb56dec2d2a00101fb85be4752fbda9895e27023e0c5e08340fc30d0ad5510	source GFF3 (GCF_000146045.2, NCBI catalog URL)
+mito.fna	86927	2343596351640af336c0dea900cd957783ff90ace343a5bae20f8c4f37963103	made by make_fixtures.py (NC_001224.1 only)
+mito.gff3	85487	66a10c2d671b392fd43ffc1b9b1b5cc0ec389e1d13b8a4c4c2b1ddb0d3cd0afb	made by make_fixtures.py (NC_001224.1 only)
+mito.fna.gz	21230	31fe2fdac7d70d41b58b826053d722e3d9e39dfaefa03d620e7924176646bd2f	made by make_fixtures.py (NC_001224.1 only)
+mito.gff3.gz	8888	9f1a91e5ec20407945118f3e6b414ad9c5c9b0b3451b1d2c5152f1cb68c98ce0	made by make_fixtures.py (NC_001224.1 only)
+s1_R1.fastq.gz	5050	364bd7097fbfe8347669e8e8a0b955faa5ec1c897c0ebabc03e8958f650d9f97	made by make_reads.py (simulated, seed 20261122)
+s1_R2.fastq.gz	4991	9cdbf5d83e2a4f1511d52f7d09ee4c417640119498fc9881b1cb9b1983362c77	made by make_reads.py (simulated, seed 20261122)
+s2_R1.fastq	35100	b2ce47a6e1e9c82ada5171d028f19d9cf76108de3a2d7745882cfe567e2e13e8	made by make_reads.py (simulated, seed 20261122)
+s2_R2.fastq	35100	79391341ad2887a49cc25e63846419d53ecfef6fbe2862e3a88daa6923389d19	made by make_reads.py (simulated, seed 20261122)
+s3.fastq.gz	5128	c785f89f05c63218fb27e1ee0284b872b1532803b76bb2153a1bf551b15ad30c	made by make_reads.py (simulated, seed 20261122)
+expected_quant.tsv	2797	0889f3b88aadd2717061988236400c24895952ae460569fb4f4ddd0a88ac2921	made by make_reads.py (qrnamap 0.1.0 quant, kallisto 0.52.0)
+expected_runinfo.tsv	107	e49d50fb6d3593099125e027f6a6b001b781c534bc6fb4c3c83aedc2747b5437	made by make_reads.py (qrnamap 0.1.0 quant, kallisto 0.52.0)
+make_reads.py	7789	f5f62f899cdd191db3111886c8ff0a97e155bf520fee0a1c08adecfc826454d1	the script that made the read fixtures

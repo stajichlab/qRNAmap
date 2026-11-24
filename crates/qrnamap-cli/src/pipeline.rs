@@ -16,12 +16,12 @@ use std::io::{self, BufRead, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use qrnamap_core::{
-    assemble, assigned_fraction, build_transcripts, feature_counts, gene_counts_from_abundance,
-    gene_counts_from_salmon, gene_table, gene_table_tsv, hisat2_align, hisat2_build,
-    kallisto_index, kallisto_quant, parse_featurecounts, parse_featurecounts_summary, saf,
-    salmon_index, salmon_quant, splice_sites, tx2gene_tsv, unlisted_genes, write_fasta, BuildError,
-    ConfigError, CountError, CountMatrix, Mode, Quantifier, RunConfig, Sample, StrandReport,
-    Strandedness, ToolCall,
+    assigned_fraction, build_transcripts, count_matrix, feature_counts, gene_counts_from_abundance,
+    gene_counts_from_salmon, gene_info_tsv, gene_table, gene_table_tsv, genes_from_tx2gene,
+    hisat2_align, hisat2_build, kallisto_index, kallisto_quant, parse_featurecounts,
+    parse_featurecounts_summary, parse_tx2gene, saf, salmon_index, salmon_quant, splice_sites,
+    tx2gene_tsv, write_fasta, zero_warning, BuildError, ConfigError, CountError, CountMatrix,
+    MatrixError, Mode, Quantifier, RunConfig, Sample, StrandReport, Strandedness, ToolCall,
 };
 use qseq_io::{parse_gff3, read_fasta, GeneModel};
 
@@ -32,9 +32,6 @@ use crate::io::{file_format, open_input, Format, InputError};
 /// 0.5 is a chosen value. UNMEASURED: not calibrated on real libraries. A wrongly set
 /// strandedness gives a fraction near 0 on the simulated data in the tests.
 pub const LOW_ASSIGNED_FRACTION: f64 = 0.5;
-
-/// At most this many gene names are listed in one warning.
-const MAX_LISTED: usize = 20;
 
 #[derive(Debug)]
 pub enum PipelineError {
@@ -459,6 +456,9 @@ fn load_reference(reference: &Path, gff: &Path) -> Result<(Genome, GeneModel), P
 /// Name of the gene table in a run directory.
 pub const GENES_TABLE: &str = "genes.tsv.zst";
 
+/// Name of the gene aliases table in a run directory.
+pub const GENE_INFO_TABLE: &str = "gene_info.tsv.zst";
+
 /// Write the gene table (class, biotype, mitochondrial flag per gene) to `path`. The suffix
 /// picks `.zst`, `.gz` or plain. A gene label with a tab, newline or carriage return is
 /// refused before anything is written. `mito_contigs` are extra contig names to flag; they
@@ -473,10 +473,36 @@ pub fn write_genes_table(
     }
     let rows = gene_table(model, mito_contigs);
     write_output(path, gene_table_tsv(&rows).as_bytes())?;
+
+    let ext = match path.file_name().and_then(|n| n.to_str()) {
+        Some(name) if name.ends_with(".tsv.zst") => ".tsv.zst",
+        Some(name) if name.ends_with(".tsv.gz") => ".tsv.gz",
+        Some(name) if name.ends_with(".zst") => ".tsv.zst",
+        Some(name) if name.ends_with(".gz") => ".tsv.gz",
+        _ => ".tsv",
+    };
+    let parent = path.parent().unwrap_or(Path::new(""));
+    let gene_info_path = parent.join(format!("gene_info{ext}"));
+    write_gene_info_table(&gene_info_path, model, mito_contigs)?;
+
     // R35-7: a name that matches no contig is a note, not an error (the match is exact).
     for c in unmatched_mito_contigs(model, mito_contigs) {
         eprintln!("note: --mito-contig '{c}' matches no contig of the GFF3 (the match is exact and case-sensitive); it flags no gene");
     }
+    Ok(())
+}
+
+/// Write the gene aliases table to `path`.
+pub fn write_gene_info_table(
+    path: &Path,
+    model: &GeneModel,
+    mito_contigs: &[String],
+) -> Result<(), PipelineError> {
+    for g in &model.genes {
+        check_label(&g.label)?;
+    }
+    let tsv = gene_info_tsv(model, mito_contigs);
+    write_output(path, tsv.as_bytes())?;
     Ok(())
 }
 
@@ -524,9 +550,14 @@ pub fn check_tx2gene_in_model(
     })
 }
 
-/// Remove an old `<out>/genes.tsv.zst` (and its `.partial`) before a run (ruling R24).
+/// Remove an old `<out>/genes.tsv.zst` and `<out>/gene_info.tsv.zst` (and their `.partial`) before a run (ruling R24).
 pub fn remove_old_genes_table(out_dir: &Path) -> Result<(), PipelineError> {
-    for name in [GENES_TABLE.to_string(), format!("{GENES_TABLE}.partial")] {
+    for name in [
+        GENES_TABLE.to_string(),
+        format!("{GENES_TABLE}.partial"),
+        GENE_INFO_TABLE.to_string(),
+        format!("{GENE_INFO_TABLE}.partial"),
+    ] {
         let p = out_dir.join(name);
         match fs::remove_file(&p) {
             Ok(()) => {}
@@ -555,7 +586,9 @@ pub fn run_transcripts(
     saf_out: Option<&Path>,
     splice_out: Option<&Path>,
 ) -> Result<usize, PipelineError> {
-    run_transcripts_with_genes(reference, gff, out, tx2gene, saf_out, splice_out, None)
+    run_transcripts_with_genes(
+        reference, gff, out, tx2gene, saf_out, splice_out, None, None,
+    )
 }
 
 /// `run_transcripts`, and the gene table too when `genes` is `Some((path, mito_contigs))`.
@@ -567,6 +600,7 @@ pub fn run_transcripts_with_genes(
     saf_out: Option<&Path>,
     splice_out: Option<&Path>,
     genes: Option<(&Path, &[String])>,
+    gene_info: Option<&Path>,
 ) -> Result<usize, PipelineError> {
     let (genome, model) = load_reference(reference, gff)?;
     let records = build_transcripts(&genome, &model).map_err(PipelineError::Build)?;
@@ -582,6 +616,9 @@ pub fn run_transcripts_with_genes(
     }
     if let Some((p, mito)) = genes {
         write_genes_table(p, &model, mito)?;
+    }
+    if let Some(p) = gene_info {
+        write_gene_info_table(p, &model, &[])?;
     }
     Ok(records.len())
 }
@@ -615,35 +652,12 @@ pub fn check_samples(samples: &[Sample], cfg: &RunConfig, mode: Mode) -> Result<
 }
 
 /// Names qrnamap writes directly in the output directory that are also valid sample names.
-/// A sample with one of these names (or one of them with `.partial`) would collide with the
-/// file or directory, because each sample gets the directory `<out>/<sample>/`. Checked in
-/// every mode, so one output directory can hold both modes' files.
-pub const RESERVED_OUTPUT_NAMES: &[&str] = &[
-    "index",
-    "salmon_index",
-    "slurm",
-    "transcripts.kidx",
-    "transcripts.fa.zst",
-    "tx2gene.tsv.zst",
-    "genes.saf",
-    "splice_sites.txt",
-    GENES_TABLE,
-    MAPPING_SUMMARY,
-    "counts.tsv.zst",
-    "strand_check.tsv",
-    "deseq2.results.csv",
-    "deseq2.normalized.csv",
-    "deseq2.vst.csv",
-    "deseq2.versions.txt",
-    "deseq2.results.shrunk.csv",
-];
+/// Reserved sample names (one list in `qrnamap-core`, so the browser page checks the same names).
+pub use qrnamap_core::RESERVED_OUTPUT_NAMES;
 
 /// The reserved output name that `sample` equals, if any.
 fn reserved_name(sample: &str) -> Option<String> {
-    let base = sample.strip_suffix(".partial").unwrap_or(sample);
-    RESERVED_OUTPUT_NAMES
-        .contains(&base)
-        .then(|| sample.to_string())
+    qrnamap_core::reserved_output_name(sample)
 }
 
 /// Writes every byte read through it to `out` (a staged copy), so one pass both decompresses a
@@ -1294,37 +1308,11 @@ pub struct QuantContext {
 
 /// Read a `transcript\tgene` table (no header).
 pub fn read_tx2gene(path: &Path) -> Result<HashMap<String, String>, PipelineError> {
-    let text = read_table(path)?;
-    let mut m = HashMap::new();
-    for (i, l) in text.lines().enumerate() {
-        if l.trim().is_empty() {
-            continue;
-        }
-        match l
-            .trim_end_matches('\r')
-            .split('\t')
-            .collect::<Vec<_>>()
-            .as_slice()
-        {
-            [t, g] if !t.is_empty() && !g.is_empty() => {
-                if m.insert(t.to_string(), g.to_string()).is_some() {
-                    return Err(PipelineError::BadTable {
-                        path: path.to_path_buf(),
-                        line: i + 1,
-                        detail: format!("transcript '{t}' occurs twice"),
-                    });
-                }
-            }
-            _ => {
-                return Err(PipelineError::BadTable {
-                    path: path.to_path_buf(),
-                    line: i + 1,
-                    detail: "expected 'transcript<TAB>gene'".into(),
-                })
-            }
-        }
-    }
-    Ok(m)
+    parse_tx2gene(&read_table(path)?).map_err(|e| PipelineError::BadTable {
+        path: path.to_path_buf(),
+        line: e.line,
+        detail: e.detail,
+    })
 }
 
 /// Build the index of `config.quantifier` once: kallisto in `<out_dir>/transcripts.kidx`,
@@ -1579,16 +1567,6 @@ fn salmon_run(
             }
         })?;
     Ok((counts, n, pct / 100.0))
-}
-
-fn zero_warning(sample: &str, counts: &BTreeMap<String, u64>) -> Option<String> {
-    if counts.values().all(|&c| c == 0) {
-        Some(format!(
-            "sample '{sample}': all-zero sample (no counts in any gene)"
-        ))
-    } else {
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1982,17 +1960,23 @@ fn gene_list_from_text(
     text: &str,
     path: &Path,
 ) -> Result<Vec<String>, PipelineError> {
+    if kind == GenesFrom::Tx2Gene {
+        return genes_from_tx2gene(text).map_err(|e| PipelineError::BadTable {
+            path: path.to_path_buf(),
+            line: e.line,
+            detail: e.detail,
+        });
+    }
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for (i, l) in text.lines().enumerate() {
         let l = l.trim_end_matches('\r');
-        if l.trim().is_empty() || (kind == GenesFrom::Saf && l.starts_with("GeneID\t")) {
+        if l.trim().is_empty() || l.starts_with("GeneID\t") {
             continue;
         }
         let f: Vec<&str> = l.split('\t').collect();
-        let g = match (kind, f.as_slice()) {
-            (GenesFrom::Tx2Gene, [_, g]) => *g,
-            (GenesFrom::Saf, [g, _, _, _, _]) => *g,
+        let g = match f.as_slice() {
+            [g, _, _, _, _] => *g,
             _ => {
                 return Err(PipelineError::BadTable {
                     path: path.to_path_buf(),
@@ -2024,42 +2008,9 @@ pub fn build_matrix(
     per_sample: &[(String, BTreeMap<String, u64>)],
     genes: Option<&[String]>,
 ) -> Result<(CountMatrix, Vec<String>), PipelineError> {
-    for (_, m) in per_sample {
-        m.keys().try_for_each(|g| check_label(g))?;
-    }
-    let mut warnings = Vec::new();
-    let rows: Vec<String> = match genes {
-        Some(g) => {
-            g.iter().try_for_each(|x| check_label(x))?;
-            let extra = unlisted_genes(per_sample, g);
-            if !extra.is_empty() {
-                let shown: Vec<&str> = extra.iter().take(MAX_LISTED).map(String::as_str).collect();
-                let more = if extra.len() > MAX_LISTED {
-                    ", ..."
-                } else {
-                    ""
-                };
-                warnings.push(format!(
-                    "{} gene(s) in the sample tables are not in the gene list and are left out of the matrix: {}{more}",
-                    extra.len(),
-                    shown.join(", ")
-                ));
-            }
-            g.to_vec()
-        }
-        None => per_sample
-            .iter()
-            .flat_map(|(_, m)| m.keys().cloned())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect(),
-    };
-    for (s, m) in per_sample {
-        if let Some(w) = zero_warning(s, m) {
-            warnings.push(w);
-        }
-    }
-    Ok((assemble(per_sample, &rows), warnings))
+    count_matrix(per_sample, genes).map_err(|e| match e {
+        MatrixError::BadGeneLabel(l) => PipelineError::BadGeneLabel(l),
+    })
 }
 
 /// `qrnamap matrix`: read `<out>/<sample>.genecounts.tsv.zst` for each sample in sheet order
@@ -2113,6 +2064,22 @@ pub fn run_matrix_with_genes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reserved_names_hold_the_files_written_in_the_output_directory() {
+        // The list lives in qrnamap-core (the browser page uses it too). It must hold every
+        // name that this crate writes directly in the output directory.
+        for name in [
+            GENES_TABLE,
+            GENE_INFO_TABLE,
+            MAPPING_SUMMARY,
+            "counts.tsv.zst",
+            "index",
+            "slurm",
+        ] {
+            assert!(RESERVED_OUTPUT_NAMES.contains(&name), "{name}");
+        }
+    }
 
     #[test]
     fn json_number_reads_kallisto_fields() {

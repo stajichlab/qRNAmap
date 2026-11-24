@@ -1,0 +1,14 @@
+{
+  "assets": {
+    "kallisto.mjs": "9836e42fc304d7616ec73d89262498b31cc96e2b35d2d7460b64f358b823b9f1",
+    "kallisto.wasm": "01ef635d8438b7e6ac9c74c9d04a89f83f6801959f799f9f657523c90d37adfc"
+  },
+  "inputs": {
+    "scripts/build-kallisto.sh": "2f8bc9d5e19f38bb76cef09df5f7a6ea98db3e05c211a930505303dba7412bfe",
+    "tools/kallisto/browser.patch": "bc48df6b597a8d378c0674d4771b9cd02ab2626c1297e45d6b9a91cd74582249",
+    "tools/kallisto/serial-thread.h": "66f2d331a03a9c70fb7e84e02eb691197c07fd847f889a077bff0bef8d418c91",
+    "tools/kallisto/sources.lock.json": "d3fb3b68d9517d4b982786a3825219d0845a7896772126c4286f1e8d762dc38a"
+  },
+  "schema": 1,
+  "tool": "kallisto"
+}

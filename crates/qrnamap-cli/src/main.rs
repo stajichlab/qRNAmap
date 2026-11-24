@@ -63,6 +63,9 @@ enum Cmd {
         /// Gene table (class, biotype, mitochondrial flag per gene). Compressed by extension.
         #[arg(long)]
         genes_table: Option<PathBuf>,
+        /// Gene aliases table (symbol, GeneID, old_locus_tag, transcripts, proteins). Compressed by extension.
+        #[arg(long)]
+        gene_info: Option<PathBuf>,
         /// A contig to flag mitochondrial in genes.tsv.zst (repeatable). Added to the contigs
         /// the GFF3 marks with a `region` feature `genome=mitochondrion`.
         #[arg(long = "mito-contig", value_name = "NAME", allow_hyphen_values = true, value_parser = parse_contig_name)]
@@ -565,6 +568,7 @@ fn run(cli: Cli) -> Result<(), String> {
             saf,
             splice_sites,
             genes_table,
+            gene_info,
             mito_contig,
         } => {
             if genes_table.is_none() && !mito_contig.is_empty() {
@@ -579,6 +583,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 saf.as_deref(),
                 splice_sites.as_deref(),
                 genes,
+                gene_info.as_deref(),
             )
             .map_err(e)?;
             eprintln!("wrote {n} transcripts to {}", out.display());

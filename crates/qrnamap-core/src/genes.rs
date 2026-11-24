@@ -116,3 +116,56 @@ pub fn gene_table_tsv(rows: &[GeneRow]) -> String {
     }
     s
 }
+
+/// Header and rows of the gene alias table `gene_info.tsv`.
+///
+/// Header: `gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\n`.
+/// Unknown attributes are ignored; a parse error in one alias never fails the transcriptome build
+/// (the alias cell is empty).
+pub fn gene_info_tsv(model: &GeneModel, _extra_mito_contigs: &[String]) -> String {
+    let mut s = String::from(
+        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\n",
+    );
+    for g in &model.genes {
+        let biotype = biotype_of(g);
+        let class = class_of(&biotype);
+        let strand = match g.strand {
+            Strand::Plus => '+',
+            Strand::Minus => '-',
+        };
+        let symbol = g.symbol.as_deref().unwrap_or("");
+        let gene_id = g.gene_id.as_deref().unwrap_or("");
+        let old_locus_tag = g.old_locus_tag.as_deref().unwrap_or("");
+
+        let mut tx_ids: Vec<&str> = Vec::new();
+        let mut proteins: Vec<&str> = Vec::new();
+        for t in &g.transcripts {
+            if !tx_ids.contains(&t.id.as_str()) {
+                tx_ids.push(&t.id);
+            }
+            for p in &t.proteins {
+                if !proteins.contains(&p.as_str()) {
+                    proteins.push(p);
+                }
+            }
+        }
+        let transcripts_str = tx_ids.join(",");
+        let proteins_str = proteins.join(",");
+
+        let _ = writeln!(
+            s,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            g.label,
+            symbol,
+            gene_id,
+            old_locus_tag,
+            transcripts_str,
+            proteins_str,
+            biotype,
+            class.as_str(),
+            g.contig,
+            strand
+        );
+    }
+    s
+}

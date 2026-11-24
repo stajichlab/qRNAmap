@@ -1,0 +1,156 @@
+[
+  {
+    "id": "yeast-ampb",
+    "name": "Yeast amphotericin B (GSE80357)",
+    "organism": "Saccharomyces cerevisiae",
+    "catalog_accession": "GCF_000146045.2",
+    "geo_series": "GSE80357",
+    "bioproject": "PRJNA318684",
+    "paper_reference": "GSE80357 (GEO series: RNA-seq of S. cerevisiae S288C treated with amphotericin B vs control)",
+    "design": "~ condition",
+    "contrast": "condition,AmpB,control",
+    "n_pairs": 200000,
+    "read_length": 101,
+    "fetch_method": "ena-stream-cut",
+    "selection_reason": "Matched paired-end Illumina HiSeq 2000 runs for AMB 0.03 ug/mL 60 min vs matched controls (RPMI-1640, 30 C). Avoids confounded NextSeq single-end runs SRR3396416-418.",
+    "samples": [
+      {
+        "sample": "Control_1",
+        "run": "SRR3396385",
+        "condition": "control",
+        "read_count": 9625471,
+        "fastq1_bytes": 765392684,
+        "fastq2_bytes": 776514673,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/005/SRR3396385/SRR3396385_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/005/SRR3396385/SRR3396385_2.fastq.gz"
+      },
+      {
+        "sample": "Control_2",
+        "run": "SRR3396386",
+        "condition": "control",
+        "read_count": 10302142,
+        "fastq1_bytes": 816554593,
+        "fastq2_bytes": 828166555,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/006/SRR3396386/SRR3396386_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/006/SRR3396386/SRR3396386_2.fastq.gz"
+      },
+      {
+        "sample": "Control_3",
+        "run": "SRR3396387",
+        "condition": "control",
+        "read_count": 9997148,
+        "fastq1_bytes": 796139461,
+        "fastq2_bytes": 808975406,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/007/SRR3396387/SRR3396387_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/007/SRR3396387/SRR3396387_2.fastq.gz"
+      },
+      {
+        "sample": "AmpB_1",
+        "run": "SRR3396381",
+        "condition": "AmpB",
+        "read_count": 8405534,
+        "fastq1_bytes": 669296728,
+        "fastq2_bytes": 680167572,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/001/SRR3396381/SRR3396381_2.fastq.gz"
+      },
+      {
+        "sample": "AmpB_2",
+        "run": "SRR3396382",
+        "condition": "AmpB",
+        "read_count": 9755935,
+        "fastq1_bytes": 781154812,
+        "fastq2_bytes": 791042140,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/002/SRR3396382/SRR3396382_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/002/SRR3396382/SRR3396382_2.fastq.gz"
+      },
+      {
+        "sample": "AmpB_3",
+        "run": "SRR3396384",
+        "condition": "AmpB",
+        "read_count": 10175785,
+        "fastq1_bytes": 815031018,
+        "fastq2_bytes": 822459056,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/004/SRR3396384/SRR3396384_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR339/004/SRR3396384/SRR3396384_2.fastq.gz"
+      }
+    ]
+  },
+  {
+    "id": "cneo-lkh1",
+    "name": "Cryptococcus neoformans H99 Lkh1 (PRJNA976751)",
+    "organism": "Cryptococcus neoformans var. grubii H99",
+    "catalog_accession": "GCF_000149245.1",
+    "geo_series": "GSE233612",
+    "bioproject": "PRJNA976751",
+    "paper_reference": "Front Cell Infect Microbiol 2024;14:1367098 (PMID 38774630, PMC11106425)",
+    "design": "~ genotype",
+    "contrast": "genotype,lkh1_delta,wild_type",
+    "n_pairs": 75000,
+    "read_length": 150,
+    "fetch_method": "ena-stream-cut",
+    "selection_reason": "Basal condition comparison: lkh1 mutant vs wild type (3 replicates each, Illumina NovaSeq 6000 150 bp paired-end). Excludes rapamycin-treated runs to evaluate the basal kinase deletion effect corresponding to Supplementary Table S3.",
+    "samples": [
+      {
+        "sample": "WT_1",
+        "run": "SRR24750781",
+        "genotype": "wild_type",
+        "read_count": 18134154,
+        "fastq1_bytes": 597146669,
+        "fastq2_bytes": 597682343,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/081/SRR24750781/SRR24750781_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/081/SRR24750781/SRR24750781_2.fastq.gz"
+      },
+      {
+        "sample": "WT_2",
+        "run": "SRR24750780",
+        "genotype": "wild_type",
+        "read_count": 15089131,
+        "fastq1_bytes": 506584759,
+        "fastq2_bytes": 508140072,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/080/SRR24750780/SRR24750780_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/080/SRR24750780/SRR24750780_2.fastq.gz"
+      },
+      {
+        "sample": "WT_3",
+        "run": "SRR24750777",
+        "genotype": "wild_type",
+        "read_count": 18176463,
+        "fastq1_bytes": 601705504,
+        "fastq2_bytes": 603814811,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/077/SRR24750777/SRR24750777_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/077/SRR24750777/SRR24750777_2.fastq.gz"
+      },
+      {
+        "sample": "lkh1_1",
+        "run": "SRR24750779",
+        "genotype": "lkh1_delta",
+        "read_count": 16437474,
+        "fastq1_bytes": 547724942,
+        "fastq2_bytes": 550950870,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/079/SRR24750779/SRR24750779_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/079/SRR24750779/SRR24750779_2.fastq.gz"
+      },
+      {
+        "sample": "lkh1_2",
+        "run": "SRR24750774",
+        "genotype": "lkh1_delta",
+        "read_count": 18221839,
+        "fastq1_bytes": 593288172,
+        "fastq2_bytes": 594487222,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/074/SRR24750774/SRR24750774_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/074/SRR24750774/SRR24750774_2.fastq.gz"
+      },
+      {
+        "sample": "lkh1_3",
+        "run": "SRR24750773",
+        "genotype": "lkh1_delta",
+        "read_count": 17635731,
+        "fastq1_bytes": 585386266,
+        "fastq2_bytes": 586984165,
+        "fastq1_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/073/SRR24750773/SRR24750773_1.fastq.gz",
+        "fastq2_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR247/073/SRR24750773/SRR24750773_2.fastq.gz"
+      }
+    ]
+  }
+]

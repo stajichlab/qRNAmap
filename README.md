@@ -1,9 +1,17 @@
 # qRNAmap
 
-A Rust command-line tool for bulk RNA-seq quantification: genome + GFF3 + sample sheet + FASTQ to
-gene counts (kallisto or Salmon, or HISAT2 + featureCounts) and DESeq2. Licence: GPL-3.0-only.
+A bulk RNA-seq quantification tool for fungi, available as a Rust command-line tool and as a pure client-side browser application: genome + GFF3 + sample sheet + FASTQ to gene counts (kallisto or Salmon, or HISAT2 + featureCounts) and DESeq2. Licence: GPL-3.0-only.
 
-## Install and build
+## Browser tool
+
+`qRNAmap` runs directly in modern desktop browsers via WebAssembly:
+- **Application**: [qrnamap.fungalgenomes.org/analyze/](https://qrnamap.fungalgenomes.org/analyze/)
+- **Documentation**: [docs/browser/page-v1.md](docs/browser/page-v1.md)
+- **Measurements**: [docs/browser/page-v1-measurements.md](docs/browser/page-v1-measurements.md) and [docs/browser/spike0.md](docs/browser/spike0.md)
+
+No sequencing reads or user data leave the browser. The tool loads fungal genomes from NCBI, builds a kallisto index in WebAssembly, quantifies a preview ($N = 75,000$ to $200,000$ pairs), provides an alias-searchable count table, SVG PCA and correlation heatmaps, and downloads count matrices and CLI commands for cluster runs.
+
+## Install and build (CLI)
 
 The tools (kallisto, Salmon, HISAT2, featureCounts, gffread, R with DESeq2, Rust) come from the pixi
 environment in `pixi.toml`.

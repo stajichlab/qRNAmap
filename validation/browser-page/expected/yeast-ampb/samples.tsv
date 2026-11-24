@@ -1,0 +1,7 @@
+sample	fastq1	fastq2	condition
+Control_1	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396385_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396385_2.fastq	control
+Control_2	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396386_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396386_2.fastq	control
+Control_3	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396387_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396387_2.fastq	control
+AmpB_1	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396381_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396381_2.fastq	AmpB
+AmpB_2	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396382_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396382_2.fastq	AmpB
+AmpB_3	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396384_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/yeast-ampb/SRR3396384_2.fastq	AmpB

@@ -16,7 +16,8 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
 2. **No differential expression in version 1.** The page ends at counts and quality plots. It gives the exact `qrnamap de` command for the next step.
 3. **Genomes:** a menu of the built-in catalog (155 fungal genomes, NCBI RefSeq except three GenBank assemblies), downloaded from NCBI by the page. NCBI sets are preferred. Also: upload of the user's own FASTA and GFF3. Both paths feed the same transcript builder.
 4. **Reads:** local FASTQ files (plain or gzip), plus a "Load test set" button. No free ENA accession box in version 1.
-5. **Large inputs:** a preview of the first N read pairs per sample, labelled "preview of the first N pairs" on every table and plot, with the full command-line command shown. Above a hard limit the page stops with a message. N and the limit are measured, not guessed (see "To measure").
+   **Sample info (added 2026-11-22, user request):** two ways in. (a) Enter it in a table in the page: sample name, condition and other columns, and a mate 1 and mate 2 file picker per row. (b) Upload a CLI-format sample sheet and pick the FASTQ files; the page matches each row's `fastq1`/`fastq2` to a picked file by file name, ignoring the folder part. Unmatched rows are flagged with a picker on the row; a duplicate file name is a clear error. The sheet the page writes has only file names, because the page cannot know disk paths; an optional "reads folder" box adds the user's cluster path to the downloaded sheet and to the `qrnamap de` command, and the page says so when it is empty.
+5. **Large inputs:** (amended 2026-11-22, user decision: N depends on the read length; the page takes N from `previewLimit(readLength)`; 200,000 pairs for reads of up to 101 bases, the value for longer reads from the page quantification memory job, see docs/browser/page-v1-measurements.md) a preview of the first N read pairs per sample, labelled "preview of the first N pairs" on every table and plot, with the full command-line command shown. Above a hard limit the page stops with a message. N and the limit are measured, not guessed (see "To measure").
 6. **Results step:**
    - mapping summary per sample (reads processed, reads pseudoaligned, fraction);
    - sortable, searchable gene count table (transcript counts summed per gene with the same transcript-to-gene table the CLI uses, rounded as the CLI does);
@@ -30,6 +31,7 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
    - *N. crassa*: later, when a collaborator names a set. The candidate studied (PRJDB15450) failed the rules: replicate counts could not be confirmed and the paper is not open access.
 8. **Layout:** `/` is the landing page with an "Analyze reads" button, the test sets, the CLI install link and the spike 0 results. `/analyze/` is the tool: Genome, Samples, Results on one page. Hosting stays on GitHub Pages. kallisto needs no isolation headers.
 9. **kallisto files:** commit the built files to the repo (about 1.7 MiB), with a provenance file.
+11. **Gene aliases (added 2026-11-22, user request):** gene names stay the GFF `locus_tag` (fallback `Name`, then `ID`), as now; the count table's first column stays the locus name. Transcript names in the index stay the GFF transcript `ID` (NCBI files: the mRNA accession with an `rna-` prefix). A new file `gene_info.tsv`, one row per gene, carries the aliases: locus name, gene symbol (`Name`), `GeneID` (from `Dbxref`), `old_locus_tag`, transcript accessions, protein accessions (from the CDS `protein_id`), biotype and class. The page's count table search matches any alias, and the page offers `gene_info.tsv` as a download. The CLI writes the same file (page and CLI stay equal). Existing outputs, including `counts.tsv`, do not change.
 10. **Page code:** copy `gz.js`, `reads.js`, `reference-panel.js`, `persist.js` and `theme.js` from `../qmutfind/site` and record the `qmutfind` commit in each copied file header. No shared package.
 
 ## Goals
@@ -82,6 +84,16 @@ Users: the Stajich lab and collaborating labs. They bring their own reads. We al
 4. The yeast set's other five samples: read counts and ENA file sizes. UNVERIFIED (only SRR3396381 was checked).
 5. Behaviour on a phone-sized screen. Not measured.
 6. Genome menu limits: download size and transcript-building time for the larger genomes in the catalog.
+
+Results (2026-11-22): `docs/browser/page-v1-measurements.md`. In short (headless Playwright browsers on a GitHub runner, SRR3396381, yeast transcripts):
+item 1: N = 200,000 pairs, hard limit = 200,000 pairs (for 101-base reads; amended 2026-11-22: N depends on the read length, see below), reads given to kallisto as plain FASTQ; item 2: a cut gzip goes through kallisto (exit 0, it stops at the
+shorter mate), and cutting both mates at N records works in all three browsers, but ENA failed in 11 of 30 sessions and the release-asset fallback is blocked by CORS
+(a same-origin fallback is UNVERIFIED; the CORS test used a release asset of stajichlab/genomics-wasm); item 3: the 409 genes of Supplementary Table S3
+match the RefSeq H99 locus tags and the qRNAmap gene names (column-to-run mapping UNVERIFIED); item 4: measured (ENA portal API); item 5: not measured;
+item 6: the three largest catalog genomes finished in all engines.
+Firefox wrote a damaged `abundance.tsv` in 4 of 130 kallisto runs (about 3%, no error, cause UNVERIFIED). So a byte-identical comparison of Firefox output
+with the CLI (acceptance rule) can fail without a code fault: Task 9 must re-run or check the file before it reports a mismatch. Needed page behaviour:
+check each `abundance.tsv` and re-run the sample once when the check fails (untested).
 
 ## Acceptance rule
 

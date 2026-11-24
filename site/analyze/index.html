@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qRNAmap: analyze reads</title>
+<meta name="description" content="Under construction. The genome step and the quantification of a read preview work in the qRNAmap browser tool; the results view is not built yet.">
+<script>
+try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
+</head>
+<body>
+<div class="topbar">
+  <h1>Analyze reads</h1>
+  <nav class="themes" aria-label="Colour theme">
+    <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+    <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
+  </nav>
+</div>
+<p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
+
+<p class="warn" id="construction-notice" role="note"><strong>Under construction.</strong> Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet. Step 1 builds the kallisto index of a genome in this browser. Step 2 counts a preview of the reads of each sample. Step 3 stays locked.</p>
+
+<section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
+  <h2 id="h-genome">1. Genome</h2>
+  <p class="reason" id="reason-genome">Choose the genome first. The tool builds the transcript index from it.</p>
+  <fieldset id="fs-genome">
+    <div id="genome-panel">
+      <div id="testset-section" class="note">
+        <p><strong>Load an example test set:</strong></p>
+        <p class="testset-buttons">
+          <button type="button" id="load-testset-yeast">Load test set: Yeast AmpB (GSE80357)</button>
+          <button type="button" id="load-testset-cneo">Load test set: C. neoformans H99 Lkh1 (PRJNA976751)</button>
+        </p>
+        <p id="testset-status" class="small" role="status" aria-live="polite"></p>
+        <ul id="testset-errors" class="error" role="alert" hidden></ul>
+      </div>
+      <div id="genome-choose">
+        <div class="choice" role="radiogroup" aria-label="Where the genome comes from">
+          <label><input type="radio" name="genome-source" value="catalog" checked> A genome from the catalog (NCBI)</label>
+          <label><input type="radio" name="genome-source" value="upload"> My own FASTA and GFF3 files</label>
+        </div>
+        <div id="genome-catalog">
+          <p id="genome-count" class="small"></p>
+          <label for="genome-filter">Search the catalog</label>
+          <input id="genome-filter" type="search" placeholder="species, strain or accession" autocomplete="off">
+          <select id="genome-menu" size="8" aria-label="Catalog genomes"></select>
+          <p id="genome-info" class="small"></p>
+          <button id="genome-load" type="button" class="button">Download and build the index</button>
+        </div>
+        <div id="genome-upload" hidden>
+          <p class="small">The files stay in this browser. Plain text or gzip (.gz) files are accepted. The FASTA sequence names must match the first column of the GFF3.</p>
+          <label for="upload-fasta">Genome FASTA</label>
+          <input id="upload-fasta" type="file">
+          <label for="upload-gff">GFF3 gene models</label>
+          <input id="upload-gff" type="file">
+          <button id="upload-load" type="button" class="button">Build the index</button>
+        </div>
+        <p id="genome-note" class="small" role="status"></p>
+      </div>
+      <div id="genome-busy" hidden>
+        <progress id="genome-progress"></progress>
+        <p id="genome-status" role="status" aria-live="polite"></p>
+        <button id="genome-cancel" type="button">Cancel</button>
+      </div>
+      <p id="genome-error" class="error" role="alert" hidden></p>
+      <div id="genome-ready" class="note" hidden>
+        <p><strong>Index ready:</strong> <span id="ready-label"></span> (<span id="ready-accession"></span>).
+          <span id="ready-genes"></span> genes, <span id="ready-transcripts"></span> transcripts. kallisto index built in <span id="ready-time"></span>.</p>
+        <button id="genome-change" type="button">Choose another genome</button>
+      </div>
+    </div>
+  </fieldset>
+</section>
+
+<section class="step" id="step-samples" data-step="samples" data-state="locked" aria-labelledby="h-samples">
+  <h2 id="h-samples">2. Samples</h2>
+  <p class="reason" id="reason-samples">Locked. Finish step 1 (the genome and its index) to add samples.</p>
+  <fieldset id="fs-samples" disabled>
+    <div id="samples-panel">
+      <fieldset id="samples-edit">
+        <p class="small">One row per sample. Pick one mate 1 file and one mate 2 file per sample (leave mate 2 empty for single-end reads).
+          This version takes one file per mate: lanes must be joined into one file first. FASTQ files can be plain or gzip.
+          The files stay in this browser. The page reads only the first read pairs of each file (see "Read pairs per sample").</p>
+        <details id="sheet-box">
+          <summary>Or load a sample sheet (the command-line format)</summary>
+          <p class="small">A tab-separated sheet with the columns <code>sample</code>, <code>fastq1</code>, optional <code>fastq2</code>, and covariate columns
+            (a header <code>name:numeric</code> makes a numeric column). The page matches each <code>fastq1</code> and <code>fastq2</code> path to a picked file
+            by its file name; the folder part of the path is ignored. A row whose file was not picked is marked, with a file picker.</p>
+          <label for="sheet-file">Sample sheet (.tsv or .txt)</label>
+          <input id="sheet-file" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain">
+          <label for="sheet-fastqs">The FASTQ files the sheet names (you can pick several at once)</label>
+          <input id="sheet-fastqs" type="file" multiple>
+        </details>
+        <ul id="sheet-error" class="error" role="alert" hidden></ul>
+        <table id="sample-table"></table>
+        <p><button id="add-sample" type="button">Add a sample</button> <button id="add-column" type="button">Add a column</button></p>
+        <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
+        <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
+        <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
+        <p><label for="preview-pairs">Read pairs per sample (at most)</label>
+          <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
+          <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of
+            up to 101 bases (measured), 75,000 pairs for longer reads (measured with 150-base reads; docs/browser/page-v1-measurements.md).
+            This field can only lower N. Results are a preview of the first pairs, not a full run. For a full run, use the command-line tool.</span></p>
+        <button id="run-samples" type="button" class="button">Count reads</button>
+      </fieldset>
+      <ul id="samples-errors" class="error" role="alert" hidden></ul>
+      <div id="samples-busy" hidden>
+        <progress id="samples-progress"></progress>
+        <p id="samples-status" role="status" aria-live="polite"></p>
+        <button id="samples-cancel" type="button">Cancel</button>
+      </div>
+      <div id="samples-results"><p id="samples-summary" role="status"></p></div>
+    </div>
+  </fieldset>
+</section>
+
+<section class="step" id="step-results" data-step="results" data-state="locked" aria-labelledby="h-results">
+  <h2 id="h-results">3. Results</h2>
+  <p class="reason" id="reason-results">Locked. Finish step 2 (at least one sample counted) to see results.</p>
+  <fieldset id="fs-results" disabled>
+    <div id="results-panel">
+      <p id="results-preview-label" class="preview-label"></p>
+
+      <div id="results-downloads" class="note">
+        <h3>Downloads</h3>
+        <p><label for="reads-folder">Folder where your reads are stored (optional):</label>
+          <input id="reads-folder" type="text" placeholder="/path/to/reads/">
+          <span id="reads-folder-note" class="small">Using bare file names in samples.tsv and de-command.txt.</span></p>
+        <p class="download-buttons">
+          <button id="dl-counts" class="button" type="button">Download counts.tsv</button>
+          <button id="dl-sheet" type="button">Download samples.tsv</button>
+          <button id="dl-de" type="button">Download de-command.txt</button>
+          <button id="dl-gene-info" type="button">Download gene_info.tsv</button>
+        </p>
+      </div>
+
+      <div id="mapping-summary-section">
+        <h3>Mapping summary</h3>
+        <p id="mapping-summary-label" class="small"></p>
+        <table id="results-mapping-table"></table>
+      </div>
+
+      <div id="count-table-section">
+        <h3>Gene counts</h3>
+        <p id="count-table-label" class="small"></p>
+        <p><label for="count-search">Search gene or alias (symbol, GeneID, transcript, protein):</label>
+          <input id="count-search" type="search" placeholder="Search locus, symbol, GeneID, protein..."></p>
+        <table id="results-count-table"></table>
+      </div>
+
+      <div id="qc-section">
+        <h3>Quality control</h3>
+        <div id="heatmap-section">
+          <h4>Sample correlation</h4>
+          <div id="heatmap-container"></div>
+        </div>
+        <div id="pca-section">
+          <h4>Principal component analysis</h4>
+          <div id="pca-container"></div>
+        </div>
+      </div>
+    </div>
+  </fieldset>
+</section>
+
+<footer>qRNAmap, Stajich Lab. <a href="https://github.com/stajichlab/qRNAmap">github.com/stajichlab/qRNAmap</a></footer>
+<script src="../theme.js?v=__BUILD__"></script>
+<script type="module" src="app.js?v=__BUILD__"></script>
+</body>
+</html>

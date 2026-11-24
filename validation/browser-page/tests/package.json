@@ -1,0 +1,9 @@
+{
+  "name": "qrnamap-page-v1-tests",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests of the /analyze/ page (genome step) in headless Playwright browsers, on a local static server",
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}
