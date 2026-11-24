@@ -92,6 +92,7 @@ ul.error { padding-left: 2rem; }
 #results-count-table th[data-sort="asc"]::after { content: " \25B2"; font-size: .8em; }
 #results-count-table th[data-sort="desc"]::after { content: " \25BC"; font-size: .8em; }
 #count-search { width: 100%; max-width: 20rem; font: inherit; padding: .25rem .5rem; }
-#heatmap-container, #pca-container { margin: .5rem 0 1.5rem; overflow-x: auto; }
+#heatmap-container, #pca-container, #volcano-container { margin: .5rem 0 1.5rem; overflow-x: auto; }
+#volcano-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: .5rem 0; }
 .qc-message { color: var(--muted); font-style: italic; }
-svg.heatmap, svg.pca-plot { max-width: 100%; height: auto; font-family: system-ui, sans-serif; }
+svg.heatmap, svg.pca-plot, svg.volcano-plot { max-width: 100%; height: auto; font-family: system-ui, sans-serif; }

@@ -165,6 +165,13 @@ test('results step unlocks after run: mapping summary, count table, alias search
   assert.equal(await pca.count(), 1, 'SVG PCA is present');
   const pcaText = await page.textContent('#pca-section, #pca-container');
   assert.match(pcaText, /PCA of log2\(CPM\+1\), top 500 variable genes \(not DESeq2-normalised\)/);
+  assert.ok(await page.locator('#pca-container .pca-legend').isVisible(), 'PCA legend is visible');
+
+  // Volcano plot
+  const volcano = page.locator('#volcano-container svg');
+  assert.equal(await volcano.count(), 1, 'SVG volcano plot is present');
+  const volcanoText = await page.textContent('#de-section, #volcano-container');
+  assert.match(volcanoText, /Comparison: "trt" vs "ctl"/i);
 
   // 5. Downloads
   // Download counts.preview-N.tsv
@@ -173,6 +180,13 @@ test('results step unlocks after run: mapping summary, count table, alias search
     page.click('#dl-counts'),
   ]);
   assert.match(countsDl.suggestedFilename(), /^counts\.preview(-\d+)?\.tsv$/);
+
+  // Download differential_expression.tsv
+  const [volcanoDl] = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('#dl-de-tsv'),
+  ]);
+  assert.equal(volcanoDl.suggestedFilename(), 'differential_expression.tsv');
 
   // Download gene_info.tsv
   const [infoDl] = await Promise.all([
