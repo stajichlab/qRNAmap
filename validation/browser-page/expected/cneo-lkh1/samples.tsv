@@ -1,0 +1,7 @@
+sample	fastq1	fastq2	genotype
+WT_1	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750781_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750781_2.fastq	wild_type
+WT_2	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750780_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750780_2.fastq	wild_type
+WT_3	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750777_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750777_2.fastq	wild_type
+lkh1_1	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750779_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750779_2.fastq	lkh1_delta
+lkh1_2	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750774_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750774_2.fastq	lkh1_delta
+lkh1_3	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750773_1.fastq	/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1-preview-reads/cneo-lkh1/SRR24750773_2.fastq	lkh1_delta
