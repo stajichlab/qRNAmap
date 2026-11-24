@@ -78,13 +78,30 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
     `</svg>`;
 }
 
-/** Render SVG PCA scatter plot. */
-export function renderPcaSvg(pcaData, previewLabel) {
+/** Categorical palette for PCA and condition groups. */
+const PALETTE = [
+  '#0b5cad', // Blue
+  '#d95f02', // Orange/Vermilion
+  '#1b9e77', // Teal/Green
+  '#7570b3', // Purple
+  '#e7298a', // Magenta/Pink
+  '#e6ab02', // Gold
+  '#a6761d', // Brown
+  '#66a61e', // Olive
+];
+
+/** Render SVG PCA scatter plot with condition group colors and legend. */
+export function renderPcaSvg(pcaData, previewLabel, sampleGroups = new Map()) {
   const scores = pcaData.scores;
   const varExp = pcaData.variance_explained || [0, 0];
-  const width = 450;
+  const uniqueGroups = [...new Set(scores.map((s) => sampleGroups.get(s.sample) || ''))].filter(Boolean);
+  const colorMap = new Map();
+  uniqueGroups.forEach((g, i) => colorMap.set(g, PALETTE[i % PALETTE.length]));
+
+  const hasGroups = uniqueGroups.length >= 2;
+  const width = hasGroups ? 520 : 450;
   const height = 340;
-  const pad = { top: 60, right: 30, bottom: 50, left: 60 };
+  const pad = { top: 60, right: hasGroups ? 110 : 30, bottom: 50, left: 60 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
@@ -113,7 +130,10 @@ export function renderPcaSvg(pcaData, previewLabel) {
   for (const s of scores) {
     const cx = scaleX(s.pc1);
     const cy = scaleY(s.pc2);
-    points += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="6" fill="var(--accent, #0b5cad)" stroke="#ffffff" stroke-width="1.5"><title>${s.sample}: PC1=${s.pc1.toFixed(2)}, PC2=${s.pc2.toFixed(2)}</title></circle>`;
+    const grp = sampleGroups.get(s.sample) || '';
+    const col = (grp && colorMap.get(grp)) || 'var(--accent, #0b5cad)';
+    const tip = grp ? `${s.sample} (${grp}): PC1=${s.pc1.toFixed(2)}, PC2=${s.pc2.toFixed(2)}` : `${s.sample}: PC1=${s.pc1.toFixed(2)}, PC2=${s.pc2.toFixed(2)}`;
+    points += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="6" fill="${col}" stroke="#ffffff" stroke-width="1.5"><title>${tip}</title></circle>`;
     points += `<text x="${(cx + 8).toFixed(1)}" y="${(cy + 4).toFixed(1)}" font-size="11" fill="currentColor">${s.sample}</text>`;
   }
 
@@ -128,6 +148,21 @@ export function renderPcaSvg(pcaData, previewLabel) {
     zeroAxes += `<line x1="${pad.left}" y1="${zy}" x2="${pad.left + plotW}" y2="${zy}" stroke="var(--line, #ccc)" stroke-dasharray="3,3" />`;
   }
 
+  let legend = '';
+  if (hasGroups) {
+    const lx = pad.left + plotW + 15;
+    let ly = pad.top + 15;
+    legend += `<g class="pca-legend">`;
+    legend += `<text x="${lx}" y="${ly - 5}" font-size="11" font-weight="600" fill="currentColor">Group</text>`;
+    for (const g of uniqueGroups) {
+      const col = colorMap.get(g);
+      legend += `<circle cx="${lx + 6}" cy="${ly + 10}" r="5" fill="${col}" stroke="#ffffff" stroke-width="1" />`;
+      legend += `<text x="${lx + 16}" y="${ly + 14}" font-size="11" fill="currentColor">${g}</text>`;
+      ly += 22;
+    }
+    legend += `</g>`;
+  }
+
   return `<svg class="pca-plot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Principal Component Analysis plot">` +
     `<text x="10" y="20" font-weight="600" font-size="13" fill="currentColor">PCA of log2(CPM+1), top 500 variable genes (not DESeq2-normalised)</text>` +
     `<text x="10" y="38" font-size="11" fill="var(--muted, #666)">${previewLabel}</text>` +
@@ -136,6 +171,296 @@ export function renderPcaSvg(pcaData, previewLabel) {
     `<text x="${pad.left + plotW / 2}" y="${height - 12}" text-anchor="middle" font-size="12" fill="currentColor">${pc1Label}</text>` +
     `<text x="16" y="${pad.top + plotH / 2}" text-anchor="middle" font-size="12" fill="currentColor" transform="rotate(-90 16 ${pad.top + plotH / 2})">${pc2Label}</text>` +
     points +
+    legend +
+    `</svg>`;
+}
+
+function normalCdfComplement(z) {
+  // Abramowitz and Stegun formula 7.1.26 approximation
+  if (z >= 8) return 0;
+  const t = 1.0 / (1.0 + 0.2316419 * z);
+  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + 1.330274429 * t))));
+  const pdf = (1.0 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * z * z);
+  return pdf * poly;
+}
+
+/** Compute two-group differential expression statistics for count matrix. */
+export function computeDifferentialExpression(matrixTsv, samples, contrast) {
+  const lines = matrixTsv.trim().split('\n');
+  if (lines.length <= 1) return [];
+  const header = lines[0].split('\t');
+  const sampleCols = header.slice(1);
+
+  const factor = contrast?.factor || 'condition';
+  const trtLevel = contrast?.level;
+  const refLevel = contrast?.reference;
+
+  const sampleMap = new Map();
+  for (const s of samples) {
+    sampleMap.set(s.name, String(s.covariates?.[factor] ?? '').trim());
+  }
+
+  const trtIdxs = [];
+  const refIdxs = [];
+  for (let j = 0; j < sampleCols.length; j++) {
+    const sName = sampleCols[j];
+    const grp = sampleMap.get(sName);
+    if (grp === trtLevel) trtIdxs.push(j);
+    else if (grp === refLevel) refIdxs.push(j);
+  }
+
+  if (!trtIdxs.length || !refIdxs.length) return [];
+
+  const genes = [];
+  const rawMatrix = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split('\t');
+    genes.push(parts[0]);
+    rawMatrix.push(parts.slice(1).map(Number));
+  }
+  const nGenes = genes.length;
+  const nSamples = sampleCols.length;
+
+  // Size factors (DESeq2 median of ratios)
+  const sizeFactors = new Array(nSamples).fill(1);
+  const logGeoMeans = new Float64Array(nGenes);
+  let validGeoGenes = 0;
+
+  for (let i = 0; i < nGenes; i++) {
+    let sumLog = 0;
+    let allPos = true;
+    const row = rawMatrix[i];
+    for (let j = 0; j < nSamples; j++) {
+      if (row[j] <= 0) { allPos = false; break; }
+      sumLog += Math.log(row[j]);
+    }
+    if (allPos) {
+      logGeoMeans[i] = sumLog / nSamples;
+      validGeoGenes++;
+    } else {
+      logGeoMeans[i] = -Infinity;
+    }
+  }
+
+  if (validGeoGenes >= 10) {
+    for (let j = 0; j < nSamples; j++) {
+      const ratios = [];
+      for (let i = 0; i < nGenes; i++) {
+        if (logGeoMeans[i] !== -Infinity && rawMatrix[i][j] > 0) {
+          ratios.push(rawMatrix[i][j] / Math.exp(logGeoMeans[i]));
+        }
+      }
+      ratios.sort((a, b) => a - b);
+      if (ratios.length) {
+        const mid = Math.floor(ratios.length / 2);
+        sizeFactors[j] = ratios.length % 2 === 1 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
+      }
+    }
+  } else {
+    const totals = new Float64Array(nSamples);
+    for (let i = 0; i < nGenes; i++) {
+      for (let j = 0; j < nSamples; j++) totals[j] += rawMatrix[i][j];
+    }
+    const meanTot = totals.reduce((a, b) => a + b, 0) / nSamples;
+    for (let j = 0; j < nSamples; j++) sizeFactors[j] = (totals[j] || 1) / (meanTot || 1);
+  }
+
+  const results = [];
+  const nTrt = trtIdxs.length;
+  const nRef = refIdxs.length;
+
+  for (let i = 0; i < nGenes; i++) {
+    const row = rawMatrix[i];
+    let sumTrt = 0;
+    let sumRef = 0;
+    const trtVals = new Float64Array(nTrt);
+    const refVals = new Float64Array(nRef);
+
+    for (let k = 0; k < nTrt; k++) {
+      const j = trtIdxs[k];
+      const norm = row[j] / (sizeFactors[j] || 1);
+      trtVals[k] = norm;
+      sumTrt += norm;
+    }
+    for (let k = 0; k < nRef; k++) {
+      const j = refIdxs[k];
+      const norm = row[j] / (sizeFactors[j] || 1);
+      refVals[k] = norm;
+      sumRef += norm;
+    }
+
+    const meanTrt = sumTrt / nTrt;
+    const meanRef = sumRef / nRef;
+    const baseMean = (meanTrt + meanRef) / 2;
+
+    const lfc = Math.log2(meanTrt + 0.5) - Math.log2(meanRef + 0.5);
+
+    let varTrt = 0;
+    for (let k = 0; k < nTrt; k++) varTrt += (trtVals[k] - meanTrt) ** 2;
+    varTrt = nTrt > 1 ? varTrt / (nTrt - 1) : 0;
+
+    let varRef = 0;
+    for (let k = 0; k < nRef; k++) varRef += (refVals[k] - meanRef) ** 2;
+    varRef = nRef > 1 ? varRef / (nRef - 1) : 0;
+
+    const se = Math.sqrt(varTrt / nTrt + varRef / nRef + 0.05);
+    const stat = lfc / (se || 1);
+    const z = Math.abs(stat);
+    const pval = baseMean === 0 ? 1.0 : Math.min(1.0, 2.0 * normalCdfComplement(z));
+
+    results.push({
+      gene: genes[i],
+      baseMean,
+      log2FoldChange: lfc,
+      stat,
+      pvalue: pval,
+      padj: 1.0,
+    });
+  }
+
+  // Benjamini-Hochberg adjustment
+  const indexed = results.map((r, i) => ({ idx: i, pvalue: r.pvalue }));
+  indexed.sort((a, b) => a.pvalue - b.pvalue);
+  const m = indexed.length;
+  let cumMin = 1.0;
+
+  for (let k = m - 1; k >= 0; k--) {
+    const rawP = indexed[k].pvalue;
+    const rank = k + 1;
+    const adj = Math.min(1.0, (rawP * m) / rank);
+    cumMin = Math.min(cumMin, adj);
+    results[indexed[k].idx].padj = cumMin;
+  }
+
+  return results;
+}
+
+/** Render SVG Volcano plot. */
+export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.0, padjCutoff = 0.05 } = {}) {
+  const width = 560;
+  const height = 400;
+  const pad = { top: 45, right: 30, bottom: 50, left: 60 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+
+  let maxAbsFc = 2.5;
+  let maxNegLogP = 2.0;
+
+  for (const r of deRows) {
+    if (Number.isFinite(r.log2FoldChange)) {
+      const a = Math.abs(r.log2FoldChange);
+      if (a > maxAbsFc) maxAbsFc = a;
+    }
+    const p = r.padj ?? r.pvalue;
+    if (Number.isFinite(p) && p > 0) {
+      const nlp = -Math.log10(p);
+      if (nlp > maxNegLogP) maxNegLogP = nlp;
+    }
+  }
+
+  maxNegLogP = Math.min(15, Math.ceil(maxNegLogP * 1.15));
+  const spanX = Math.ceil(maxAbsFc * 1.1 * 2) / 2;
+  const minX = -spanX;
+  const maxX = spanX;
+  const minY = 0;
+  const maxY = Math.max(2, maxNegLogP);
+
+  const scaleX = (x) => pad.left + ((x - minX) / (maxX - minX)) * plotW;
+  const scaleY = (y) => pad.top + plotH - ((y - minY) / (maxY - minY)) * plotH;
+
+  const pLineY = scaleY(-Math.log10(padjCutoff));
+  const fcLeftX = scaleX(-fcCutoff);
+  const fcRightX = scaleX(fcCutoff);
+
+  let grid = '';
+  if (pLineY >= pad.top && pLineY <= pad.top + plotH) {
+    grid += `<line x1="${pad.left}" y1="${pLineY.toFixed(1)}" x2="${pad.left + plotW}" y2="${pLineY.toFixed(1)}" stroke="#e41a1c" stroke-dasharray="3,3" stroke-width="1"><title>padj = ${padjCutoff}</title></line>`;
+  }
+  if (fcLeftX >= pad.left && fcLeftX <= pad.left + plotW) {
+    grid += `<line x1="${fcLeftX.toFixed(1)}" y1="${pad.top}" x2="${fcLeftX.toFixed(1)}" y2="${pad.top + plotH}" stroke="var(--line, #999)" stroke-dasharray="3,3" stroke-width="1"><title>log2FC = -${fcCutoff}</title></line>`;
+  }
+  if (fcRightX >= pad.left && fcRightX <= pad.left + plotW) {
+    grid += `<line x1="${fcRightX.toFixed(1)}" y1="${pad.top}" x2="${fcRightX.toFixed(1)}" y2="${pad.top + plotH}" stroke="var(--line, #999)" stroke-dasharray="3,3" stroke-width="1"><title>log2FC = ${fcCutoff}</title></line>`;
+  }
+
+  let points = '';
+  let nUp = 0;
+  let nDown = 0;
+  let nNs = 0;
+
+  const topUp = [];
+  const topDown = [];
+
+  for (const r of deRows) {
+    const lfc = r.log2FoldChange;
+    const p = r.padj ?? r.pvalue;
+    if (!Number.isFinite(lfc) || !Number.isFinite(p) || p <= 0) continue;
+
+    const nlp = Math.min(maxY, -Math.log10(p));
+    const cx = scaleX(lfc);
+    const cy = scaleY(nlp);
+
+    const isSig = p < padjCutoff;
+    const isUp = isSig && lfc >= fcCutoff;
+    const isDown = isSig && lfc <= -fcCutoff;
+
+    let col = '#999999';
+    let opacity = '0.35';
+    let radius = '3.5';
+
+    if (isUp) {
+      col = '#e41a1c';
+      opacity = '0.85';
+      radius = '4.5';
+      nUp++;
+      topUp.push({ ...r, nlp, cx, cy });
+    } else if (isDown) {
+      col = '#0b5cad';
+      opacity = '0.85';
+      radius = '4.5';
+      nDown++;
+      topDown.push({ ...r, nlp, cx, cy });
+    } else {
+      nNs++;
+    }
+
+    const alias = aliasIndex.get(r.gene);
+    const sym = alias?.symbol ? ` (${alias.symbol})` : '';
+    const tip = `${r.gene}${sym}: log2FC=${lfc.toFixed(2)}, padj=${p.toExponential(2)}`;
+    points += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${radius}" fill="${col}" fill-opacity="${opacity}"><title>${tip}</title></circle>`;
+  }
+
+  topUp.sort((a, b) => (b.nlp * b.log2FoldChange) - (a.nlp * a.log2FoldChange));
+  topDown.sort((a, b) => (b.nlp * Math.abs(b.log2FoldChange)) - (a.nlp * Math.abs(a.log2FoldChange)));
+
+  let labels = '';
+  const labeled = [...topUp.slice(0, 5), ...topDown.slice(0, 5)];
+  for (const item of labeled) {
+    const alias = aliasIndex.get(item.gene);
+    const txt = alias?.symbol || item.gene;
+    const isRight = item.log2FoldChange >= 0;
+    const lx = isRight ? item.cx + 6 : item.cx - 6;
+    const anchor = isRight ? 'start' : 'end';
+    labels += `<text x="${lx.toFixed(1)}" y="${(item.cy + 3).toFixed(1)}" font-size="10" font-weight="600" text-anchor="${anchor}" fill="currentColor">${txt}</text>`;
+  }
+
+  const legend = `<g class="volcano-legend">` +
+    `<circle cx="${pad.left + 15}" cy="22" r="4.5" fill="#e41a1c" />` +
+    `<text x="${pad.left + 25}" y="26" font-size="11" fill="currentColor">Up: ${nUp.toLocaleString()}</text>` +
+    `<circle cx="${pad.left + 115}" cy="22" r="4.5" fill="#0b5cad" />` +
+    `<text x="${pad.left + 125}" y="26" font-size="11" fill="currentColor">Down: ${nDown.toLocaleString()}</text>` +
+    `<circle cx="${pad.left + 225}" cy="22" r="3.5" fill="#999999" />` +
+    `<text x="${pad.left + 235}" y="26" font-size="11" fill="currentColor">Not sig: ${nNs.toLocaleString()}</text>` +
+    `</g>`;
+
+  return `<svg class="volcano-plot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Volcano plot">` +
+    legend +
+    `<rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}" fill="none" stroke="var(--line, #ccc)" />` +
+    grid +
+    points +
+    labels +
+    `<text x="${pad.left + plotW / 2}" y="${height - 12}" text-anchor="middle" font-size="12" fill="currentColor">log2(Fold Change)</text>` +
+    `<text x="16" y="${pad.top + plotH / 2}" text-anchor="middle" font-size="12" fill="currentColor" transform="rotate(-90 16 ${pad.top + plotH / 2})">-log10(p-adj)</text>` +
     `</svg>`;
 }
 
@@ -209,6 +534,7 @@ export function createResultsStep({ $, app, shell }) {
     getSamplesTsv,
     getDeCommand,
     getGeneInfoTsv,
+    getDeTsv,
   };
 
   function updateReadsFolderNote() {
@@ -356,9 +682,113 @@ export function createResultsStep({ $, app, shell }) {
     if (doneSamples.length < 3 || !qcData?.pca || qcData.pca_error) {
       pcaContainer.innerHTML = `<p class="qc-message">${qcData?.pca_error || 'PCA needs at least three samples.'}</p>`;
     } else {
-      pcaContainer.innerHTML = renderPcaSvg(qcData.pca, preview);
+      const sampleGroups = new Map();
+      const covKeys = Object.keys(doneSamples[0]?.covariates || {});
+      const groupKey = covKeys.includes('condition') ? 'condition' : (covKeys.includes('genotype') ? 'genotype' : covKeys[0]);
+      if (groupKey) {
+        for (const s of doneSamples) {
+          sampleGroups.set(s.name, String(s.covariates?.[groupKey] ?? '').trim() || 'default');
+        }
+      }
+      pcaContainer.innerHTML = renderPcaSvg(qcData.pca, preview, sampleGroups);
     }
   }
+
+  let currentDeResults = [];
+  let currentContrast = null;
+
+  function updateVolcanoPlot() {
+    const container = $('volcano-container');
+    const summaryEl = $('volcano-summary');
+    if (!container || !currentDeResults.length) return;
+
+    const fcCutoff = Math.max(0.1, parseFloat($('volcano-fc-cutoff')?.value) || 1.0);
+    const padjCutoff = Math.max(0.0001, parseFloat($('volcano-padj-cutoff')?.value) || 0.05);
+
+    container.innerHTML = renderVolcanoSvg(currentDeResults, aliasIndex, { fcCutoff, padjCutoff });
+
+    const nUp = currentDeResults.filter((r) => r.padj < padjCutoff && r.log2FoldChange >= fcCutoff).length;
+    const nDown = currentDeResults.filter((r) => r.padj < padjCutoff && r.log2FoldChange <= -fcCutoff).length;
+    const nTested = currentDeResults.length;
+
+    if (summaryEl) {
+      summaryEl.textContent = `Significant (|log2 FC| \u2265 ${fcCutoff.toFixed(1)}, padj < ${padjCutoff}): ${nUp} upregulated, ${nDown} downregulated, ${nTested - nUp - nDown} unchanged out of ${nTested.toLocaleString()} genes.`;
+    }
+  }
+
+  function renderVolcano(doneSamples, matrixTsv) {
+    const container = $('volcano-container');
+    const labelEl = $('de-comparison-label');
+    const summaryEl = $('volcano-summary');
+    if (!container) return;
+
+    const covKeys = Object.keys(doneSamples[0]?.covariates || {});
+    const colName = covKeys.includes('condition') ? 'condition' : (covKeys.includes('genotype') ? 'genotype' : covKeys[0]);
+
+    if (!colName) {
+      if (labelEl) labelEl.textContent = 'No covariate column found for differential expression.';
+      container.innerHTML = '<p class="qc-message">Add covariate groups (e.g. condition or genotype) to compare samples.</p>';
+      if (summaryEl) summaryEl.textContent = '';
+      currentDeResults = [];
+      return;
+    }
+
+    const values = [...new Set(doneSamples.map((s) => String(s.covariates?.[colName] ?? '').trim()).filter(Boolean))];
+    if (values.length < 2) {
+      if (labelEl) labelEl.textContent = `Only one group (${values[0] || 'unknown'}) found in column "${colName}".`;
+      container.innerHTML = '<p class="qc-message">Differential expression comparison requires samples from at least two groups.</p>';
+      if (summaryEl) summaryEl.textContent = '';
+      currentDeResults = [];
+      return;
+    }
+
+    currentContrast = { factor: colName, level: values[1], reference: values[0] };
+    if (labelEl) {
+      labelEl.textContent = `Comparison: "${currentContrast.level}" vs "${currentContrast.reference}" (~ ${currentContrast.factor})`;
+    }
+
+    currentDeResults = computeDifferentialExpression(matrixTsv, doneSamples, currentContrast);
+    updateVolcanoPlot();
+  }
+
+  $('volcano-fc-cutoff')?.addEventListener('input', () => updateVolcanoPlot());
+  $('volcano-padj-cutoff')?.addEventListener('input', () => updateVolcanoPlot());
+
+  function getDeTsv() {
+    if (!currentDeResults.length) return '';
+    const fcCutoff = Math.max(0.1, parseFloat($('volcano-fc-cutoff')?.value) || 1.0);
+    const padjCutoff = Math.max(0.0001, parseFloat($('volcano-padj-cutoff')?.value) || 0.05);
+
+    const head = ['gene', 'symbol', 'baseMean', 'log2FoldChange', 'stat', 'pvalue', 'padj', 'significant'];
+    const lines = [head.join('\t')];
+
+    for (const r of currentDeResults) {
+      const alias = aliasIndex.get(r.gene);
+      const sym = alias?.symbol || '';
+      let sig = 'no';
+      if (r.padj < padjCutoff && r.log2FoldChange >= fcCutoff) sig = 'up';
+      else if (r.padj < padjCutoff && r.log2FoldChange <= -fcCutoff) sig = 'down';
+
+      lines.push([
+        r.gene,
+        sym,
+        r.baseMean.toFixed(2),
+        r.log2FoldChange.toFixed(4),
+        r.stat.toFixed(4),
+        r.pvalue.toExponential(4),
+        r.padj.toExponential(4),
+        sig,
+      ].join('\t'));
+    }
+    return lines.join('\n') + '\n';
+  }
+
+  $('dl-de-tsv')?.addEventListener('click', () => {
+    const tsv = getDeTsv();
+    if (tsv) {
+      downloadBlob(tsv, 'differential_expression.tsv', 'text/tab-separated-values');
+    }
+  });
 
   // Display results from completed samples
   async function displayResults() {
@@ -410,6 +840,7 @@ export function createResultsStep({ $, app, shell }) {
     renderMappingSummary(app.state.samples, preview);
     renderCountTable(sampleNames, preview);
     renderQc(doneSamples, qcData, preview);
+    renderVolcano(doneSamples, matrixTsv);
 
     // Save to persist
     const storeEntry = {
@@ -451,6 +882,9 @@ export function createResultsStep({ $, app, shell }) {
     $('results-count-table').innerHTML = '';
     $('heatmap-container').innerHTML = '';
     $('pca-container').innerHTML = '';
+    $('volcano-container').innerHTML = '';
+    $('volcano-summary').textContent = '';
+    currentDeResults = [];
     writeStore({ [STORE_KEY]: null }).catch(() => {});
   });
 
