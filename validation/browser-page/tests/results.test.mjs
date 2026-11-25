@@ -173,6 +173,24 @@ test('results step unlocks after run: mapping summary, count table, alias search
   const volcanoText = await page.textContent('#de-section, #volcano-container');
   assert.match(volcanoText, /Comparison: "trt" vs "ctl"/i);
 
+  // Labeled genes carry a mouseover title and a link out to SGD or NCBI (from the GFF Dbxref)
+  const volcanoLinks = await page.locator('#volcano-container svg a.volcano-gene-link').all();
+  assert.ok(volcanoLinks.length > 0, 'volcano has linkable labeled genes');
+  let labelLinks = 0;
+  for (const a of volcanoLinks) {
+    const href = await a.getAttribute('href');
+    assert.match(
+      href,
+      /^https:\/\/www\.(yeastgenome\.org\/locus\/S\d+|ncbi\.nlm\.nih\.gov\/gene\/\d+)$/,
+      `link out to SGD or NCBI Gene, got ${href}`
+    );
+    assert.equal(await a.getAttribute('target'), '_blank', 'link opens in a new tab');
+    const title = await a.locator('title').textContent();
+    assert.match(title, /log2FC=/, 'mouseover tooltip shows the DE stats');
+    if (await a.locator('text').count()) labelLinks++;
+  }
+  assert.ok(labelLinks > 0, 'the label text itself is clickable');
+
   // 5. Downloads
   // Download counts.preview-N.tsv
   const [countsDl] = await Promise.all([

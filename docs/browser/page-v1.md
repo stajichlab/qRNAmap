@@ -93,3 +93,14 @@ We compared differential expression calls from the preview depth ($N = 75,000$ p
 1. **Mobile devices**: High-memory requirements of kallisto index building (250–800 MiB) target desktop browsers. Mobile browsers with strict tab memory caps (e.g. iOS Safari < 1 GiB) may fail during indexing.
 2. **Single-end reads**: Requires manual entry of fragment length mean and standard deviation, mirroring the CLI requirement.
 3. **Full-depth differential expression**: The browser performs exploratory PCA on $\log_2(\text{CPM} + 1)$ of variable genes. Full DESeq2 differential expression is executed via the downloadable `de-command.txt` and `samples.tsv` on native infrastructure.
+
+## Addendum (2026-11-24): Volcano link-outs and `dbxref` in `gene_info.tsv`
+
+The gene features of the parsed GFF3 carry `Dbxref` entries; `gene_info_tsv` now writes them to a new final column `dbxref` (comma-separated, for example `GeneID:854598,SGD:S000007260`), so the page can link genes to their source databases. The header gains the column; all other columns and outputs stay byte-identical.
+
+In the results step, the volcano plot's labeled genes (top five up, top five down) now:
+
+- show a mouseover tooltip with the locus, symbol, log2FC, padj and the linked databases;
+- link out on click (label text and the point itself, both `target="_blank"`): `SGD:` xrefs open `https://www.yeastgenome.org/locus/<SGDID>`; a numeric `GeneID` opens `https://www.ncbi.nlm.nih.gov/gene/<GeneID>`. SGD takes precedence when both are present; genes with neither stay unlinked.
+
+The same fix defines the previously missing `downloadBlob` helper, so the `differential_expression.tsv` button works (it threw `ReferenceError: downloadBlob is not defined`).

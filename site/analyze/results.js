@@ -4,21 +4,42 @@ import { readStore, writeStore } from '../persist.js?v=__BUILD__';
 
 const STORE_KEY = 'results';
 
-/** Parse gene_info.tsv into a map of gene -> lowercased searchable tokens. */
+/** Escape text for use in SVG markup (text content and double-quoted attributes). */
+const escSvg = (s) =>
+  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** Parse gene_info.tsv into a map of gene -> { tokens, symbol, geneId, dbxref }. */
 export function parseAliasIndex(geneInfoTsv) {
   const map = new Map();
   if (!geneInfoTsv) return map;
   const lines = geneInfoTsv.trim().split('\n');
   if (lines.length <= 1) return map;
+  // gene_info.tsv may come from an older build without the dbxref column.
+  const dbxrefCol = lines[0].split('\t').indexOf('dbxref');
   for (const line of lines.slice(1)) {
     const cols = line.split('\t');
     if (!cols.length) continue;
     const gene = cols[0];
     // gene, symbol, gene_id, old_locus_tag, transcripts, proteins
     const tokens = cols.slice(0, 6).filter(Boolean).join(' ').toLowerCase();
-    map.set(gene, tokens);
+    const dbxref = dbxrefCol >= 0 && cols[dbxrefCol] ? cols[dbxrefCol].split(',').filter(Boolean) : [];
+    map.set(gene, { tokens, symbol: cols[1] || '', geneId: cols[2] || '', dbxref });
   }
   return map;
+}
+
+/** External database links for a gene, from the Dbxref entries of its GFF gene feature. */
+export function geneExternalLinks(info) {
+  if (!info) return [];
+  const links = [];
+  const sgd = (info.dbxref || []).find((x) => x.startsWith('SGD:'));
+  if (sgd && sgd.length > 4) {
+    links.push({ name: 'SGD', url: `https://www.yeastgenome.org/locus/${sgd.slice(4)}` });
+  }
+  if (/^\d+$/.test(info.geneId || '')) {
+    links.push({ name: 'NCBI Gene', url: `https://www.ncbi.nlm.nih.gov/gene/${info.geneId}` });
+  }
+  return links;
 }
 
 /** Format a number with commas. */
@@ -26,7 +47,12 @@ const fmt = (n) => Number(n).toLocaleString('en-US');
 
 /** Helper to trigger file download in browser. */
 function downloadFile(name, text) {
-  const blob = new Blob([text], { type: 'text/tab-separated-values;charset=utf-8' });
+  downloadBlob(text, name, 'text/tab-separated-values;charset=utf-8');
+}
+
+/** Download `text` as `name` with the given MIME type. */
+function downloadBlob(text, name, mime) {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -427,13 +453,14 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     const alias = aliasIndex.get(r.gene);
     const sym = alias?.symbol ? ` (${alias.symbol})` : '';
     const tip = `${r.gene}${sym}: log2FC=${lfc.toFixed(2)}, padj=${p.toExponential(2)}`;
-    points += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${radius}" fill="${col}" fill-opacity="${opacity}"><title>${tip}</title></circle>`;
+    points += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${radius}" fill="${col}" fill-opacity="${opacity}"><title>${escSvg(tip)}</title></circle>`;
   }
 
   topUp.sort((a, b) => (b.nlp * b.log2FoldChange) - (a.nlp * a.log2FoldChange));
   topDown.sort((a, b) => (b.nlp * Math.abs(b.log2FoldChange)) - (a.nlp * Math.abs(a.log2FoldChange)));
 
   let labels = '';
+  let hitAreas = '';
   const labeled = [...topUp.slice(0, 5), ...topDown.slice(0, 5)];
   for (const item of labeled) {
     const alias = aliasIndex.get(item.gene);
@@ -441,7 +468,19 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     const isRight = item.log2FoldChange >= 0;
     const lx = isRight ? item.cx + 6 : item.cx - 6;
     const anchor = isRight ? 'start' : 'end';
-    labels += `<text x="${lx.toFixed(1)}" y="${(item.cy + 3).toFixed(1)}" font-size="10" font-weight="600" text-anchor="${anchor}" fill="currentColor">${txt}</text>`;
+    const p = item.padj ?? item.pvalue;
+    const links = geneExternalLinks(alias);
+    let tip = `${item.gene}${alias?.symbol ? ` (${alias.symbol})` : ''}: log2FC=${item.log2FoldChange.toFixed(2)}, padj=${p.toExponential(2)}`;
+    for (const l of links) tip += `\nOpen ${l.name}: ${l.url}`;
+    const textAttrs = `x="${lx.toFixed(1)}" y="${(item.cy + 3).toFixed(1)}" font-size="10" font-weight="600" text-anchor="${anchor}" fill="currentColor"`;
+    if (links.length) {
+      const primary = links[0];
+      // The label and the point itself link out; the mouseover names every linked database.
+      labels += `<a class="volcano-gene-link" href="${escSvg(primary.url)}" target="_blank" rel="noopener noreferrer"><title>${escSvg(tip)}</title><text ${textAttrs}>${escSvg(txt)}</text></a>`;
+      hitAreas += `<a class="volcano-gene-link" href="${escSvg(primary.url)}" target="_blank" rel="noopener noreferrer"><title>${escSvg(tip)}</title><circle cx="${item.cx.toFixed(1)}" cy="${item.cy.toFixed(1)}" r="8" fill="#000" fill-opacity="0" stroke="none"/></a>`;
+    } else {
+      labels += `<text ${textAttrs}><title>${escSvg(tip)}</title>${escSvg(txt)}</text>`;
+    }
   }
 
   const legend = `<g class="volcano-legend">` +
@@ -459,6 +498,7 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     grid +
     points +
     labels +
+    hitAreas +
     `<text x="${pad.left + plotW / 2}" y="${height - 12}" text-anchor="middle" font-size="12" fill="currentColor">log2(Fold Change)</text>` +
     `<text x="16" y="${pad.top + plotH / 2}" text-anchor="middle" font-size="12" fill="currentColor" transform="rotate(-90 16 ${pad.top + plotH / 2})">-log10(p-adj)</text>` +
     `</svg>`;
@@ -600,7 +640,8 @@ export function createResultsStep({ $, app, shell }) {
     let visibleRows = matrixRows;
     if (query) {
       visibleRows = matrixRows.filter((r) => {
-        const tokens = aliasIndex.get(r.gene) || r.gene.toLowerCase();
+        const info = aliasIndex.get(r.gene);
+        const tokens = info?.tokens || r.gene.toLowerCase();
         return tokens.includes(query);
       });
     }

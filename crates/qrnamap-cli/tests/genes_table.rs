@@ -126,7 +126,7 @@ fn transcripts_writes_gene_info_table() {
     );
     let content = read_table(&info).unwrap();
     assert!(content.starts_with(
-        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\n"
+        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n"
     ));
 }
 
@@ -956,24 +956,26 @@ fn real_genomes_gene_info_validation() {
         assert!(!lines.is_empty(), "{name}: gene_info.tsv must not be empty");
         assert_eq!(
             lines[0],
-            "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand"
+            "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref"
         );
 
         let mut n_symbol = 0;
         let mut n_gene_id = 0;
         let mut n_old_locus_tag = 0;
         let mut n_proteins = 0;
+        let mut n_dbxref = 0;
         let mut all_txs_in_info = HashSet::new();
 
         for line in &lines[1..] {
             let cols: Vec<&str> = line.split('\t').collect();
-            assert_eq!(cols.len(), 10, "10 columns required on {line}");
+            assert_eq!(cols.len(), 11, "11 columns required on {line}");
             let _gene = cols[0];
             let symbol = cols[1];
             let gene_id = cols[2];
             let old_locus_tag = cols[3];
             let transcripts = cols[4];
             let proteins = cols[5];
+            let dbxref = cols[10];
 
             if !symbol.is_empty() {
                 n_symbol += 1;
@@ -987,6 +989,9 @@ fn real_genomes_gene_info_validation() {
             if !proteins.is_empty() {
                 n_proteins += 1;
             }
+            if !dbxref.is_empty() {
+                n_dbxref += 1;
+            }
             if !transcripts.is_empty() {
                 for tx in transcripts.split(',') {
                     all_txs_in_info.insert(tx.to_string());
@@ -995,12 +1000,13 @@ fn real_genomes_gene_info_validation() {
         }
 
         eprintln!(
-            "{name}: total_genes={} symbol={} gene_id={} old_locus_tag={} proteins={}",
+            "{name}: total_genes={} symbol={} gene_id={} old_locus_tag={} proteins={} dbxref={}",
             lines.len() - 1,
             n_symbol,
             n_gene_id,
             n_old_locus_tag,
-            n_proteins
+            n_proteins,
+            n_dbxref
         );
 
         for line in tx2gene.lines() {
@@ -1014,6 +1020,7 @@ fn real_genomes_gene_info_validation() {
         assert!(n_symbol > 0, "{name}: must have symbols");
         assert!(n_gene_id > 0, "{name}: must have gene_ids");
         assert!(n_proteins > 0, "{name}: must have proteins");
+        assert!(n_dbxref > 0, "{name}: must have dbxref entries");
         if name == "afum" {
             assert!(n_old_locus_tag > 0, "afum must have old_locus_tags");
         }
