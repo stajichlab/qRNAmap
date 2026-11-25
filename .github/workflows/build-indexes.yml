@@ -121,13 +121,26 @@ jobs:
           echo "Total size: $(du -sh .)"
 
       - name: Publish or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: Pre-built Kallisto Fungal Indexes (${{ github.event.inputs.release_tag }})
-          body: |
-            Automated pre-computed kallisto (k=31) indexes and transcript annotations for 50 fungal genomes.
-            Serves web/desktop qRNAmap without requiring client-side indexing.
-          files: release-files/*
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          TITLE="Pre-built Kallisto Fungal Indexes (${TAG})"
+          BODY="Automated pre-computed kallisto (k=31) indexes and transcript annotations for 50 fungal genomes. Serves web/desktop qRNAmap without requiring client-side indexing."
+          # Create or verify release
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TITLE" --notes "$BODY"
+          fi
+          # Upload files one by one with retry to avoid GitHub API 500 on burst uploads
+          cd release-files
+          for f in *; do
+            [ -f "$f" ] || continue
+            echo "Uploading $f..."
+            for attempt in {1..5}; do
+              if gh release upload "$TAG" "$f" --clobber; then
+                break
+              fi
+              echo "Upload failed for $f, retrying in 3s (attempt $attempt/5)..."
+              sleep 3
+            done
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
