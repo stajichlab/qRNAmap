@@ -121,13 +121,16 @@ jobs:
           echo "Total size: $(du -sh .)"
 
       - name: Publish or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: Pre-built Kallisto Fungal Indexes (${{ github.event.inputs.release_tag }})
-          body: |
-            Automated pre-computed kallisto (k=31) indexes and transcript annotations for 50 fungal genomes.
-            Serves web/desktop qRNAmap without requiring client-side indexing.
-          files: release-files/*
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          TITLE="Pre-built Kallisto Fungal Indexes (${TAG})"
+          BODY="Automated pre-computed kallisto (k=31) indexes and transcript annotations for 50 fungal genomes. Serves web/desktop qRNAmap without requiring client-side indexing."
+          # Delete existing release/tag if partially created
+          gh release delete "$TAG" -y 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+          # Create release and upload all files in release-files/
+          gh release create "$TAG" release-files/* \
+            --title "$TITLE" \
+            --notes "$BODY"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
