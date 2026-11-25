@@ -32,5 +32,9 @@ wasm-check = "cargo build -p qseq-io -p genome-catalog -p qrnamap-core --target 
 # Build the WebAssembly package for browsers (pkg-web) or for Node (pkg-node).
 build-wasm-web = "bash scripts/build-wasm-pkg.sh web pkg-web"
 build-wasm-node = "bash scripts/build-wasm-pkg.sh nodejs pkg-node"
+# Assemble the static site in dist-site/ (needs pkg-web: run build-wasm-web first).
+build-site = "bash scripts/build-site.sh"
+# The web package, the site and the CLI with the site embedded in it.
+build-cli = "bash scripts/build-wasm-pkg.sh web pkg-web && bash scripts/build-site.sh && cargo build --release -p qrnamap-cli"
 # Check that the WASM build gives the same files as the native CLI.
 test-wasm = "bash scripts/test-wasm.sh"
