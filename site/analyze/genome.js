@@ -19,6 +19,17 @@ export const LIMIT_BASES = Number.isFinite(askedLimit) && askedLimit >= 1 ? Math
 const fmt = (n) => Number(n).toLocaleString('en-US');
 const STORE_KEY = 'last-genome';
 
+const RELEASE_INDEX_URL = 'https://github.com/stajichlab/qRNAmap/releases/download/indexes-v1';
+
+let prebuiltAccessions = new Set();
+try {
+  const prebuiltRes = await fetch('./prebuilt-indexes.json?v=__BUILD__');
+  if (prebuiltRes.ok) {
+    const list = await prebuiltRes.json();
+    prebuiltAccessions = new Set(list);
+  }
+} catch (_) {}
+
 /** What the command-line tool runs instead of this step. */
 export function cliRoute(entry) {
   const fetchCmd = entry ? `qrnamap fetch --source ncbi --id ${entry.accession} --out genome/` : null;
@@ -249,7 +260,47 @@ export async function createGenomeStep({ $, shell }) {
     busy(true);
     changed();
     try {
-      if (entry) {
+      let isPrebuilt = entry && accession && prebuiltAccessions.has(accession);
+      let prebuiltPayload = null;
+
+      if (isPrebuilt) {
+        setPhase('download');
+        try {
+          status(`Downloading pre-built index for ${label}...`);
+          const fetchAsset = async (suffix) => {
+            const url = `${RELEASE_INDEX_URL}/${accession}.${suffix}`;
+            const res = await fetch(url, { signal });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return new Uint8Array(await res.arrayBuffer());
+          };
+
+          const [idxGz, tx2geneGz, geneInfoGz, genesGz] = await Promise.all([
+            fetchAsset('idx.gz'),
+            fetchAsset('tx2gene.tsv.gz'),
+            fetchAsset('gene_info.tsv.gz'),
+            fetchAsset('genes.tsv.gz'),
+          ]);
+
+          prebuiltPayload = {
+            type: 'genome-prebuilt',
+            label,
+            accession,
+            bases: entry.genome_size,
+            nTranscripts: entry.protein_coding_genes || 0,
+            nGenes: entry.genes || 0,
+            idxGz,
+            tx2geneGz,
+            geneInfoGz,
+            genesGz,
+          };
+        } catch (e) {
+          // If GitHub release asset download fails or is rate-limited, fall back transparently to in-browser build
+          console.warn('Pre-built index download unavailable, falling back to in-browser indexing:', e);
+          isPrebuilt = false;
+        }
+      }
+
+      if (entry && !isPrebuilt) {
         if (entry.genome_size > LIMIT_BASES) {
           throw Object.assign(new Error(`${entry.label} (${entry.accession}) has ${fmt(entry.genome_size)} bases, more than the page limit of ${fmt(LIMIT_BASES)} bases. ${limitText(entry)}`), { kind: 'limit' });
         }
@@ -267,7 +318,9 @@ export async function createGenomeStep({ $, shell }) {
       if (mine !== run) return;
       setPhase('read');
       const saved = entry ? { source: 'catalog', accession, label } : { source: 'upload', fasta: fasta.name, gff: gff.name };
-      const request = { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry), prepWorker: new URLSearchParams(location.search).get('prep_worker') !== '0' };
+      const request = isPrebuilt
+        ? prebuiltPayload
+        : { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry), prepWorker: new URLSearchParams(location.search).get('prep_worker') !== '0' };
       fasta = null; // the page keeps no reference to the genome bytes while the worker runs
       gff = null;
       const answer = runInWorker(request, (p) => {
@@ -289,7 +342,7 @@ export async function createGenomeStep({ $, shell }) {
       $('ready-accession').textContent = accession || 'uploaded files';
       $('ready-genes').textContent = fmt(ready.nGenes);
       $('ready-transcripts').textContent = fmt(ready.nTranscripts);
-      $('ready-time').textContent = `${ready.indexSeconds.toFixed(1)} s`;
+      $('ready-time').textContent = `${ready.indexSeconds.toFixed(1)} s${isPrebuilt ? ' (pre-built)' : ''}`;
       $('genome-ready').hidden = false;
       shell.markDone('genome');
       changed();

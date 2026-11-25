@@ -5,6 +5,7 @@
 // command and terminates it at the end, so a crash of kallisto does not end this worker.
 import init, { kallisto_args } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { prepareTranscripts, StepError } from './prep.js?v=__BUILD__';
+import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
 import { ToolRunner } from '../vendor/kallisto/runtime/index.mjs?v=__BUILD__';
 import { firstRecords, checkFastq, firstNameStem, firstReadLength, ReadError } from './fastq.js?v=__BUILD__';
 import { previewLimit, HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
@@ -78,6 +79,66 @@ async function buildGenome(message) {
   genome = { label, accession, index };
   post({ type: 'genome-ready', id, label, accession, nTranscripts: built.nTranscripts, nGenes: built.nGenes, bases: built.bases,
     indexBytes: index.length, indexSeconds: (performance.now() - started) / 1000, indexArgs: args, tx2gene: built.tx2gene, genesTsv: built.genesTsv, geneInfoTsv: built.geneInfoTsv });
+}
+
+function decompressGzip(bytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    try {
+      const gunzip = new VerifyingGunzip((chunk) => chunks.push(chunk));
+      gunzip.push(new Uint8Array(bytes), true);
+      const total = chunks.reduce((acc, c) => acc + c.length, 0);
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) {
+        out.set(c, off);
+        off += c.length;
+      }
+      resolve(out);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/** Load a pre-computed kallisto index and annotation tables directly into memory. */
+async function loadPrebuiltGenome(message) {
+  const { id, label, accession, idxGz, tx2geneGz, geneInfoGz, genesGz, bases, nTranscripts, nGenes } = message;
+  genome = null;
+  const started = performance.now();
+
+  const [index, tx2geneBytes, geneInfoBytes, genesBytes] = await Promise.all([
+    decompressGzip(idxGz),
+    decompressGzip(tx2geneGz),
+    decompressGzip(geneInfoGz),
+    decompressGzip(genesGz),
+  ]);
+
+  const dec = new TextDecoder();
+  const tx2gene = dec.decode(tx2geneBytes);
+  const geneInfoTsv = dec.decode(geneInfoBytes);
+  const genesTsv = dec.decode(genesBytes);
+
+  const calcTranscripts = nTranscripts || (tx2gene.trim().split('\n').length);
+  const calcGenes = nGenes || (genesTsv.trim().split('\n').length - 1);
+
+  genome = { label, accession, index };
+  const args = indexArgs();
+  post({
+    type: 'genome-ready',
+    id,
+    label,
+    accession,
+    nTranscripts: calcTranscripts,
+    nGenes: calcGenes,
+    bases: bases || 0,
+    indexBytes: index.length,
+    indexSeconds: (performance.now() - started) / 1000,
+    indexArgs: args,
+    tx2gene,
+    genesTsv,
+    geneInfoTsv,
+  });
 }
 
 // ------------------------------------------------------------------ quantification of one sample
@@ -237,6 +298,14 @@ self.onmessage = async ({ data }) => {
   if (data?.type === 'genome') {
     try {
       await buildGenome(data);
+    } catch (error) {
+      genome = null;
+      const kind = error instanceof StepError ? error.kind : (memoryLike(String(error?.message || error)) ? 'memory' : 'internal');
+      post({ type: 'error', id: data.id, kind, message: error?.message || String(error) });
+    }
+  } else if (data?.type === 'genome-prebuilt') {
+    try {
+      await loadPrebuiltGenome(data);
     } catch (error) {
       genome = null;
       const kind = error instanceof StepError ? error.kind : (memoryLike(String(error?.message || error)) ? 'memory' : 'internal');
