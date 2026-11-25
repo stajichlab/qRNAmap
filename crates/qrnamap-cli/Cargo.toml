@@ -17,7 +17,7 @@ genome-fetch = { path = "../genome-fetch" }
 open = "5.4.5"
 qrnamap-core = { path = "../qrnamap-core" }
 qseq-io = { path = "../qseq-io" }
-rust-embed = "8.14.0"
+rust-embed = { version = "8.14.0", features = ["include-exclude"] }
 tiny_http = "0.12.0"
 zstd = "0.13"
 

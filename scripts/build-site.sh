@@ -25,8 +25,11 @@ STAMP=$(
     cat pkg-web/qrnamap_wasm.js pkg-web/qrnamap_wasm_bg.wasm; } | sha1sum | cut -c1-10
 )
 # Stamp the page and script files (not the vendored kallisto files: they are hash-checked and hold no token).
+# `sed -i.bak` is the form that works with GNU sed and with BSD sed (macOS), which needs an argument
+# after -i. The copies are removed before the check for a leftover token.
 find dist-site -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' \) ! -path 'dist-site/vendor/kallisto/*' ! -path 'dist-site/pkg-web/*' \
-  -exec sed -i "s/__BUILD__/$STAMP/g" {} +
+  -exec sed -i.bak "s/__BUILD__/$STAMP/g" {} +
+find dist-site -type f -name '*.bak' -delete
 if grep -rIl "__BUILD__" dist-site; then echo "a __BUILD__ token is left in dist-site" >&2; exit 1; fi
 echo "build stamp: $STAMP"
 if [ -n "${SITE_CNAME:-}" ]; then echo "$SITE_CNAME" > dist-site/CNAME; fi

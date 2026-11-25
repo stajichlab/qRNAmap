@@ -8,6 +8,8 @@ members = [
     "crates/qrnamap-cli",
     "crates/qrnamap-wasm",
 ]
+# The Tauri desktop app has its own workspace (apps/desktop/Cargo.toml).
+exclude = ["apps/desktop"]
 
 [workspace.package]
 version = "0.1.0"

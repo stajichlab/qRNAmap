@@ -4,8 +4,14 @@
   "version": "0.1.0",
   "identifier": "org.stajichlab.qrnamap",
   "build": {
-    "beforeDevCommand": "bash scripts/build-site.sh",
-    "beforeBuildCommand": "bash scripts/build-site.sh",
+    "beforeDevCommand": {
+      "script": "bash scripts/build-site.sh",
+      "cwd": "../.."
+    },
+    "beforeBuildCommand": {
+      "script": "bash scripts/build-site.sh",
+      "cwd": "../.."
+    },
     "frontendDist": "../../dist-site"
   },
   "app": {
