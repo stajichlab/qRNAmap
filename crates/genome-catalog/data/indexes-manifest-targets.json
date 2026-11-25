@@ -1,0 +1,1252 @@
+[
+  {
+    "accession": "GCF_000146045.2",
+    "source": "RefSeq",
+    "label": "Saccharomyces cerevisiae S288C",
+    "organism": "Saccharomyces cerevisiae S288C",
+    "strain": "S288C",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "R64",
+    "released": "2014-12-17",
+    "genome_size": 12071326,
+    "genes": 6477,
+    "protein_coding_genes": 6021,
+    "annotation": "SGD SGD R64-5-1 2026-07-10",
+    "fasta": {
+      "name": "GCF_000146045.2_R64_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz",
+      "bytes": 3843460
+    },
+    "gff": {
+      "name": "GCF_000146045.2_R64_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.gff.gz",
+      "bytes": 2203839
+    }
+  },
+  {
+    "accession": "GCF_000002655.1",
+    "source": "RefSeq",
+    "label": "Aspergillus fumigatus Af293",
+    "organism": "Aspergillus fumigatus Af293",
+    "strain": "Af293",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM265v1",
+    "released": "2005-06-10",
+    "genome_size": 29384958,
+    "genes": 10086,
+    "protein_coding_genes": 9823,
+    "annotation": "VEuPathDB_FungiDB-68 GCF_000002655.1-RS_2026_10 2026-10-19",
+    "fasta": {
+      "name": "GCF_000002655.1_ASM265v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/655/GCF_000002655.1_ASM265v1/GCF_000002655.1_ASM265v1_genomic.fna.gz",
+      "bytes": 9003172
+    },
+    "gff": {
+      "name": "GCF_000002655.1_ASM265v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/655/GCF_000002655.1_ASM265v1/GCF_000002655.1_ASM265v1_genomic.gff.gz",
+      "bytes": 1984609
+    }
+  },
+  {
+    "accession": "GCF_000149245.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus neoformans H99",
+    "organism": "Cryptococcus neoformans H99",
+    "strain": "H99",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "CNA3",
+    "released": "2014-02-07",
+    "genome_size": 18891193,
+    "genes": 8338,
+    "protein_coding_genes": 6975,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2018-04-04",
+    "fasta": {
+      "name": "GCF_000149245.1_CNA3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/245/GCF_000149245.1_CNA3/GCF_000149245.1_CNA3_genomic.fna.gz",
+      "bytes": 5942468
+    },
+    "gff": {
+      "name": "GCF_000149245.1_CNA3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/245/GCF_000149245.1_CNA3/GCF_000149245.1_CNA3_genomic.gff.gz",
+      "bytes": 1996629
+    }
+  },
+  {
+    "accession": "GCF_000011425.1",
+    "source": "RefSeq",
+    "label": "Aspergillus nidulans FGSC A4",
+    "organism": "Aspergillus nidulans FGSC A4",
+    "strain": "FGSC A4",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM1142v1",
+    "released": "2009-09-24",
+    "genome_size": 29828291,
+    "genes": 10516,
+    "protein_coding_genes": 10453,
+    "annotation": "Eurofungbase (Eurofung) Annotation submitted by Eurofungbase (Eurofung) 2025-09-15",
+    "fasta": {
+      "name": "GCF_000011425.1_ASM1142v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/011/425/GCF_000011425.1_ASM1142v1/GCF_000011425.1_ASM1142v1_genomic.fna.gz",
+      "bytes": 9339665
+    },
+    "gff": {
+      "name": "GCF_000011425.1_ASM1142v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/011/425/GCF_000011425.1_ASM1142v1/GCF_000011425.1_ASM1142v1_genomic.gff.gz",
+      "bytes": 2248573
+    }
+  },
+  {
+    "accession": "GCF_000002855.4",
+    "source": "RefSeq",
+    "label": "Aspergillus niger",
+    "organism": "Aspergillus niger",
+    "strain": "",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "ASM285v2",
+    "released": "2007-04-11",
+    "genome_size": 33975768,
+    "genes": 14404,
+    "protein_coding_genes": 14058,
+    "annotation": "DSM, The Netherlands Annotation submitted by DSM, The Netherlands 2025-02-21",
+    "fasta": {
+      "name": "GCF_000002855.4_ASM285v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/855/GCF_000002855.4_ASM285v2/GCF_000002855.4_ASM285v2_genomic.fna.gz",
+      "bytes": 10726802
+    },
+    "gff": {
+      "name": "GCF_000002855.4_ASM285v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/855/GCF_000002855.4_ASM285v2/GCF_000002855.4_ASM285v2_genomic.gff.gz",
+      "bytes": 4423937
+    }
+  },
+  {
+    "accession": "GCF_000184455.2",
+    "source": "RefSeq",
+    "label": "Aspergillus oryzae RIB40",
+    "organism": "Aspergillus oryzae RIB40",
+    "strain": "RIB40",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM18445v3",
+    "released": "2011-06-24",
+    "genome_size": 37882812,
+    "genes": 12347,
+    "protein_coding_genes": 12074,
+    "annotation": "National Institute of Technology and Evaluation (NITE), Japan Annotation submitted by National Institute of Technology and Evaluation (NITE), Japan 2025-09-15",
+    "fasta": {
+      "name": "GCF_000184455.2_ASM18445v3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/184/455/GCF_000184455.2_ASM18445v3/GCF_000184455.2_ASM18445v3_genomic.fna.gz",
+      "bytes": 11691098
+    },
+    "gff": {
+      "name": "GCF_000184455.2_ASM18445v3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/184/455/GCF_000184455.2_ASM18445v3/GCF_000184455.2_ASM18445v3_genomic.gff.gz",
+      "bytes": 2125897
+    }
+  },
+  {
+    "accession": "GCF_000182965.3",
+    "source": "RefSeq",
+    "label": "Candida albicans SC5314",
+    "organism": "Candida albicans SC5314",
+    "strain": "SC5314",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM18296v3",
+    "released": "2016-10-12",
+    "genome_size": 14282666,
+    "genes": 6263,
+    "protein_coding_genes": 6030,
+    "annotation": "CGD CGD A22-s07-m01-r01 2025-12-05",
+    "fasta": {
+      "name": "GCF_000182965.3_ASM18296v3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/182/965/GCF_000182965.3_ASM18296v3/GCF_000182965.3_ASM18296v3_genomic.fna.gz",
+      "bytes": 4529362
+    },
+    "gff": {
+      "name": "GCF_000182965.3_ASM18296v3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/182/965/GCF_000182965.3_ASM18296v3/GCF_000182965.3_ASM18296v3_genomic.gff.gz",
+      "bytes": 1261644
+    }
+  },
+  {
+    "accession": "GCF_000026945.1",
+    "source": "RefSeq",
+    "label": "Candida dubliniensis CD36",
+    "organism": "Candida dubliniensis CD36",
+    "strain": "CD36",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM2694v1",
+    "released": "2009-02-16",
+    "genome_size": 14618422,
+    "genes": 6093,
+    "protein_coding_genes": 5859,
+    "annotation": "Wellcome Trust Sanger Institute GCF_000026945.1-RS_2026_03 2026-03-04",
+    "fasta": {
+      "name": "GCF_000026945.1_ASM2694v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/026/945/GCF_000026945.1_ASM2694v1/GCF_000026945.1_ASM2694v1_genomic.fna.gz",
+      "bytes": 4595357
+    },
+    "gff": {
+      "name": "GCF_000026945.1_ASM2694v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/026/945/GCF_000026945.1_ASM2694v1/GCF_000026945.1_ASM2694v1_genomic.gff.gz",
+      "bytes": 1055992
+    }
+  },
+  {
+    "accession": "GCF_028009165.1",
+    "source": "RefSeq",
+    "label": "Akanthomyces muscarius Ve6",
+    "organism": "Akanthomyces muscarius",
+    "strain": "Ve6",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM2800916v1",
+    "released": "2023-01-26",
+    "genome_size": 36207525,
+    "genes": 12347,
+    "protein_coding_genes": 12347,
+    "annotation": "University of Exeter Annotation submitted by University of Exeter 2023-05-19",
+    "fasta": {
+      "name": "GCF_028009165.1_ASM2800916v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/028/009/165/GCF_028009165.1_ASM2800916v1/GCF_028009165.1_ASM2800916v1_genomic.fna.gz",
+      "bytes": 11424950
+    },
+    "gff": {
+      "name": "GCF_028009165.1_ASM2800916v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/028/009/165/GCF_028009165.1_ASM2800916v1/GCF_028009165.1_ASM2800916v1_genomic.gff.gz",
+      "bytes": 1997637
+    }
+  },
+  {
+    "accession": "GCF_042100115.1",
+    "source": "RefSeq",
+    "label": "Alternaria dauci A2016",
+    "organism": "Alternaria dauci",
+    "strain": "A2016",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM4210011v1",
+    "released": "2024-09-24",
+    "genome_size": 34906709,
+    "genes": 10026,
+    "protein_coding_genes": 10026,
+    "annotation": "Peking University Annotation submitted by Peking University 2024-10-23",
+    "fasta": {
+      "name": "GCF_042100115.1_ASM4210011v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/042/100/115/GCF_042100115.1_ASM4210011v1/GCF_042100115.1_ASM4210011v1_genomic.fna.gz",
+      "bytes": 10554634
+    },
+    "gff": {
+      "name": "GCF_042100115.1_ASM4210011v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/042/100/115/GCF_042100115.1_ASM4210011v1/GCF_042100115.1_ASM4210011v1_genomic.gff.gz",
+      "bytes": 1550480
+    }
+  },
+  {
+    "accession": "GCF_004011695.2",
+    "source": "RefSeq",
+    "label": "Ascochyta rabiei",
+    "organism": "Ascochyta rabiei",
+    "strain": "",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM401169v2",
+    "released": "2022-08-25",
+    "genome_size": 40846718,
+    "genes": 11642,
+    "protein_coding_genes": 11525,
+    "annotation": "Curtin University Annotation submitted by Curtin University 2023-09-19",
+    "fasta": {
+      "name": "GCF_004011695.2_ASM401169v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/004/011/695/GCF_004011695.2_ASM401169v2/GCF_004011695.2_ASM401169v2_genomic.fna.gz",
+      "bytes": 12594634
+    },
+    "gff": {
+      "name": "GCF_004011695.2_ASM401169v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/004/011/695/GCF_004011695.2_ASM401169v2/GCF_004011695.2_ASM401169v2_genomic.gff.gz",
+      "bytes": 2858076
+    }
+  },
+  {
+    "accession": "GCF_016861735.1",
+    "source": "RefSeq",
+    "label": "Aspergillus chevalieri M1",
+    "organism": "Aspergillus chevalieri",
+    "strain": "M1",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "AchevalieriM1_assembly01",
+    "released": "2021-01-30",
+    "genome_size": 29697343,
+    "genes": 10516,
+    "protein_coding_genes": 10329,
+    "annotation": "Fermentation Microbiology, Education and Research Center for Fermentation Studies, Faculty of Agriculture, Kagoshima University Annotation submitted by Fermentation Microbiology, Education and Research Center for Fermentation Studies, Faculty of Agriculture, Kagoshima University 2025-09-15",
+    "fasta": {
+      "name": "GCF_016861735.1_AchevalieriM1_assembly01_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/016/861/735/GCF_016861735.1_AchevalieriM1_assembly01/GCF_016861735.1_AchevalieriM1_assembly01_genomic.fna.gz",
+      "bytes": 9273203
+    },
+    "gff": {
+      "name": "GCF_016861735.1_AchevalieriM1_assembly01_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/016/861/735/GCF_016861735.1_AchevalieriM1_assembly01/GCF_016861735.1_AchevalieriM1_assembly01_genomic.gff.gz",
+      "bytes": 2375730
+    }
+  },
+  {
+    "accession": "GCF_009017415.1",
+    "source": "RefSeq",
+    "label": "Aspergillus flavus NRRL 3357",
+    "organism": "Aspergillus flavus",
+    "strain": "NRRL 3357",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM901741v1",
+    "released": "2019-10-13",
+    "genome_size": 37749288,
+    "genes": 13956,
+    "protein_coding_genes": 13707,
+    "annotation": "University of California, Berkeley Annotation submitted by University of California, Berkeley 2025-02-19",
+    "fasta": {
+      "name": "GCF_009017415.1_ASM901741v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/009/017/415/GCF_009017415.1_ASM901741v1/GCF_009017415.1_ASM901741v1_genomic.fna.gz",
+      "bytes": 11742238
+    },
+    "gff": {
+      "name": "GCF_009017415.1_ASM901741v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/009/017/415/GCF_009017415.1_ASM901741v1/GCF_009017415.1_ASM901741v1_genomic.gff.gz",
+      "bytes": 2779761
+    }
+  },
+  {
+    "accession": "GCA_000150145.1",
+    "source": "GenBank",
+    "label": "Aspergillus fumigatus A1163",
+    "organism": "Aspergillus fumigatus A1163",
+    "strain": "A1163",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "ASM15014v1",
+    "released": "2007-11-02",
+    "genome_size": 29205420,
+    "genes": 10124,
+    "protein_coding_genes": 9929,
+    "annotation": "J. Craig Venter Institute Annotation submitted by J. Craig Venter Institute 2016-07-26",
+    "fasta": {
+      "name": "GCA_000150145.1_ASM15014v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/150/145/GCA_000150145.1_ASM15014v1/GCA_000150145.1_ASM15014v1_genomic.fna.gz",
+      "bytes": 9078494
+    },
+    "gff": {
+      "name": "GCA_000150145.1_ASM15014v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/150/145/GCA_000150145.1_ASM15014v1/GCA_000150145.1_ASM15014v1_genomic.gff.gz",
+      "bytes": 1584539
+    }
+  },
+  {
+    "accession": "GCF_016861625.1",
+    "source": "RefSeq",
+    "label": "Aspergillus luchuensis IFO 4308",
+    "organism": "Aspergillus luchuensis",
+    "strain": "IFO 4308",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "AkawachiiIFO4308_assembly01",
+    "released": "2021-01-30",
+    "genome_size": 37256495,
+    "genes": 12941,
+    "protein_coding_genes": 12662,
+    "annotation": "Fermentation Microbiology, Education and Research Center for Fermentation Studies, Faculty of Agriculture, Kagoshima University Annotation submitted by Fermentation Microbiology, Education and Research Center for Fermentation Studies, Faculty of Agriculture, Kagoshima University 2025-09-16",
+    "fasta": {
+      "name": "GCF_016861625.1_AkawachiiIFO4308_assembly01_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/016/861/625/GCF_016861625.1_AkawachiiIFO4308_assembly01/GCF_016861625.1_AkawachiiIFO4308_assembly01_genomic.fna.gz",
+      "bytes": 11780254
+    },
+    "gff": {
+      "name": "GCF_016861625.1_AkawachiiIFO4308_assembly01_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/016/861/625/GCF_016861625.1_AkawachiiIFO4308_assembly01/GCF_016861625.1_AkawachiiIFO4308_assembly01_genomic.gff.gz",
+      "bytes": 2920319
+    }
+  },
+  {
+    "accession": "GCF_016861865.1",
+    "source": "RefSeq",
+    "label": "Aspergillus puulaauensis MK2",
+    "organism": "Aspergillus puulaauensis",
+    "strain": "MK2",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ApuulaauensisMK2_assembly01",
+    "released": "2021-01-30",
+    "genome_size": 34318862,
+    "genes": 13748,
+    "protein_coding_genes": 13605,
+    "annotation": "Fermentation Microbiology, Education and Research Center for Fermentation Studies, Faculty of Agriculture, Kagoshima University Annotation submitted by Fermentation Microbiology, Education and Research Center for Fermentation Studies, Faculty of Agriculture, Kagoshima University 2025-09-16",
+    "fasta": {
+      "name": "GCF_016861865.1_ApuulaauensisMK2_assembly01_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/016/861/865/GCF_016861865.1_ApuulaauensisMK2_assembly01/GCF_016861865.1_ApuulaauensisMK2_assembly01_genomic.fna.gz",
+      "bytes": 10731781
+    },
+    "gff": {
+      "name": "GCF_016861865.1_ApuulaauensisMK2_assembly01_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/016/861/865/GCF_016861865.1_ApuulaauensisMK2_assembly01/GCF_016861865.1_ApuulaauensisMK2_assembly01_genomic.gff.gz",
+      "bytes": 3207407
+    }
+  },
+  {
+    "accession": "GCF_000149615.1",
+    "source": "RefSeq",
+    "label": "Aspergillus terreus NIH2624",
+    "organism": "Aspergillus terreus NIH2624",
+    "strain": "NIH2624",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "ASM14961v1",
+    "released": "2006-09-08",
+    "genome_size": 29331195,
+    "genes": 10551,
+    "protein_coding_genes": 10401,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2025-09-15",
+    "fasta": {
+      "name": "GCF_000149615.1_ASM14961v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/615/GCF_000149615.1_ASM14961v1/GCF_000149615.1_ASM14961v1_genomic.fna.gz",
+      "bytes": 9199840
+    },
+    "gff": {
+      "name": "GCF_000149615.1_ASM14961v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/615/GCF_000149615.1_ASM14961v1/GCF_000149615.1_ASM14961v1_genomic.gff.gz",
+      "bytes": 1742322
+    }
+  },
+  {
+    "accession": "GCF_035610405.1",
+    "source": "RefSeq",
+    "label": "Australozyma saopauloensis 19XY460",
+    "organism": "Australozyma saopauloensis",
+    "strain": "19XY460",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM3561040v1",
+    "released": "2024-01-12",
+    "genome_size": 12068158,
+    "genes": 5187,
+    "protein_coding_genes": 4994,
+    "annotation": "Peking Union Medical College Hospital GCF_035610405.1-RS_2026_03 2026-03-04",
+    "fasta": {
+      "name": "GCF_035610405.1_ASM3561040v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/035/610/405/GCF_035610405.1_ASM3561040v1/GCF_035610405.1_ASM3561040v1_genomic.fna.gz",
+      "bytes": 3786224
+    },
+    "gff": {
+      "name": "GCF_035610405.1_ASM3561040v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/035/610/405/GCF_035610405.1_ASM3561040v1/GCF_035610405.1_ASM3561040v1_genomic.gff.gz",
+      "bytes": 653357
+    }
+  },
+  {
+    "accession": "GCF_000203795.2",
+    "source": "RefSeq",
+    "label": "Batrachochytrium dendrobatidis JAM81",
+    "organism": "Batrachochytrium dendrobatidis JAM81",
+    "strain": "JAM81",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "v1.1",
+    "released": "2011-04-12",
+    "genome_size": 23810896,
+    "genes": 8386,
+    "protein_coding_genes": 8386,
+    "annotation": "US DOE Joint Genome Institute (JGI-PGF) Annotation submitted by US DOE Joint Genome Institute (JGI-PGF) 2024-01-18",
+    "fasta": {
+      "name": "GCF_000203795.2_v1.1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/203/795/GCF_000203795.2_v1.1/GCF_000203795.2_v1.1_genomic.fna.gz",
+      "bytes": 7279956
+    },
+    "gff": {
+      "name": "GCF_000203795.2_v1.1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/203/795/GCF_000203795.2_v1.1/GCF_000203795.2_v1.1_genomic.gff.gz",
+      "bytes": 1907009
+    }
+  },
+  {
+    "accession": "GCF_000143535.2",
+    "source": "RefSeq",
+    "label": "Botrytis cinerea B05.10",
+    "organism": "Botrytis cinerea B05.10",
+    "strain": "B05.10",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM14353v4",
+    "released": "2015-02-05",
+    "genome_size": 42630066,
+    "genes": 11698,
+    "protein_coding_genes": 11698,
+    "annotation": "Syngenta Biotechnology, Inc. Annotation submitted by Syngenta Biotechnology, Inc. 2018-04-17",
+    "fasta": {
+      "name": "GCF_000143535.2_ASM14353v4_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/143/535/GCF_000143535.2_ASM14353v4/GCF_000143535.2_ASM14353v4_genomic.fna.gz",
+      "bytes": 13456941
+    },
+    "gff": {
+      "name": "GCF_000143535.2_ASM14353v4_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/143/535/GCF_000143535.2_ASM14353v4/GCF_000143535.2_ASM14353v4_genomic.gff.gz",
+      "bytes": 1998996
+    }
+  },
+  {
+    "accession": "GCF_011074885.1",
+    "source": "RefSeq",
+    "label": "Brettanomyces bruxellensis UCD 2041",
+    "organism": "Brettanomyces bruxellensis",
+    "strain": "UCD 2041",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM1107488v2",
+    "released": "2020-10-30",
+    "genome_size": 13150648,
+    "genes": 5342,
+    "protein_coding_genes": 5243,
+    "annotation": "Australian Wine Research Institute Annotation submitted by Australian Wine Research Institute 2021-09-16",
+    "fasta": {
+      "name": "GCF_011074885.1_ASM1107488v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/011/074/885/GCF_011074885.1_ASM1107488v2/GCF_011074885.1_ASM1107488v2_genomic.fna.gz",
+      "bytes": 4153397
+    },
+    "gff": {
+      "name": "GCF_011074885.1_ASM1107488v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/011/074/885/GCF_011074885.1_ASM1107488v2/GCF_011074885.1_ASM1107488v2_genomic.gff.gz",
+      "bytes": 759409
+    }
+  },
+  {
+    "accession": "GCF_011074865.1",
+    "source": "RefSeq",
+    "label": "Brettanomyces nanus CBS 1945",
+    "organism": "Brettanomyces nanus",
+    "strain": "CBS 1945",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM1107486v2",
+    "released": "2020-12-03",
+    "genome_size": 10117252,
+    "genes": 4823,
+    "protein_coding_genes": 4711,
+    "annotation": "Australian Wine Research Institute Annotation submitted by Australian Wine Research Institute 2021-02-13",
+    "fasta": {
+      "name": "GCF_011074865.1_ASM1107486v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/011/074/865/GCF_011074865.1_ASM1107486v2/GCF_011074865.1_ASM1107486v2_genomic.fna.gz",
+      "bytes": 3171189
+    },
+    "gff": {
+      "name": "GCF_011074865.1_ASM1107486v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/011/074/865/GCF_011074865.1_ASM1107486v2/GCF_011074865.1_ASM1107486v2_genomic.gff.gz",
+      "bytes": 714730
+    }
+  },
+  {
+    "accession": "GCF_000006335.3",
+    "source": "RefSeq",
+    "label": "Candida tropicalis MYA-3404",
+    "organism": "Candida tropicalis MYA-3404",
+    "strain": "MYA-3404",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "ASM633v3",
+    "released": "2009-06-18",
+    "genome_size": 14579835,
+    "genes": 6441,
+    "protein_coding_genes": 6254,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2018-04-11",
+    "fasta": {
+      "name": "GCF_000006335.3_ASM633v3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/335/GCF_000006335.3_ASM633v3/GCF_000006335.3_ASM633v3_genomic.fna.gz",
+      "bytes": 4590152
+    },
+    "gff": {
+      "name": "GCF_000006335.3_ASM633v3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/335/GCF_000006335.3_ASM633v3/GCF_000006335.3_ASM633v3_genomic.gff.gz",
+      "bytes": 765466
+    }
+  },
+  {
+    "accession": "GCF_003013715.1",
+    "source": "RefSeq",
+    "label": "Candidozyma auris B11220",
+    "organism": "Candidozyma auris",
+    "strain": "B11220",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM301371v2",
+    "released": "2019-09-10",
+    "genome_size": 12249773,
+    "genes": 5494,
+    "protein_coding_genes": 5327,
+    "annotation": "Centers for Disease Control and Prevention Annotation submitted by Centers for Disease Control and Prevention 2025-12-15",
+    "fasta": {
+      "name": "GCF_003013715.1_ASM301371v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/013/715/GCF_003013715.1_ASM301371v2/GCF_003013715.1_ASM301371v2_genomic.fna.gz",
+      "bytes": 3846188
+    },
+    "gff": {
+      "name": "GCF_003013715.1_ASM301371v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/013/715/GCF_003013715.1_ASM301371v2/GCF_003013715.1_ASM301371v2_genomic.gff.gz",
+      "bytes": 727688
+    }
+  },
+  {
+    "accession": "GCF_002759435.1",
+    "source": "RefSeq",
+    "label": "Candidozyma auris B8441",
+    "organism": "Candidozyma auris B8441",
+    "strain": "B8441",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "Cand_auris_B8441_V3",
+    "released": "2024-04-22",
+    "genome_size": 12406600,
+    "genes": 5594,
+    "protein_coding_genes": 5424,
+    "annotation": "National Center for Emerging and Zoonotic Infectious Diseases- Mycotic Diseases Branch GCF_002759435.1-RS_2026_07 2026-07-09",
+    "fasta": {
+      "name": "GCF_002759435.1_Cand_auris_B8441_V3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/759/435/GCF_002759435.1_Cand_auris_B8441_V3/GCF_002759435.1_Cand_auris_B8441_V3_genomic.fna.gz",
+      "bytes": 3893595
+    },
+    "gff": {
+      "name": "GCF_002759435.1_Cand_auris_B8441_V3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/759/435/GCF_002759435.1_Cand_auris_B8441_V3/GCF_002759435.1_Cand_auris_B8441_V3_genomic.gff.gz",
+      "bytes": 893395
+    }
+  },
+  {
+    "accession": "GCF_033473495.1",
+    "source": "RefSeq",
+    "label": "Cercospora beticola",
+    "organism": "Cercospora beticola",
+    "strain": "",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM3347349v1",
+    "released": "2023-11-09",
+    "genome_size": 36074111,
+    "genes": 13212,
+    "protein_coding_genes": 13144,
+    "annotation": "USDA-ARS GCF_033473495.1-RS_2026_06 2026-06-26",
+    "fasta": {
+      "name": "GCF_033473495.1_ASM3347349v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/033/473/495/GCF_033473495.1_ASM3347349v1/GCF_033473495.1_ASM3347349v1_genomic.fna.gz",
+      "bytes": 11117552
+    },
+    "gff": {
+      "name": "GCF_033473495.1_ASM3347349v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/033/473/495/GCF_033473495.1_ASM3347349v1/GCF_033473495.1_ASM3347349v1_genomic.gff.gz",
+      "bytes": 2387281
+    }
+  },
+  {
+    "accession": "GCF_000143365.1",
+    "source": "RefSeq",
+    "label": "Chaetomium globosum CBS 148.51",
+    "organism": "Chaetomium globosum CBS 148.51",
+    "strain": "CBS 148.51",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "ASM14336v1",
+    "released": "2006-02-17",
+    "genome_size": 34276485,
+    "genes": 11224,
+    "protein_coding_genes": 11040,
+    "annotation": "The Genome Sequencing Platform, The Genome Assembly Team Annotation submitted by The Genome Sequencing Platform, The Genome Assembly Team 2021-11-15",
+    "fasta": {
+      "name": "GCF_000143365.1_ASM14336v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/143/365/GCF_000143365.1_ASM14336v1/GCF_000143365.1_ASM14336v1_genomic.fna.gz",
+      "bytes": 10897466
+    },
+    "gff": {
+      "name": "GCF_000143365.1_ASM14336v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/143/365/GCF_000143365.1_ASM14336v1/GCF_000143365.1_ASM14336v1_genomic.gff.gz",
+      "bytes": 1658809
+    }
+  },
+  {
+    "accession": "GCF_000149335.2",
+    "source": "RefSeq",
+    "label": "Coccidioides immitis RS",
+    "organism": "Coccidioides immitis RS",
+    "strain": "RS",
+    "level": "Scaffold",
+    "version_status": "latest",
+    "assembly": "ASM14933v2",
+    "released": "2009-10-29",
+    "genome_size": 28947925,
+    "genes": 9905,
+    "protein_coding_genes": 9757,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2022-05-02",
+    "fasta": {
+      "name": "GCF_000149335.2_ASM14933v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/335/GCF_000149335.2_ASM14933v2/GCF_000149335.2_ASM14933v2_genomic.fna.gz",
+      "bytes": 9034274
+    },
+    "gff": {
+      "name": "GCF_000149335.2_ASM14933v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/335/GCF_000149335.2_ASM14933v2/GCF_000149335.2_ASM14933v2_genomic.gff.gz",
+      "bytes": 1751105
+    }
+  },
+  {
+    "accession": "GCF_018416015.2",
+    "source": "RefSeq",
+    "label": "Coccidioides posadasii str. Silveira",
+    "organism": "Coccidioides posadasii str. Silveira",
+    "strain": "Silveira",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM1841601v2",
+    "released": "2022-02-01",
+    "genome_size": 28193268,
+    "genes": 8438,
+    "protein_coding_genes": 8299,
+    "annotation": "Northern Arizona University Annotation submitted by Northern Arizona University 2024-09-24",
+    "fasta": {
+      "name": "GCF_018416015.2_ASM1841601v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/018/416/015/GCF_018416015.2_ASM1841601v2/GCF_018416015.2_ASM1841601v2_genomic.fna.gz",
+      "bytes": 8733236
+    },
+    "gff": {
+      "name": "GCF_018416015.2_ASM1841601v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/018/416/015/GCF_018416015.2_ASM1841601v2/GCF_018416015.2_ASM1841601v2_genomic.gff.gz",
+      "bytes": 1775761
+    }
+  },
+  {
+    "accession": "GCF_034447905.1",
+    "source": "RefSeq",
+    "label": "Colletotrichum destructivum CBS 520.97",
+    "organism": "Colletotrichum destructivum",
+    "strain": "CBS 520.97",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM3444790v1",
+    "released": "2023-12-18",
+    "genome_size": 51750812,
+    "genes": 15627,
+    "protein_coding_genes": 15627,
+    "annotation": "INRAE Annotation submitted by INRAE 2024-02-07",
+    "fasta": {
+      "name": "GCF_034447905.1_ASM3444790v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/034/447/905/GCF_034447905.1_ASM3444790v1/GCF_034447905.1_ASM3444790v1_genomic.fna.gz",
+      "bytes": 16337753
+    },
+    "gff": {
+      "name": "GCF_034447905.1_ASM3444790v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/034/447/905/GCF_034447905.1_ASM3444790v1/GCF_034447905.1_ASM3444790v1_genomic.gff.gz",
+      "bytes": 2669151
+    }
+  },
+  {
+    "accession": "GCF_001672515.1",
+    "source": "RefSeq",
+    "label": "Colletotrichum higginsianum IMI 349063",
+    "organism": "Colletotrichum higginsianum IMI 349063",
+    "strain": "IMI 349063",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM167251v1",
+    "released": "2016-06-21",
+    "genome_size": 50716103,
+    "genes": 14651,
+    "protein_coding_genes": 14651,
+    "annotation": "GATC Biotech AG Annotation submitted by GATC Biotech AG 2022-02-26",
+    "fasta": {
+      "name": "GCF_001672515.1_ASM167251v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/672/515/GCF_001672515.1_ASM167251v1/GCF_001672515.1_ASM167251v1_genomic.fna.gz",
+      "bytes": 15922403
+    },
+    "gff": {
+      "name": "GCF_001672515.1_ASM167251v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/672/515/GCF_001672515.1_ASM167251v1/GCF_001672515.1_ASM167251v1_genomic.gff.gz",
+      "bytes": 2471511
+    }
+  },
+  {
+    "accession": "GCF_051148585.1",
+    "source": "RefSeq",
+    "label": "Colletotrichum jinshuiense",
+    "organism": "Colletotrichum jinshuiense",
+    "strain": "",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM5114858v1",
+    "released": "2024-04-09",
+    "genome_size": 52104089,
+    "genes": 13128,
+    "protein_coding_genes": 13128,
+    "annotation": "Hubei Academy of Agricultural Sciences GCF_051148585.1-RS_2026_05 2026-05-14",
+    "fasta": {
+      "name": "GCF_051148585.1_ASM5114858v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/051/148/585/GCF_051148585.1_ASM5114858v1/GCF_051148585.1_ASM5114858v1_genomic.fna.gz",
+      "bytes": 16488667
+    },
+    "gff": {
+      "name": "GCF_051148585.1_ASM5114858v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/051/148/585/GCF_051148585.1_ASM5114858v1/GCF_051148585.1_ASM5114858v1_genomic.gff.gz",
+      "bytes": 2266888
+    }
+  },
+  {
+    "accession": "GCF_023278565.1",
+    "source": "RefSeq",
+    "label": "Colletotrichum lupini IMI 504893",
+    "organism": "Colletotrichum lupini",
+    "strain": "IMI 504893",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM2327856v1",
+    "released": "2022-05-09",
+    "genome_size": 63407421,
+    "genes": 18681,
+    "protein_coding_genes": 18280,
+    "annotation": "University of Western Brittany Annotation submitted by University of Western Brittany 2022-07-16",
+    "fasta": {
+      "name": "GCF_023278565.1_ASM2327856v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/023/278/565/GCF_023278565.1_ASM2327856v1/GCF_023278565.1_ASM2327856v1_genomic.fna.gz",
+      "bytes": 19663029
+    },
+    "gff": {
+      "name": "GCF_023278565.1_ASM2327856v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/023/278/565/GCF_023278565.1_ASM2327856v1/GCF_023278565.1_ASM2327856v1_genomic.gff.gz",
+      "bytes": 3250524
+    }
+  },
+  {
+    "accession": "GCF_000182895.1",
+    "source": "RefSeq",
+    "label": "Coprinopsis cinerea okayama7#130",
+    "organism": "Coprinopsis cinerea okayama7#130",
+    "strain": "okayama7#130",
+    "level": "Contig",
+    "version_status": "latest",
+    "assembly": "CC3",
+    "released": "2010-06-16",
+    "genome_size": 36150142,
+    "genes": 13657,
+    "protein_coding_genes": 13355,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2017-09-05",
+    "fasta": {
+      "name": "GCF_000182895.1_CC3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/182/895/GCF_000182895.1_CC3/GCF_000182895.1_CC3_genomic.fna.gz",
+      "bytes": 11335707
+    },
+    "gff": {
+      "name": "GCF_000182895.1_CC3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/182/895/GCF_000182895.1_CC3/GCF_000182895.1_CC3_genomic.gff.gz",
+      "bytes": 2693340
+    }
+  },
+  {
+    "accession": "GCF_051103115.1",
+    "source": "RefSeq",
+    "label": "Cordyceps javanica Apopka 97",
+    "organism": "Cordyceps javanica",
+    "strain": "Apopka 97",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM5110311v1",
+    "released": "2025-06-26",
+    "genome_size": 35105364,
+    "genes": 10469,
+    "protein_coding_genes": 10353,
+    "annotation": "Swansea University GCF_051103115.1-RS_2026_05 2026-05-14",
+    "fasta": {
+      "name": "GCF_051103115.1_ASM5110311v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/051/103/115/GCF_051103115.1_ASM5110311v1/GCF_051103115.1_ASM5110311v1_genomic.fna.gz",
+      "bytes": 11172611
+    },
+    "gff": {
+      "name": "GCF_051103115.1_ASM5110311v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/051/103/115/GCF_051103115.1_ASM5110311v1/GCF_051103115.1_ASM5110311v1_genomic.gff.gz",
+      "bytes": 2167643
+    }
+  },
+  {
+    "accession": "GCF_000836335.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus bacillisporus CA1280",
+    "organism": "Cryptococcus bacillisporus CA1280",
+    "strain": "CA1280",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM83633v2",
+    "released": "2024-05-09",
+    "genome_size": 17825526,
+    "genes": 6809,
+    "protein_coding_genes": 6694,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2024-07-31",
+    "fasta": {
+      "name": "GCF_000836335.1_ASM83633v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/836/335/GCF_000836335.1_ASM83633v2/GCF_000836335.1_ASM83633v2_genomic.fna.gz",
+      "bytes": 5623742
+    },
+    "gff": {
+      "name": "GCF_000836335.1_ASM83633v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/836/335/GCF_000836335.1_ASM83633v2/GCF_000836335.1_ASM83633v2_genomic.gff.gz",
+      "bytes": 1533137
+    }
+  },
+  {
+    "accession": "GCF_036417295.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus decagattii 7685027",
+    "organism": "Cryptococcus decagattii",
+    "strain": "7685027",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM3641729v1",
+    "released": "2024-02-06",
+    "genome_size": 17768546,
+    "genes": 6671,
+    "protein_coding_genes": 6557,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2024-05-01",
+    "fasta": {
+      "name": "GCF_036417295.1_ASM3641729v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/036/417/295/GCF_036417295.1_ASM3641729v1/GCF_036417295.1_ASM3641729v1_genomic.fna.gz",
+      "bytes": 5508183
+    },
+    "gff": {
+      "name": "GCF_036417295.1_ASM3641729v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/036/417/295/GCF_036417295.1_ASM3641729v1/GCF_036417295.1_ASM3641729v1_genomic.gff.gz",
+      "bytes": 1519409
+    }
+  },
+  {
+    "accession": "GCF_000149385.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus deneoformans B-3501A",
+    "organism": "Cryptococcus deneoformans B-3501A",
+    "strain": "B-3501A",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM14938v1",
+    "released": "2004-07-16",
+    "genome_size": 19699782,
+    "genes": 6609,
+    "protein_coding_genes": 6500,
+    "annotation": "Stanford University Annotation submitted by Stanford University 2023-09-13",
+    "fasta": {
+      "name": "GCF_000149385.1_ASM14938v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/385/GCF_000149385.1_ASM14938v1/GCF_000149385.1_ASM14938v1_genomic.fna.gz",
+      "bytes": 5856014
+    },
+    "gff": {
+      "name": "GCF_000149385.1_ASM14938v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/149/385/GCF_000149385.1_ASM14938v1/GCF_000149385.1_ASM14938v1_genomic.gff.gz",
+      "bytes": 1675604
+    }
+  },
+  {
+    "accession": "GCF_000091045.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus deneoformans JEC21",
+    "organism": "Cryptococcus deneoformans JEC21",
+    "strain": "JEC21",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM9104v1",
+    "released": "2005-01-07",
+    "genome_size": 19051922,
+    "genes": 7004,
+    "protein_coding_genes": 6632,
+    "annotation": "TIGR Annotation submitted by TIGR 2018-04-11",
+    "fasta": {
+      "name": "GCF_000091045.1_ASM9104v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/091/045/GCF_000091045.1_ASM9104v1/GCF_000091045.1_ASM9104v1_genomic.fna.gz",
+      "bytes": 5988547
+    },
+    "gff": {
+      "name": "GCF_000091045.1_ASM9104v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/091/045/GCF_000091045.1_ASM9104v1/GCF_000091045.1_ASM9104v1_genomic.gff.gz",
+      "bytes": 1426093
+    }
+  },
+  {
+    "accession": "GCF_001720195.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus depauperatus CBS 7841",
+    "organism": "Cryptococcus depauperatus CBS 7841",
+    "strain": "CBS 7841",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM172019v2",
+    "released": "2024-02-22",
+    "genome_size": 16179376,
+    "genes": 6455,
+    "protein_coding_genes": 6341,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2024-07-02",
+    "fasta": {
+      "name": "GCF_001720195.1_ASM172019v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/720/195/GCF_001720195.1_ASM172019v2/GCF_001720195.1_ASM172019v2_genomic.fna.gz",
+      "bytes": 5069847
+    },
+    "gff": {
+      "name": "GCF_001720195.1_ASM172019v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/720/195/GCF_001720195.1_ASM172019v2/GCF_001720195.1_ASM172019v2_genomic.gff.gz",
+      "bytes": 1399397
+    }
+  },
+  {
+    "accession": "GCF_002954075.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus deuterogattii R265",
+    "organism": "Cryptococcus deuterogattii R265",
+    "strain": "",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "C. deuterogattii_R265_chr",
+    "released": "2018-02-27",
+    "genome_size": 17550122,
+    "genes": 6673,
+    "protein_coding_genes": 6408,
+    "annotation": "Jawaharlal Nehru Centre for Advanced Scientific Research Annotation submitted by Jawaharlal Nehru Centre for Advanced Scientific Research 2024-02-14",
+    "fasta": {
+      "name": "GCF_002954075.1_C._deuterogattii_R265_chr_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/954/075/GCF_002954075.1_C._deuterogattii_R265_chr/GCF_002954075.1_C._deuterogattii_R265_chr_genomic.fna.gz",
+      "bytes": 5554245
+    },
+    "gff": {
+      "name": "GCF_002954075.1_C._deuterogattii_R265_chr_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/954/075/GCF_002954075.1_C._deuterogattii_R265_chr/GCF_002954075.1_C._deuterogattii_R265_chr_genomic.gff.gz",
+      "bytes": 1569145
+    }
+  },
+  {
+    "accession": "GCF_000185945.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus gattii WM276",
+    "organism": "Cryptococcus gattii WM276",
+    "strain": "WM276",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM18594v1",
+    "released": "2011-01-12",
+    "genome_size": 18374760,
+    "genes": 6580,
+    "protein_coding_genes": 6565,
+    "annotation": "Canada's Michael Smith Genome Sciences Centre Annotation submitted by Canada's Michael Smith Genome Sciences Centre 2023-04-14",
+    "fasta": {
+      "name": "GCF_000185945.1_ASM18594v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/185/945/GCF_000185945.1_ASM18594v1/GCF_000185945.1_ASM18594v1_genomic.fna.gz",
+      "bytes": 5569935
+    },
+    "gff": {
+      "name": "GCF_000185945.1_ASM18594v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/185/945/GCF_000185945.1_ASM18594v1/GCF_000185945.1_ASM18594v1_genomic.gff.gz",
+      "bytes": 1561742
+    }
+  },
+  {
+    "accession": "GCF_000835755.1",
+    "source": "RefSeq",
+    "label": "Cryptococcus tetragattii IND107",
+    "organism": "Cryptococcus tetragattii IND107",
+    "strain": "IND107",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM83575v2",
+    "released": "2024-06-25",
+    "genome_size": 17799622,
+    "genes": 6807,
+    "protein_coding_genes": 6646,
+    "annotation": "Broad Institute Annotation submitted by Broad Institute 2024-07-31",
+    "fasta": {
+      "name": "GCF_000835755.1_ASM83575v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/835/755/GCF_000835755.1_ASM83575v2/GCF_000835755.1_ASM83575v2_genomic.fna.gz",
+      "bytes": 5621209
+    },
+    "gff": {
+      "name": "GCF_000835755.1_ASM83575v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/835/755/GCF_000835755.1_ASM83575v2/GCF_000835755.1_ASM83575v2_genomic.gff.gz",
+      "bytes": 1535347
+    }
+  },
+  {
+    "accession": "GCF_030864355.1",
+    "source": "RefSeq",
+    "label": "Cutaneotrichosporon cavernicola HIS019",
+    "organism": "Cutaneotrichosporon cavernicola",
+    "strain": "HIS019",
+    "level": "Complete Genome",
+    "version_status": "latest",
+    "assembly": "ASM3086435v1",
+    "released": "2023-06-24",
+    "genome_size": 20237334,
+    "genes": 7753,
+    "protein_coding_genes": 7753,
+    "annotation": "Tokyo University of Agriculture Annotation submitted by Tokyo University of Agriculture 2023-11-01",
+    "fasta": {
+      "name": "GCF_030864355.1_ASM3086435v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/030/864/355/GCF_030864355.1_ASM3086435v1/GCF_030864355.1_ASM3086435v1_genomic.fna.gz",
+      "bytes": 6392955
+    },
+    "gff": {
+      "name": "GCF_030864355.1_ASM3086435v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/030/864/355/GCF_030864355.1_ASM3086435v1/GCF_030864355.1_ASM3086435v1_genomic.gff.gz",
+      "bytes": 1556602
+    }
+  },
+  {
+    "accession": "GCF_000006445.2",
+    "source": "RefSeq",
+    "label": "Debaryomyces hansenii CBS767",
+    "organism": "Debaryomyces hansenii CBS767",
+    "strain": "CBS767",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM644v2",
+    "released": "2008-09-16",
+    "genome_size": 12152486,
+    "genes": 6520,
+    "protein_coding_genes": 6282,
+    "annotation": "Genolevures Consortium GCF_000006445.2-RS_2026_03 2026-03-04",
+    "fasta": {
+      "name": "GCF_000006445.2_ASM644v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/445/GCF_000006445.2_ASM644v2/GCF_000006445.2_ASM644v2_genomic.fna.gz",
+      "bytes": 3834159
+    },
+    "gff": {
+      "name": "GCF_000006445.2_ASM644v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/445/GCF_000006445.2_ASM644v2/GCF_000006445.2_ASM644v2_genomic.gff.gz",
+      "bytes": 1124062
+    }
+  },
+  {
+    "accession": "GCF_001625195.1",
+    "source": "RefSeq",
+    "label": "Drechmeria coniospora ARSEF 6962",
+    "organism": "Drechmeria coniospora",
+    "strain": "ARSEF 6962",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM162519v1",
+    "released": "2016-04-24",
+    "genome_size": 32831003,
+    "genes": 8445,
+    "protein_coding_genes": 8236,
+    "annotation": "Biotechnology Research Institute, Chinese Academy of Agricultural Sciences Annotation submitted by Biotechnology Research Institute, Chinese Academy of Agricultural Sciences 2021-04-20",
+    "fasta": {
+      "name": "GCF_001625195.1_ASM162519v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/625/195/GCF_001625195.1_ASM162519v1/GCF_001625195.1_ASM162519v1_genomic.fna.gz",
+      "bytes": 10102779
+    },
+    "gff": {
+      "name": "GCF_001625195.1_ASM162519v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/625/195/GCF_001625195.1_ASM162519v1/GCF_001625195.1_ASM162519v1_genomic.gff.gz",
+      "bytes": 1372897
+    }
+  },
+  {
+    "accession": "GCF_000091225.2",
+    "source": "RefSeq",
+    "label": "Encephalitozoon cuniculi GB-M1",
+    "organism": "Encephalitozoon cuniculi GB-M1",
+    "strain": "",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM9122v2",
+    "released": "2017-03-09",
+    "genome_size": 2497519,
+    "genes": 2155,
+    "protein_coding_genes": 2122,
+    "annotation": "Genoscope Annotation submitted by Genoscope 2022-12-22",
+    "fasta": {
+      "name": "GCF_000091225.2_ASM9122v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/091/225/GCF_000091225.2_ASM9122v2/GCF_000091225.2_ASM9122v2_genomic.fna.gz",
+      "bytes": 784325
+    },
+    "gff": {
+      "name": "GCF_000091225.2_ASM9122v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/091/225/GCF_000091225.2_ASM9122v2/GCF_000091225.2_ASM9122v2_genomic.gff.gz",
+      "bytes": 340303
+    }
+  },
+  {
+    "accession": "GCF_000277815.2",
+    "source": "RefSeq",
+    "label": "Encephalitozoon hellem ATCC 50504",
+    "organism": "Encephalitozoon hellem ATCC 50504",
+    "strain": "ATCC 50504",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM27781v3",
+    "released": "2012-07-16",
+    "genome_size": 2251784,
+    "genes": 2006,
+    "protein_coding_genes": 1928,
+    "annotation": "University of British Columbia Annotation submitted by University of British Columbia 2023-09-27",
+    "fasta": {
+      "name": "GCF_000277815.2_ASM27781v3_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/277/815/GCF_000277815.2_ASM27781v3/GCF_000277815.2_ASM27781v3_genomic.fna.gz",
+      "bytes": 705645
+    },
+    "gff": {
+      "name": "GCF_000277815.2_ASM27781v3_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/277/815/GCF_000277815.2_ASM27781v3/GCF_000277815.2_ASM27781v3_genomic.gff.gz",
+      "bytes": 233656
+    }
+  },
+  {
+    "accession": "GCF_000146465.1",
+    "source": "RefSeq",
+    "label": "Encephalitozoon intestinalis ATCC 50506",
+    "organism": "Encephalitozoon intestinalis ATCC 50506",
+    "strain": "ATCC 50506",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM14646v1",
+    "released": "2010-08-16",
+    "genome_size": 2216898,
+    "genes": 2010,
+    "protein_coding_genes": 1938,
+    "annotation": "Keeling lab, University of British Columbia Annotation submitted by Keeling lab, University of British Columbia 2022-04-18",
+    "fasta": {
+      "name": "GCF_000146465.1_ASM14646v1_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/465/GCF_000146465.1_ASM14646v1/GCF_000146465.1_ASM14646v1_genomic.fna.gz",
+      "bytes": 694857
+    },
+    "gff": {
+      "name": "GCF_000146465.1_ASM14646v1_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/465/GCF_000146465.1_ASM14646v1/GCF_000146465.1_ASM14646v1_genomic.gff.gz",
+      "bytes": 258128
+    }
+  },
+  {
+    "accession": "GCF_000280035.1",
+    "source": "RefSeq",
+    "label": "Encephalitozoon romaleae SJ-2008",
+    "organism": "Encephalitozoon romaleae SJ-2008",
+    "strain": "SJ-2008",
+    "level": "Chromosome",
+    "version_status": "latest",
+    "assembly": "ASM28003v2",
+    "released": "2012-07-19",
+    "genome_size": 2187595,
+    "genes": 1883,
+    "protein_coding_genes": 1831,
+    "annotation": "University of Ottawa Annotation submitted by University of Ottawa 2017-06-02",
+    "fasta": {
+      "name": "GCF_000280035.1_ASM28003v2_genomic.fna.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/280/035/GCF_000280035.1_ASM28003v2/GCF_000280035.1_ASM28003v2_genomic.fna.gz",
+      "bytes": 684986
+    },
+    "gff": {
+      "name": "GCF_000280035.1_ASM28003v2_genomic.gff.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/280/035/GCF_000280035.1_ASM28003v2/GCF_000280035.1_ASM28003v2_genomic.gff.gz",
+      "bytes": 241738
+    }
+  }
+]

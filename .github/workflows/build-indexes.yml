@@ -1,0 +1,115 @@
+name: Build and Release Fungal Kallisto Indexes
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag for index assets (e.g. indexes-v1)'
+        required: true
+        default: 'indexes-v1'
+      limit:
+        description: 'Number of genomes to build (0 for all 50)'
+        required: false
+        default: '50'
+
+permissions:
+  contents: write
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      genomes: ${{ steps.list.outputs.genomes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate matrix
+        id: list
+        run: |
+          python3 -c "
+          import json, os
+          with open('crates/genome-catalog/data/indexes-manifest-targets.json') as f:
+              targets = json.load(f)
+          limit = int(os.environ.get('LIMIT', '50'))
+          if limit > 0:
+              targets = targets[:limit]
+          matrix_entries = []
+          for g in targets:
+              matrix_entries.append({
+                  'accession': g['accession'],
+                  'organism': g['organism'],
+                  'fna_url': g['fasta']['url'],
+                  'gff_url': g['gff']['url']
+              })
+          print('genomes=' + json.dumps(matrix_entries))
+          " >> $GITHUB_OUTPUT
+        env:
+          LIMIT: ${{ github.event.inputs.limit }}
+
+  build:
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        genome: ${{ fromJson(needs.matrix.outputs.genomes) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.41.4
+          run-install: true
+
+      - name: Build qrnamap CLI
+        run: cargo build --release -p qrnamap-cli
+
+      - name: Build Index for ${{ matrix.genome.accession }} (${{ matrix.genome.organism }})
+        run: |
+          mkdir -p artifacts
+          export PATH="$PWD/target/release:$PATH"
+          pixi run bash scripts/build-one-index.sh \
+            "${{ matrix.genome.accession }}" \
+            "${{ matrix.genome.fna_url }}" \
+            "${{ matrix.genome.gff_url }}" \
+            artifacts
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: index-${{ matrix.genome.accession }}
+          path: artifacts/*
+          retention-days: 7
+
+  release:
+    needs: [matrix, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          merge-multiple: true
+
+      - name: Consolidate Manifest and Checksums
+        run: |
+          mkdir -p release-files
+          mv all-artifacts/* release-files/ || true
+          cd release-files
+          if [ -f checksums.sha256 ]; then
+            sort -u checksums.sha256 -o checksums.sha256
+          fi
+          ls -lh
+          echo "Total size: $(du -sh .)"
+
+      - name: Publish or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: Pre-built Kallisto Fungal Indexes (${{ github.event.inputs.release_tag }})
+          body: |
+            Automated pre-computed kallisto (k=31) indexes and transcript annotations for 50 fungal genomes.
+            Serves web/desktop qRNAmap without requiring client-side indexing.
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
