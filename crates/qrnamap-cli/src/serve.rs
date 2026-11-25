@@ -7,7 +7,7 @@ use std::time::Duration;
 use tiny_http::{Header, Response, Server, StatusCode};
 
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../../dist-site/"]
+#[folder = "default-dist/"]
 struct DistAssets;
 
 pub fn run_ui(port: u16, host: &str, open_browser: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -46,6 +46,19 @@ pub fn run_ui(port: u16, host: &str, open_browser: bool) -> Result<(), Box<dyn s
         } else {
             trimmed.to_string()
         };
+
+        let local_file = Path::new("dist-site").join(&target_path);
+        if local_file.is_file() {
+            if let Ok(bytes) = std::fs::read(&local_file) {
+                let mime = mime_type(&target_path);
+                let header = Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
+                    .unwrap_or_else(|_| Header::from_bytes(&b"Content-Type"[..], &b"application/octet-stream"[..]).unwrap());
+                let mut response = Response::from_data(bytes);
+                response.add_header(header);
+                let _ = request.respond(response);
+                continue;
+            }
+        }
 
         let file = DistAssets::get(&target_path).or_else(|| {
             if !target_path.contains('.') {
