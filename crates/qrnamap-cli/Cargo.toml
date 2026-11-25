@@ -14,8 +14,11 @@ clap = { version = "4", features = ["derive"] }
 flate2 = "1"
 genome-catalog = { path = "../genome-catalog" }
 genome-fetch = { path = "../genome-fetch" }
+open = "5.4.5"
 qrnamap-core = { path = "../qrnamap-core" }
 qseq-io = { path = "../qseq-io" }
+rust-embed = "8.14.0"
+tiny_http = "0.12.0"
 zstd = "0.13"
 
 [dev-dependencies]
