@@ -11,6 +11,8 @@ use qrnamap_cli::pipeline::{
 };
 use qrnamap_core::{Mode, Quantifier, RunConfig, Sample, SampleSheet, Strandedness};
 
+mod serve;
+
 #[derive(Parser)]
 #[command(
     name = "qrnamap",
@@ -282,6 +284,18 @@ enum Cmd {
         /// Temporary directory. Default: $SCRATCH, then $TMPDIR (ruling R23).
         #[arg(long)]
         tmpdir: Option<PathBuf>,
+    },
+    /// Launch the local web user interface in the default browser.
+    Ui {
+        /// Port to bind the local web server. Default: 8080.
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
+        /// Host address to bind. Default: 127.0.0.1.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Do not automatically open the browser.
+        #[arg(long)]
+        no_browser: bool,
     },
 }
 
@@ -979,6 +993,13 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             pipeline::write_output(&out.join("strand_check.tsv"), table.as_bytes()).map_err(e)?;
             scratch.cleanup();
+        }
+        Cmd::Ui {
+            port,
+            host,
+            no_browser,
+        } => {
+            serve::run_ui(port, &host, !no_browser).map_err(|err| err.to_string())?;
         }
     }
     Ok(())
