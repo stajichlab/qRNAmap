@@ -1,12 +1,18 @@
 [package]
 name = "qrnamap-desktop"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
 publish = false
 
+# The desktop app is a workspace of its own. It must not join the root workspace: the root
+# workspace is built on machines without the Tauri system libraries (webkit2gtk on Linux), and its
+# Cargo.lock would then carry the whole Tauri dependency tree for every other crate.
+[workspace]
+resolver = "2"
+
 [build-dependencies]
-tauri-build = { version = "2", default-features = false }
+tauri-build = { version = "2", default-features = false , features = [] }
 
 [dependencies]
 tauri = { version = "2", default-features = false, features = ["wry"] }
