@@ -1,3 +1,13 @@
+/**
+ * The protocols a module of the tool may be loaded from.
+ *
+ * `file:`, `http:` and `https:` are the schemes every browser accepts. The scheme of this file
+ * is allowed as well: the modules the runner loads are its siblings, so they have the same
+ * scheme, and a browser accepts a module of the page's own scheme. The desktop app serves the
+ * page over its own scheme (`tauri:`), where the check below would otherwise refuse the tool.
+ */
+const ALLOWED_PROTOCOLS = [...new Set(['file:', 'http:', 'https:', new URL(import.meta.url).protocol])];
+
 /** Run one command in an isolated worker. No shell parsing or shared tool state. */
 export class ToolRunner {
   constructor({ moduleUrl, workerUrl = new URL('./worker.mjs', import.meta.url), waitForExit = false } = {}) {
@@ -81,7 +91,9 @@ export class ToolRunner {
 function absoluteUrl(value, label) {
   let url;
   try { url = new URL(value); } catch { throw new TypeError(`${label} must be an absolute URL or URL object`); }
-  if (!['file:', 'http:', 'https:'].includes(url.protocol)) throw new TypeError(`${label} must use file, http or https`);
+  if (!ALLOWED_PROTOCOLS.includes(url.protocol)) {
+    throw new TypeError(`${label} must use ${ALLOWED_PROTOCOLS.map(protocol => protocol.replace(':', '')).join(', ')}`);
+  }
   return url.href;
 }
 
