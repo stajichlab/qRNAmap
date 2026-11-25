@@ -13,10 +13,13 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 <body>
 <div class="topbar">
   <h1>Analyze reads</h1>
-  <nav class="themes" aria-label="Colour theme">
-    <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
-    <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
-  </nav>
+  <div class="topbar-actions">
+    <button type="button" id="btn-reset-all" class="button-reset" title="Clear all loaded data, genome index, and stored state to start over">Reset / Clear memory</button>
+    <nav class="themes" aria-label="Colour theme">
+      <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+      <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
+    </nav>
+  </div>
 </div>
 <p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
 

@@ -40,4 +40,19 @@
   }
   if (narrow.addEventListener) narrow.addEventListener('change', follow); else narrow.addListener(follow);
   markLayout();
+
+  // Open external links in default system browser when running inside desktop app (Tauri)
+  document.addEventListener('click', function (e) {
+    var target = e.target;
+    var a = target && (target.closest ? target.closest('a') : null);
+    if (!a) return;
+    var href = a.getAttribute('href') || (a.href && a.href.baseVal ? a.href.baseVal : a.href);
+    if (!href || typeof href !== 'string') return;
+    if (/^https?:\/\//i.test(href)) {
+      if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+        e.preventDefault();
+        window.__TAURI_INTERNALS__.invoke('open_url', { url: href }).catch(function () {});
+      }
+    }
+  }, true);
 })();
