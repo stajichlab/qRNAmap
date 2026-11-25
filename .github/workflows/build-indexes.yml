@@ -55,10 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@v0.11.3
         with:
-          pixi-version: v0.41.4
-          run-install: true
+          cache: true
 
       - name: Build qrnamap CLI
         run: cargo build --release -p qrnamap-cli
