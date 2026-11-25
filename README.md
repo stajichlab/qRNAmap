@@ -31,6 +31,31 @@ cargo build --release -p qrnamap-cli
 QRNAMAP_REQUIRE_TOOLS=1 cargo test --workspace
 ```
 
+The web UI of `qrnamap ui` is a build artifact (`dist-site/`), so it is not in the binary unless
+the site is built first. Build the WebAssembly package, then the site, then the CLI:
+
+```bash
+pixi run build-wasm-web                 # writes pkg-web/
+bash scripts/build-site.sh              # writes dist-site/
+cargo build --release -p qrnamap-cli    # embeds dist-site/ in the binary
+```
+
+`pixi run build-cli` does these three steps. The site build needs the `wasm-bindgen` CLI, whose
+version must equal the `wasm-bindgen` version in `Cargo.lock` (`==0.2.130`); outside the pixi
+environment install it with `cargo install wasm-bindgen-cli --version 0.2.130 --locked` and add
+the target `rustup target add wasm32-unknown-unknown`. The pixi environment is solved for
+`linux-64` only, so on macOS the site is built with those two commands instead of
+`pixi run build-wasm-web`.
+
+The desktop app (`apps/desktop/`) is a workspace of its own, because the root workspace is built
+on machines without the Tauri system libraries:
+
+```bash
+cd apps/desktop && cargo tauri build
+```
+
+That build assembles the site itself, so it needs `pkg-web/` (see above).
+
 ## Sample sheet
 
 A tab-separated file with a header row.
@@ -101,6 +126,9 @@ qrnamap run --samples samples.tsv --reference genome.fna.gz --gff genes.gff.gz -
   --out /bigdata/lab/run/ --strandedness reverse --contrast condition,ko,wild_type \
   --slurm --tool-path "$PWD/.pixi/envs/default/bin" --time 02:00:00
 bash /bigdata/lab/run/slurm/submit.sh
+
+# The web UI in the default browser (the site has to be built, see "Install and build")
+qrnamap ui --port 8080
 ```
 
 ### Quantifier (quant mode)
