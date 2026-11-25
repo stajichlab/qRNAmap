@@ -21,7 +21,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
@@ -33,13 +33,15 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - uses: prefix-dev/setup-pixi@v0.11.3
+      - uses: actions/setup-node@v6.0.0
         with:
-          cache: true
+          node-version: 22
 
-      - name: Build WASM and Site
+      - name: Install wasm-bindgen-cli and build web bundle
         run: |
-          pixi run build-wasm-web
+          cargo install wasm-bindgen-cli --version 0.2.130 --locked
+          rustup target add wasm32-unknown-unknown
+          bash scripts/build-wasm-pkg.sh web pkg-web
           bash scripts/build-site.sh
 
       - name: Build Tauri App
