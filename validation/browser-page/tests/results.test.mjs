@@ -173,7 +173,7 @@ test('results step unlocks after run: mapping summary, count table, alias search
   const volcanoText = await page.textContent('#de-section, #volcano-container');
   assert.match(volcanoText, /Comparison: "trt" vs "ctl"/i);
 
-  // Labeled genes carry a mouseover title and a link out to SGD or NCBI (from the GFF Dbxref)
+  // Labeled genes carry a mouseover title and a link out to SGD, FungiDB or NCBI (from the GFF Dbxref)
   const volcanoLinks = await page.locator('#volcano-container svg a.volcano-gene-link').all();
   assert.ok(volcanoLinks.length > 0, 'volcano has linkable labeled genes');
   let labelLinks = 0;
@@ -181,8 +181,8 @@ test('results step unlocks after run: mapping summary, count table, alias search
     const href = await a.getAttribute('href');
     assert.match(
       href,
-      /^https:\/\/www\.(yeastgenome\.org\/locus\/S\d+|ncbi\.nlm\.nih\.gov\/gene\/\d+)$/,
-      `link out to SGD or NCBI Gene, got ${href}`
+      /^https:\/\/(www\.yeastgenome\.org\/locus\/S\d+|fungidb\.org\/gene\/[A-Za-z0-9_.-]+|www\.ncbi\.nlm\.nih\.gov\/gene\/\d+)$/,
+      `link out to SGD, FungiDB or NCBI Gene, got ${href}`
     );
     assert.equal(await a.getAttribute('target'), '_blank', 'link opens in a new tab');
     const title = await a.locator('title').textContent();

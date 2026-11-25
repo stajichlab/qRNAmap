@@ -101,6 +101,8 @@ The gene features of the parsed GFF3 carry `Dbxref` entries; `gene_info_tsv` now
 In the results step, the volcano plot's labeled genes (top five up, top five down) now:
 
 - show a mouseover tooltip with the locus, symbol, log2FC, padj and the linked databases;
-- link out on click (label text and the point itself, both `target="_blank"`): `SGD:` xrefs open `https://www.yeastgenome.org/locus/<SGDID>`; a numeric `GeneID` opens `https://www.ncbi.nlm.nih.gov/gene/<GeneID>`. SGD takes precedence when both are present; genes with neither stay unlinked.
+- link out on click (label text and the point itself, both `target="_blank"`): `SGD:` xrefs open `https://www.yeastgenome.org/locus/<SGDID>`; `FungiDB:` xrefs and `AFU*_` Aspergillus fumigatus locus tags (Af293 `AFUA_1G00100`, A1163 `AFUB_102960`) open `https://fungidb.org/gene/<ID>`; a numeric `GeneID` opens `https://www.ncbi.nlm.nih.gov/gene/<GeneID>`. SGD takes precedence, then FungiDB; genes with neither stay unlinked. The builders live in `site/analyze/gene-links.js` (pure, unit-tested in `tests/units.test.mjs`).
+
+Note: A1163's GenBank annotation (GCA_000150145.1) carries no `Dbxref` at all, so its genes link only through the `AFUB_` locus-tag rule; Af293's RefSeq GFF (GCF_000002655.1) carries both `FungiDB:` and `GeneID:` xrefs.
 
 The same fix defines the previously missing `downloadBlob` helper, so the `differential_expression.tsv` button works (it threw `ReferenceError: downloadBlob is not defined`).

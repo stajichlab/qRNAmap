@@ -6,6 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
 import { firstRecords, checkFastq, firstNameStem, firstReadLength } from '../../../site/analyze/fastq.js';
+import { geneExternalLinks } from '../../../site/analyze/gene-links.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
   'tx1\t1491\t1327.5\t9\t31.1145\n' +
@@ -134,4 +135,41 @@ test('firstReadLength: the sequence length of the first record (CRLF ok)', () =>
   assert.equal(firstReadLength(enc('@r\nACGTA\n+\nIIIII\n@s\nAC\n+\nII\n')), 5);
   assert.equal(firstReadLength(enc('@r\r\nACG\r\n+\r\nIII\r\n')), 3);
   assert.equal(firstReadLength(enc('@r\n')), 0);
+});
+
+test('geneExternalLinks: SGD first, then NCBI Gene (RefSeq yeast Dbxref)', () => {
+  assert.deepEqual(geneExternalLinks('Q0130', { geneId: '854584', dbxref: ['GeneID:854584', 'SGD:S000007274'] }), [
+    { name: 'SGD', url: 'https://www.yeastgenome.org/locus/S000007274' },
+    { name: 'NCBI Gene', url: 'https://www.ncbi.nlm.nih.gov/gene/854584' },
+  ]);
+});
+
+test('geneExternalLinks: FungiDb xref before NCBI Gene (Af293-style RefSeq Dbxref)', () => {
+  assert.deepEqual(geneExternalLinks('AFUA_1G00100', { geneId: '3507995', dbxref: ['FungiDB:AFUA_1G00100', 'GeneID:3507995'] }), [
+    { name: 'FungiDB', url: 'https://fungidb.org/gene/AFUA_1G00100' },
+    { name: 'NCBI Gene', url: 'https://www.ncbi.nlm.nih.gov/gene/3507995' },
+  ]);
+});
+
+test('geneExternalLinks: an AFU locus tag links FungiDB without a Dbxref (A1163 GenBank)', () => {
+  assert.deepEqual(geneExternalLinks('AFUB_102960', { geneId: '', dbxref: [] }), [
+    { name: 'FungiDB', url: 'https://fungidb.org/gene/AFUB_102960' },
+  ]);
+  // the xref and the label give the same URL once, not twice
+  assert.deepEqual(geneExternalLinks('AFUA_1G00100', { dbxref: ['FungiDB:AFUA_1G00100'] }), [
+    { name: 'FungiDB', url: 'https://fungidb.org/gene/AFUA_1G00100' },
+  ]);
+});
+
+test('geneExternalLinks: SGD beats FungiDB when both are present', () => {
+  assert.equal(geneExternalLinks('Q0130', { dbxref: ['FungiDB:S000007274', 'SGD:S000007274'] })[0].name, 'SGD');
+});
+
+test('geneExternalLinks: no dbxref but a numeric gene_id still links NCBI; nothing else links nothing', () => {
+  assert.deepEqual(geneExternalLinks('YAL068C', { geneId: '854598', dbxref: [] }), [
+    { name: 'NCBI Gene', url: 'https://www.ncbi.nlm.nih.gov/gene/854598' },
+  ]);
+  assert.deepEqual(geneExternalLinks('YAL068C', { geneId: '', dbxref: [] }), []);
+  assert.deepEqual(geneExternalLinks('tP(UGG)Q', { geneId: '', dbxref: ['FungiDB:', 'SGD:'] }), []);
+  assert.deepEqual(geneExternalLinks('anything', undefined), []);
 });
