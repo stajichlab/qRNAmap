@@ -10,7 +10,7 @@ rm -rf dist-site
 mkdir -p dist-site/analyze dist-site/vendor dist-site/pkg-web
 cp site/index.html site/style.css site/theme.js site/testsets.json dist-site/
 if [ -d site/testsets ]; then cp -r site/testsets dist-site/; fi
-cp site/analyze/*.html site/analyze/*.js dist-site/analyze/
+cp site/analyze/*.html site/analyze/*.js site/analyze/*.json dist-site/analyze/
 cp site/gz.js site/persist.js site/reference-panel.js dist-site/
 cp site/vendor/fflate.js site/vendor/fflate.LICENSE dist-site/vendor/
 cp -r site/vendor/kallisto dist-site/vendor/kallisto
