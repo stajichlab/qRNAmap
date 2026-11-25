@@ -34,6 +34,22 @@ fn assets_present() -> bool {
     DistAssets::iter().next().is_some() || local_file("analyze/index.html").is_some()
 }
 
+/// The file of the site that a request path asks for.
+///
+/// The landing page is served at `/` and the tool at `/analyze/`. The pages name their assets
+/// relatively (`style.css` on the landing page, `../style.css` on the tool page), so each page
+/// must be served at the path it was written for, or its assets are not found.
+fn target_path(url: &str) -> String {
+    let trimmed = url.trim_start_matches('/');
+    if trimmed.is_empty() {
+        "index.html".to_string()
+    } else if trimmed.ends_with('/') {
+        format!("{trimmed}index.html")
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub fn run_ui(port: u16, host: &str, open_browser: bool) -> Result<(), Box<dyn std::error::Error>> {
     if !assets_present() {
         return Err(
@@ -64,20 +80,7 @@ pub fn run_ui(port: u16, host: &str, open_browser: bool) -> Result<(), Box<dyn s
 
     for request in server.incoming_requests() {
         let raw_url = request.url().split('?').next().unwrap_or("/");
-        let clean_path = if raw_url == "/" || raw_url.is_empty() {
-            "/analyze/"
-        } else {
-            raw_url
-        };
-
-        let trimmed = clean_path.trim_start_matches('/');
-        let target_path = if trimmed.is_empty() {
-            "analyze/index.html".to_string()
-        } else if trimmed.ends_with('/') {
-            format!("{trimmed}index.html")
-        } else {
-            trimmed.to_string()
-        };
+        let target_path = target_path(raw_url);
 
         // The embedded assets come first: they are what the binary ships. The site next to the
         // working directory is the fallback for a binary built without a site.
@@ -137,5 +140,29 @@ fn mime_type(path: &str) -> &'static str {
         "tsv" => "text/tab-separated-values; charset=utf-8",
         "txt" => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::target_path;
+
+    #[test]
+    fn the_root_serves_the_landing_page() {
+        assert_eq!(target_path("/"), "index.html");
+        assert_eq!(target_path(""), "index.html");
+    }
+
+    #[test]
+    fn a_directory_serves_its_index() {
+        assert_eq!(target_path("/analyze/"), "analyze/index.html");
+        assert_eq!(target_path("/vendor/kallisto/runtime/"), "vendor/kallisto/runtime/index.html");
+    }
+
+    #[test]
+    fn a_file_is_served_as_it_is() {
+        assert_eq!(target_path("/style.css"), "style.css");
+        assert_eq!(target_path("/analyze/worker.js"), "analyze/worker.js");
+        assert_eq!(target_path("/vendor/kallisto/runtime/index.mjs"), "vendor/kallisto/runtime/index.mjs");
     }
 }
