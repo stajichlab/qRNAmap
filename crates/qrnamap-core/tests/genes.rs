@@ -219,9 +219,24 @@ chr1\tsrc\tpseudogenic_transcript\t3000\t3500\t.\t-\t.\tID=t4;Parent=g3\n\
 chr1\tsrc\texon\t3000\t3500\t.\t-\t.\tID=e4;Parent=t4\n";
     let m = qseq_io::parse_gff3(std::io::Cursor::new(s.as_bytes())).unwrap();
     let tsv = qrnamap_core::gene_info_tsv(&m, &[]);
-    let want = "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\n\
-LOC1\tSYM;1\t1001\tOLD,1\tt1,t2\tPROT1,PROT2\tmRNA\tprotein_coding\tchr1\t+\n\
-NAME2\tNAME2\t1002\t\tt3\t\ttRNA\ttRNA\tchr1\t+\n\
-g3\t\t\t\tt4\t\tpseudogene\tpseudogene\tchr1\t-\n";
+    let want = "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n\
+LOC1\tSYM;1\t1001\tOLD,1\tt1,t2\tPROT1,PROT2\tmRNA\tprotein_coding\tchr1\t+\tGeneID:1001,SGD:S001\n\
+NAME2\tNAME2\t1002\t\tt3\t\ttRNA\ttRNA\tchr1\t+\tGeneID:1002\n\
+g3\t\t\t\tt4\t\tpseudogene\tpseudogene\tchr1\t-\t\n";
     assert_eq!(tsv, want);
+}
+
+#[test]
+fn gene_info_tsv_keeps_sgd_only_dbxref() {
+    // SGD-native GFFs carry `SGD:S000...` xrefs and no NCBI GeneID; the link-out needs the value.
+    let s = "##gff-version 3\n\
+chrI\tSGD\tgene\t335\t649\t.\t+\t.\tID=S000006318;Name=YAL069W;Dbxref=SGD:S000006318\n\
+chrI\tSGD\tmRNA\t335\t649\t.\t+\t.\tID=t1;Parent=S000006318\n";
+    let m = qseq_io::parse_gff3(std::io::Cursor::new(s.as_bytes())).unwrap();
+    let tsv = qrnamap_core::gene_info_tsv(&m, &[]);
+    let mut lines = tsv.lines();
+    let header = lines.next().unwrap();
+    assert_eq!(header.split('\t').last().unwrap(), "dbxref");
+    let row = lines.next().unwrap();
+    assert_eq!(row.split('\t').last().unwrap(), "SGD:S000006318");
 }

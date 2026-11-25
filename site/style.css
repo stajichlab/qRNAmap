@@ -96,3 +96,5 @@ ul.error { padding-left: 2rem; }
 #volcano-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: .5rem 0; }
 .qc-message { color: var(--muted); font-style: italic; }
 svg.heatmap, svg.pca-plot, svg.volcano-plot { max-width: 100%; height: auto; font-family: system-ui, sans-serif; }
+svg.volcano-plot a.volcano-gene-link { cursor: pointer; }
+svg.volcano-plot a.volcano-gene-link:hover text { text-decoration: underline; }
