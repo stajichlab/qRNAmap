@@ -964,6 +964,7 @@ fn real_genomes_gene_info_validation() {
         let mut n_old_locus_tag = 0;
         let mut n_proteins = 0;
         let mut n_dbxref = 0;
+        let mut n_fungidb = 0;
         let mut all_txs_in_info = HashSet::new();
 
         for line in &lines[1..] {
@@ -991,6 +992,9 @@ fn real_genomes_gene_info_validation() {
             }
             if !dbxref.is_empty() {
                 n_dbxref += 1;
+            }
+            if dbxref.split(',').any(|x| x.starts_with("FungiDB:")) {
+                n_fungidb += 1;
             }
             if !transcripts.is_empty() {
                 for tx in transcripts.split(',') {
@@ -1023,6 +1027,12 @@ fn real_genomes_gene_info_validation() {
         assert!(n_dbxref > 0, "{name}: must have dbxref entries");
         if name == "afum" {
             assert!(n_old_locus_tag > 0, "afum must have old_locus_tags");
+            // Af293 (GCF_000002655.1) carries Dbxref=FungiDB:AFUA_1G00100,GeneID:... on gene features;
+            // the results-page link-outs are built from this column.
+            assert!(
+                n_fungidb > 0,
+                "afum (Af293) must have FungiDB dbxref entries"
+            );
         }
     }
 

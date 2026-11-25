@@ -1,6 +1,7 @@
 // Step 3: results view, downloads and plots.
 import { assemble_matrix, qc, de_command, validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
+import { geneExternalLinks } from './gene-links.js?v=__BUILD__';
 
 const STORE_KEY = 'results';
 
@@ -26,20 +27,6 @@ export function parseAliasIndex(geneInfoTsv) {
     map.set(gene, { tokens, symbol: cols[1] || '', geneId: cols[2] || '', dbxref });
   }
   return map;
-}
-
-/** External database links for a gene, from the Dbxref entries of its GFF gene feature. */
-export function geneExternalLinks(info) {
-  if (!info) return [];
-  const links = [];
-  const sgd = (info.dbxref || []).find((x) => x.startsWith('SGD:'));
-  if (sgd && sgd.length > 4) {
-    links.push({ name: 'SGD', url: `https://www.yeastgenome.org/locus/${sgd.slice(4)}` });
-  }
-  if (/^\d+$/.test(info.geneId || '')) {
-    links.push({ name: 'NCBI Gene', url: `https://www.ncbi.nlm.nih.gov/gene/${info.geneId}` });
-  }
-  return links;
 }
 
 /** Format a number with commas. */
@@ -469,7 +456,7 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     const lx = isRight ? item.cx + 6 : item.cx - 6;
     const anchor = isRight ? 'start' : 'end';
     const p = item.padj ?? item.pvalue;
-    const links = geneExternalLinks(alias);
+    const links = geneExternalLinks(item.gene, alias);
     let tip = `${item.gene}${alias?.symbol ? ` (${alias.symbol})` : ''}: log2FC=${item.log2FoldChange.toFixed(2)}, padj=${p.toExponential(2)}`;
     for (const l of links) tip += `\nOpen ${l.name}: ${l.url}`;
     const textAttrs = `x="${lx.toFixed(1)}" y="${(item.cy + 3).toFixed(1)}" font-size="10" font-weight="600" text-anchor="${anchor}" fill="currentColor"`;
