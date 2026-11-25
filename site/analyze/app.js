@@ -3,6 +3,7 @@ import { createGenomeStep } from './genome.js?v=__BUILD__';
 import { createSamplesStep } from './samples.js?v=__BUILD__';
 import { createResultsStep } from './results.js?v=__BUILD__';
 import { createTestsets } from './testsets.js?v=__BUILD__';
+import { clearStore } from '../persist.js?v=__BUILD__';
 import * as wasm from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 
 const ORDER = ['genome', 'samples', 'results'];
@@ -59,4 +60,26 @@ const resultsStep = createResultsStep({ $, app: window.qrnamapApp, shell: { comp
 window.qrnamapApp.resultsStep = resultsStep;
 const testsets = createTestsets({ $, app: window.qrnamapApp, shell: { completeStep, resetFrom } });
 window.qrnamapApp.testsets = testsets;
+
+$('btn-reset-all')?.addEventListener('click', async () => {
+  const confirmed = window.confirm(
+    'Reset qRNAmap and clear all memory to start over?\n\nThis unloads any in-memory genome index, samples, and cached results.'
+  );
+  if (!confirmed) return;
+  try {
+    window.qrnamapApp?.cancelGenome?.();
+  } catch (_) {}
+  try {
+    await clearStore();
+  } catch (_) {}
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key !== 'qrnamap-theme' && key !== 'qrnamap-layout') {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch (_) {}
+  location.reload();
+});
+
 document.getElementById('step-samples').dataset.ready = 'table'; // the tests wait for this
