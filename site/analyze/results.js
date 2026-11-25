@@ -51,13 +51,105 @@ function downloadBlob(text, name, mime) {
 }
 
 /** Render SVG correlation heatmap. */
+/** RGB color interpolation between multi-stop color ramps. */
+function interpolateRgb(stops, t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [p0, c0] = stops[i];
+    const [p1, c1] = stops[i + 1];
+    if (clamped >= p0 && clamped <= p1) {
+      const f = p1 === p0 ? 0 : (clamped - p0) / (p1 - p0);
+      return [
+        Math.round(c0[0] + f * (c1[0] - c0[0])),
+        Math.round(c0[1] + f * (c1[1] - c0[1])),
+        Math.round(c0[2] + f * (c1[2] - c0[2])),
+      ];
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+/** Perceived relative luminance of an [R, G, B] tuple (0..1). */
+function rgbLuminance(rgb) {
+  const a = rgb.map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+}
+
+/** Sequential YlGnBu palette for non-negative correlations. */
+const HEATMAP_YL_GN_BU = [
+  [0.00, [255, 255, 217]], // Pale cream (#ffffd9)
+  [0.25, [199, 233, 180]], // Soft green (#c7e9b4)
+  [0.50, [65, 182, 196]],  // Teal (#41b6c4)
+  [0.75, [34, 94, 168]],   // Blue (#225ea8)
+  [1.00, [8, 29, 88]],     // Dark navy (#081d58)
+];
+
+/** Diverging RdBu palette when correlations include negative values. */
+const HEATMAP_RD_BU = [
+  [0.00, [178, 24, 43]],   // Negative: crimson red (#b2182b)
+  [0.50, [247, 247, 247]], // 0.0: neutral off-white (#f7f7f7)
+  [1.00, [33, 102, 172]],  // Positive: deep blue (#2166ac)
+];
+
 export function renderHeatmapSvg(samples, correlation, previewLabel) {
   const n = samples.length;
-  const padLeft = 80;
+  const padLeft = 85;
   const padTop = 60;
   const cellSize = Math.max(35, Math.min(60, Math.floor(300 / n)));
-  const width = padLeft + n * cellSize + 20;
-  const height = padTop + n * cellSize + 40;
+  const matrixW = n * cellSize;
+  const matrixH = n * cellSize;
+
+  // Extract all off-diagonal correlations to compute dynamic data range
+  const offDiag = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i !== j) {
+        const v = correlation?.[i]?.[j];
+        if (typeof v === 'number' && !Number.isNaN(v)) offDiag.push(v);
+      }
+    }
+  }
+
+  const hasOff = offDiag.length > 0;
+  const minOff = hasOff ? Math.min(...offDiag) : 0;
+  const maxOff = hasOff ? Math.max(...offDiag) : 1;
+  const isDiverging = minOff < 0;
+
+  // Palette selection and value mapper
+  const stops = isDiverging ? HEATMAP_RD_BU : HEATMAP_YL_GN_BU;
+  const maxAbs = Math.max(Math.abs(minOff), Math.abs(maxOff), 0.01);
+
+  const getCellColor = (r, isDiag) => {
+    if (isDiag) {
+      // Diagonal is self-correlation (1.000). Use distinctive deep slate navy.
+      return { fill: '#162238', text: '#ffffff' };
+    }
+    let t = 0.5;
+    if (isDiverging) {
+      // Diverging around 0: [-maxAbs, +maxAbs] -> [0, 1]
+      t = (r + maxAbs) / (2 * maxAbs);
+    } else {
+      // Sequential: map observed off-diagonal range [minOff, maxOff] -> [0, 1]
+      const span = maxOff - minOff;
+      t = span > 0.001 ? (r - minOff) / span : 0.5;
+    }
+    const rgb = interpolateRgb(stops, t);
+    const lum = rgbLuminance(rgb);
+    const fill = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+    const text = lum < 0.42 ? '#ffffff' : '#14171a';
+    return { fill, text };
+  };
+
+  // Colorbar legend layout
+  const legendW = 14;
+  const legendX = padLeft + matrixW + 28;
+  const legendY = padTop;
+  const legendH = Math.min(matrixH, 200);
+  const width = legendX + legendW + 65;
+  const height = padTop + matrixH + 45;
 
   let rects = '';
   let labels = '';
@@ -69,25 +161,47 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
     labels += `<text x="${padLeft + i * cellSize + cellSize / 2}" y="${padTop - 8}" text-anchor="middle" font-size="12" fill="currentColor">${samples[i]}</text>`;
 
     for (let j = 0; j < n; j++) {
-      const val = correlation[i][j];
-      const r = typeof val === 'number' && !Number.isNaN(val) ? val : 0;
-      // Interpolate color from light (0.5 or lower) to solid blue (1.0)
-      const alpha = Math.max(0.1, Math.min(1.0, (r - 0.5) / 0.5));
-      const fill = `rgba(11, 92, 173, ${alpha.toFixed(2)})`;
-      const textColor = alpha > 0.65 ? '#ffffff' : '#1d2024';
+      const isDiag = i === j;
+      const val = correlation?.[i]?.[j];
+      const r = typeof val === 'number' && !Number.isNaN(val) ? val : (isDiag ? 1 : 0);
+      const { fill, text } = getCellColor(r, isDiag);
       const x = padLeft + j * cellSize;
       const y = padTop + i * cellSize;
 
       rects += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="${fill}" stroke="var(--line, #ccc)">` +
-        `<title>${samples[i]} vs ${samples[j]}: ${r.toFixed(4)}</title></rect>`;
-      rects += `<text x="${x + cellSize / 2}" y="${y + cellSize / 2 + 4}" text-anchor="middle" font-size="11" fill="${textColor}">${r.toFixed(3)}</text>`;
+        `<title>${samples[i]} vs ${samples[j]}: ${r.toFixed(4)}${isDiag ? ' (self)' : ''}</title></rect>`;
+      rects += `<text x="${x + cellSize / 2}" y="${y + cellSize / 2 + 4}" text-anchor="middle" font-size="11" font-weight="${isDiag ? '600' : '500'}" fill="${text}">${r.toFixed(3)}</text>`;
     }
   }
+
+  // Build SVG gradient for the legend bar
+  const gradStops = stops.map(([pos, rgb]) => {
+    // Top of legend corresponds to t=1, bottom to t=0
+    const pct = ((1 - pos) * 100).toFixed(0);
+    return `<stop offset="${pct}%" stop-color="rgb(${rgb[0]},${rgb[1]},${rgb[2]})" />`;
+  }).join('');
+
+  const topLabel = isDiverging ? `+${maxAbs.toFixed(2)}` : maxOff.toFixed(3);
+  const midLabel = isDiverging ? '0.00' : ((minOff + maxOff) / 2).toFixed(3);
+  const btmLabel = isDiverging ? `-${maxAbs.toFixed(2)}` : minOff.toFixed(3);
+
+  const legendSvg =
+    `<defs>` +
+      `<linearGradient id="heat-leg-grad" x1="0" y1="0" x2="0" y2="1">${gradStops}</linearGradient>` +
+    `</defs>` +
+    `<g class="heatmap-legend" transform="translate(${legendX}, ${legendY})">` +
+      `<text x="0" y="-8" font-size="10" font-weight="600" fill="currentColor">Pearson r</text>` +
+      `<rect x="0" y="0" width="${legendW}" height="${legendH}" fill="url(#heat-leg-grad)" stroke="var(--line, #ccc)" />` +
+      `<text x="${legendW + 6}" y="10" font-size="10" fill="currentColor">${topLabel}</text>` +
+      (legendH > 80 ? `<text x="${legendW + 6}" y="${legendH / 2 + 3}" font-size="9" fill="var(--muted, #666)">${midLabel}</text>` : '') +
+      `<text x="${legendW + 6}" y="${legendH}" font-size="10" fill="currentColor">${btmLabel}</text>` +
+      (hasOff && !isDiverging && maxOff < 0.95 ? `<text x="0" y="${legendH + 16}" font-size="9" fill="var(--muted, #666)">(off-diag)</text>` : '') +
+    `</g>`;
 
   return `<svg class="heatmap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Sample correlation heatmap">` +
     `<text x="10" y="20" font-weight="600" font-size="14" fill="currentColor">Sample Correlation Matrix</text>` +
     `<text x="10" y="38" font-size="11" fill="var(--muted, #666)">${previewLabel}</text>` +
-    labels + rects +
+    labels + rects + legendSvg +
     `</svg>`;
 }
 
