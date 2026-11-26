@@ -11,7 +11,7 @@ i=0
 for d in "${designs[@]}"; do
   i=$((i + 1))
   echo "== DESeq2 design: $d"
-  pixi run --manifest-path "$HERE/../../pixi.toml" Rscript "$HERE/deseq2_reference.R" "$counts" "$coldata" "$d" "$factor" "$level" "$ref" "$out/deseq2_$i"
+  pixi run --manifest-path "$HERE/../../pixi.toml" -e de Rscript "$HERE/deseq2_reference.R" "$counts" "$coldata" "$d" "$factor" "$level" "$ref" "$out/deseq2_$i"
   echo "== page vs DESeq2 ($d)"
   python3 "$HERE/compare_de.py" "$out/deseq2_$i.results.tsv" "$out/page.tsv"
 done
