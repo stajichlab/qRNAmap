@@ -187,7 +187,7 @@ export function createSamplesStep({ $, app, shell }) {
         name: type === 'numeric' ? `${name}:numeric` : name,
       }));
       model.rows = res.samples.map((s) => newRow({
-        name: s.name,
+        name: s.sample || s.name || '',
         values: Object.fromEntries(model.columns.map((c, i) => [c.key, s.covariates[res.columns[i][0]] ?? ''])),
         expect: {
           1: s.fastq1[0] ? baseName(s.fastq1[0]) : null,
