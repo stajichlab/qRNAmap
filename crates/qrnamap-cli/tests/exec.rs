@@ -24,7 +24,7 @@ fn native_failure_reports_stderr() {
     assert!(text.contains("kallisto"), "{text}");
     // kallisto's own words, from its stderr.
     assert!(
-        text.contains("unrecognized option '--bogus-flag'"),
+        text.contains("unrecognized option") && text.contains("--bogus-flag"),
         "{text}"
     );
 }

@@ -16,7 +16,7 @@ const NL = 10;
  * One pass over the first `maxRecords` records of `file`. `sink(bytes)` gets every kept chunk (plain bytes) in order.
  * Returns `{ total, lines, cut, addNewline }`. Checks the gzip end (when the whole file was read) and blank lines.
  */
-async function scan(file, maxRecords, label, signal, onRecords, sink) {
+async function scan(file, maxRecords, label, signal, onRecords, sink, onChunk) {
   const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
   const gz = head[0] === 0x1f && head[1] === 0x8b;
   const target = maxRecords * 4;
@@ -70,6 +70,7 @@ async function scan(file, maxRecords, label, signal, onRecords, sink) {
       } else {
         feed(value);
       }
+      if (onChunk) await onChunk();
       if (lines - reported >= 40000) { reported = lines; onRecords(Math.floor(lines / 4)); }
     }
   } finally {
@@ -109,6 +110,42 @@ export async function firstRecords(file, maxRecords, label, { signal, onRecords 
   onRecords(first.lines / 4);
   return { bytes, records: first.lines / 4, wholeFile: !first.cut };
 }
+
+/**
+ * Stream records of `file` directly into a `StreamRingBuffer`.
+ * Decompresses and writes chunks on-the-fly, pausing via ring buffer backpressure.
+ * Closes the ring buffer on completion.
+ */
+export async function streamFastqRecords(file, maxRecords, label, ring, { signal, onRecords = () => {} } = {}) {
+  if (file.size === 0) {
+    ring.abort();
+    throw new ReadError(`${label} is empty (0 bytes).`);
+  }
+  const pending = [];
+  const sink = (chunk) => {
+    pending.push(chunk);
+  };
+  const onChunk = async () => {
+    while (pending.length) {
+      const chunk = pending.shift();
+      await ring.write(chunk);
+    }
+  };
+  try {
+    const res = await scan(file, maxRecords, label, signal, onRecords, sink, onChunk);
+    await onChunk();
+    if (res.addNewline) {
+      await ring.write(new Uint8Array([NL]));
+    }
+    ring.close();
+    onRecords(Math.floor(res.lines / 4));
+    return { records: Math.floor(res.lines / 4), wholeFile: !res.cut };
+  } catch (error) {
+    ring.abort();
+    throw error;
+  }
+}
+
 
 /** The sequence length of the first record of FASTQ bytes (line 2, without a carriage return). */
 export function firstReadLength(bytes) {

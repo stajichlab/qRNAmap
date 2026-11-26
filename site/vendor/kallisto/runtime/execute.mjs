@@ -1,5 +1,5 @@
 /** Internal worker implementation. Public callers should use ToolRunner. */
-export async function execute({ moduleUrl, waitForExit = false, args, files, outputs, outputDirectories = [], stdin }) {
+export async function execute({ moduleUrl, waitForExit = false, args, files, devices = [], outputs, outputDirectories = [], stdin }) {
   const factory = (await import(moduleUrl)).default;
   if (typeof factory !== 'function') throw new TypeError('Tool module must export an Emscripten factory as its default export');
   const stdout = new ByteCollector();
@@ -26,6 +26,20 @@ export async function execute({ moduleUrl, waitForExit = false, args, files, out
       for (const file of files) {
         FS.mkdirTree(file.path.slice(0, file.path.lastIndexOf('/')));
         FS.writeFile(file.path, file.data);
+      }
+      let devMajor = 70;
+      for (const dev of devices) {
+        FS.mkdirTree(dev.path.slice(0, dev.path.lastIndexOf('/')));
+        const ring = new StreamRingConsumer(dev.sab);
+        const devNum = FS.makedev(devMajor++, 0);
+        FS.registerDevice(devNum, {
+          open(stream) { stream.seekable = false; },
+          close() {},
+          read(stream, buffer, offset, length, pos) {
+            return ring.read(buffer, offset, length);
+          }
+        });
+        FS.mkdev(dev.path, 0o666, devNum);
       }
       prepared = true;
     }],
@@ -95,3 +109,34 @@ class ByteCollector {
     return result;
   }
 }
+
+class StreamRingConsumer {
+  constructor(sab) {
+    this.sab = sab;
+    this.capacity = sab.byteLength - 64;
+    this.header = new Int32Array(sab, 0, 16);
+    this.data = new Uint8Array(sab, 64, this.capacity);
+  }
+  read(dest, destOffset, maxLen) {
+    while (true) {
+      const status = Atomics.load(this.header, 0);
+      if (status === 2) throw new Error('Stream ring buffer was aborted');
+      const avail = Atomics.load(this.header, 1);
+      if (avail === 0) {
+        if (status === 1) return 0; // EOF
+        const waitVal = Atomics.load(this.header, 4);
+        Atomics.wait(this.header, 4, waitVal, 50);
+        continue;
+      }
+      const rPtr = Atomics.load(this.header, 3);
+      const toRead = Math.min(maxLen, avail, this.capacity - rPtr);
+      dest.set(this.data.subarray(rPtr, rPtr + toRead), destOffset);
+      Atomics.store(this.header, 3, (rPtr + toRead) % this.capacity);
+      Atomics.sub(this.header, 1, toRead);
+      Atomics.add(this.header, 5, 1);
+      Atomics.notify(this.header, 5);
+      return toRead;
+    }
+  }
+}
+
