@@ -150,9 +150,52 @@ test('results step unlocks after run: mapping summary, count table, alias search
   assert.equal(await page.locator('#results-count-table tbody tr:visible').count(), 1);
   assert.equal(await page.locator('#results-count-table tbody tr:visible td:first-child').textContent(), 'Q0045');
 
-  // Clear search
+  // Function text (CDS product in the NCBI GFF3) is searchable and shown in the gene-info column
+  await page.fill('#count-search', 'cytochrome c oxidase subunit 1');
+  assert.equal(await page.locator('#results-count-table tbody tr').count(), 1);
+  assert.match(await page.textContent('#results-count-table tbody td.gene-info'), /COX1 cytochrome c oxidase subunit 1/);
+
+  // Gene popup: function and the volcano's link-outs
+  await page.click('#results-count-table button.gene-link[data-gene="Q0045"]');
+  const popup = page.locator('#gene-popup');
+  assert.ok(await popup.isVisible(), 'gene popup opens');
+  assert.match(await popup.textContent(), /cytochrome c oxidase subunit 1/);
+  const popLinks = await popup.locator('a').evaluateAll((as) => as.map((a) => [a.href, a.target]));
+  assert.deepEqual(popLinks, [['https://www.yeastgenome.org/locus/S000007260', '_blank'], ['https://www.ncbi.nlm.nih.gov/gene/854598', '_blank']]);
+  await page.keyboard.press('Escape');
+  assert.equal(await popup.isVisible(), false, 'Escape closes the popup');
+
+  // Clear search: 25 rows per page, a pager, page size and the gene-info column switch
   await page.fill('#count-search', '');
+  const nGenes = (await page.evaluate(() => document.querySelector('#count-page-of').textContent)).match(/of ([\d,]+)\)/)[1].replace(/,/g, '');
+  assert.ok(Number(nGenes) > 25, `fixture has more than one page of genes (${nGenes})`);
+  assert.equal(await page.locator('#results-count-table tbody tr').count(), 25);
+  assert.match(await page.textContent('#count-page-of'), /^of 2 \(genes 1\u20132[5] of /);
+  assert.equal(await page.isDisabled('#count-prev'), true);
+  await page.click('#count-next');
+  assert.equal(await page.inputValue('#count-page'), '2');
+  assert.equal(await page.locator('#results-count-table tbody tr').count(), Number(nGenes) - 25);
+  assert.equal(await page.isDisabled('#count-next'), true);
+  await page.fill('#count-page', '1');
+  await page.press('#count-page', 'Enter');
+  assert.equal(await page.inputValue('#count-page'), '1');
+  await page.selectOption('#count-page-size', '50');
+  assert.equal(await page.locator('#results-count-table tbody tr').count(), Number(nGenes));
+  assert.equal(await page.locator('#results-count-table th.info-head').count(), 1);
+  await page.uncheck('#count-show-info');
+  assert.equal(await page.locator('#results-count-table th.info-head').count(), 0);
+  assert.equal(await page.locator('#results-count-table td.gene-info').count(), 0);
+  await page.check('#count-show-info');
+  await page.click('#count-height');
+  assert.match(await page.getAttribute('#count-table-wrap', 'class'), /tall/);
+  assert.equal(await page.textContent('#count-height'), 'Shorter table');
   assert.ok(await page.locator('#results-count-table tbody tr:visible').count() > 10);
+  if (process.env.SCREENSHOT_DIR) { // a look at the table and its popup (not an assertion)
+    await page.locator('#count-table-section').scrollIntoViewIfNeeded();
+    await page.click('#results-count-table button.gene-link >> nth=3');
+    await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/count-table.png` });
+    await page.keyboard.press('Escape');
+  }
 
   // 4. SVG Plots
   // Heatmap

@@ -40,3 +40,32 @@ export function geneExternalLinks(gene, info) {
   }
   return links;
 }
+
+const escHtml = (s) =>
+  String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * The HTML of the gene popup of the count table: label, symbol, function, IDs and the same link-outs as the
+ * volcano (geneExternalLinks). `info`: a parsed gene_info.tsv row, or undefined. All text is escaped.
+ */
+export function genePopupHtml(gene, info) {
+  const sym = info?.symbol && info.symbol !== gene ? ` <span class="small">(${escHtml(info.symbol)})</span>` : '';
+  let html = `<h4>${escHtml(gene)}${sym}</h4>`;
+  html += info?.description
+    ? `<p>${escHtml(info.description)}</p>`
+    : '<p class="small">No function text in the annotation (GFF3 <code>description</code>, <code>Note</code> or <code>product</code>).</p>';
+  const rows = [
+    ['NCBI GeneID', info?.geneId],
+    ['Old locus tag', info?.oldLocusTag],
+    ['Biotype', info?.biotype],
+    ['Transcripts', info?.transcripts],
+    ['Proteins', info?.proteins],
+    ['Location', info?.contig ? `${info.contig} (${info.strand || '?'})` : ''],
+  ].filter(([, v]) => v);
+  if (rows.length) html += `<dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${escHtml(v)}</dd>`).join('')}</dl>`;
+  const links = geneExternalLinks(gene, info);
+  html += links.length
+    ? `<p class="links">${links.map((l) => `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escHtml(l.name)} &#8599;</a>`).join('')}</p>`
+    : '<p class="small">No database link for this gene.</p>';
+  return html;
+}
