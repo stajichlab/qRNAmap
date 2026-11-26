@@ -6,7 +6,7 @@
 // and its index stay, so a new run needs no new index.
 import { gene_counts } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
-import { isTauri, runNativeQuant, prepareNativeIndex } from './tauri-bridge.js?v=__BUILD__';
+import { isTauri, runNativeQuant, writeNativeIndex, cancelNativeQuant } from './tauri-bridge.js?v=__BUILD__';
 
 /** The largest value of the page field "Read pairs per sample". The N of each sample also depends on its read length (preview-limit.js). */
 export const MAX_PAIRS = HARD_LIMIT;
@@ -96,7 +96,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
         onProgress({ text: 'Preparing native kallisto index on disk...' });
         const idxBytes = await app.getIndexBytes?.();
         if (idxBytes) {
-          const prep = await prepareNativeIndex({ index_bytes: Array.from(idxBytes) });
+          const prep = await writeNativeIndex(idxBytes);
           state.nativeIndexPath = prep.index_path;
         } else {
           throw new Error('Native kallisto index is not available. Please build the genome index in step 1 first.');
@@ -119,7 +119,13 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
       }
       try {
         if (isDesktopNative && job.paths1 && job.paths1.length > 0) {
-          onProgress({ text: `Running native kallisto on ${job.name} (full depth)...` });
+          const started = Date.now();
+          const tick = () => {
+            const s = Math.round((Date.now() - started) / 1000);
+            onProgress({ text: `Running native kallisto on ${job.name}: all reads from disk (full depth), ${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s` });
+          };
+          tick();
+          const timer = setInterval(tick, 1000);
           const resp = await runNativeQuant({
             name: job.name,
             fastq1: job.paths1,
@@ -131,7 +137,10 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
             fragment_sd: job.fragment ? job.fragment[1] : null,
             threads: null,
             out_dir: null,
-          });
+          }).catch((e) => {
+            const msg = typeof e === 'string' ? e : e?.message || String(e);
+            throw Object.assign(new Error(msg), { kind: /^Cancelled/.test(msg) ? 'cancelled' : 'kallisto' });
+          }).finally(() => clearInterval(timer));
           Object.assign(sample, {
             status: 'done',
             nPairs: resp.n_processed,
@@ -182,6 +191,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
   function cancel() {
     if (!current) return;
     current.cancelRequested = true;
+    if (isTauri()) cancelNativeQuant().catch(() => {}); // a no-op when no native run is going
     if (current.worker && current.id) {
       current.worker.postMessage({ type: 'quant-cancel', id: current.id });
     }

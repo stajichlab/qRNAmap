@@ -54,3 +54,29 @@ export async function runNativeQuant(params) {
 export async function resolvePath(path, baseDir = null) {
   return tauriInvoke('resolve_path', { path, baseDir });
 }
+
+/** Pick several files with the native dialog. Returns absolute paths (empty when cancelled). */
+export async function pickFiles(title, filterName, filterExts) {
+  if (!isTauri()) return [];
+  return tauriInvoke('pick_files_dialog', { title, filterName, filterExts });
+}
+
+/**
+ * Write the kallisto index (page-built bytes, or the gzip of a prebuilt index with `gzip: true`) to disk for native kallisto.
+ * The bytes go as the raw IPC body: a JSON number array (Array.from) of a 100 to 300 MB index is several GB of text.
+ */
+export async function writeNativeIndex(bytes, { gzip = false } = {}) {
+  const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const options = { headers: { 'x-qrnamap-gzip': gzip ? '1' : '0' } };
+  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke('write_native_index', body, options);
+  return window.__TAURI_INTERNALS__.invoke('write_native_index', body, options);
+}
+
+/** Stop the native kallisto run that is going now. */
+export async function cancelNativeQuant() {
+  if (!isTauri()) return false;
+  return tauriInvoke('cancel_native_quant');
+}
+
+/** File extensions offered by the native FASTQ pickers. */
+export const FASTQ_EXTS = ['fastq', 'fq', 'gz'];
