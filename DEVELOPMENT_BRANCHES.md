@@ -2,6 +2,13 @@
 
 This document describes the two parallel development tracks and agent roles established for `qRNAmap` to solve large-scale RNA-seq quantification without browser memory exhaustion.
 
+> **Status 2026-11-26:** both tracks are combined on branch `web-desktop-streaming` (merge of `stream-quant` and
+> `desktop-native-exec`). The page now has three ways to count: **Preview** (first 75,000 to 200,000 pairs), **All reads
+> (streamed)** (kallisto.wasm reads the picked Files on demand through `mountBlobFile`; no SharedArrayBuffer needed), and, in
+> the desktop app, **Native, full depth** (native kallisto 0.52 on files chosen with the desktop dialog). The ring-buffer path
+> described below still exists but runs only when the page is cross-origin isolated, which GitHub Pages is not.
+> Open work: measure "All reads" at millions of reads in Chromium, Firefox and WebKit before it becomes the default.
+
 ---
 
 ## 1. Overview of the Two Tracks

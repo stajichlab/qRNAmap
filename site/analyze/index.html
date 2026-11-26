@@ -86,6 +86,17 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">One row per sample. Pick one mate 1 file and one mate 2 file per sample (leave mate 2 empty for single-end reads).
           This version takes one file per mate: lanes must be joined into one file first. FASTQ files can be plain or gzip.
           The files stay in this browser. The page reads only the first read pairs of each file (see "Read pairs per sample").</p>
+        <div id="desktop-native-banner" class="note" hidden>
+          <p><strong>Desktop app</strong> &mdash; native kallisto <span id="desktop-native-info">checking…</span></p>
+          <p class="small">Files chosen here are read from disk at full depth. Load a sample sheet (paths are resolved against its folder), or use “Choose file…” in the table.</p>
+          <label for="native-sheet-path"><strong>Local sample sheet</strong></label>
+          <div class="field-row">
+            <input id="native-sheet-path" type="text" placeholder="/path/to/samples.txt">
+            <button id="btn-browse-sheet" type="button">Browse…</button>
+            <button id="btn-load-native-sheet" type="button" class="button button-small">Load sheet</button>
+          </div>
+          <p id="native-sheet-status" class="small"></p>
+        </div>
         <details id="sheet-box">
           <summary>Or load a sample sheet (the command-line format)</summary>
           <p class="small">A tab-separated sheet with the columns <code>sample</code>, <code>fastq1</code>, optional <code>fastq2</code>, and covariate columns
@@ -102,6 +113,16 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
         <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
         <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
+        <fieldset id="native-mode-options" class="choice-cards" hidden>
+          <legend>How to count the reads</legend>
+          <label class="choice-card"><input type="radio" name="quant-exec-mode" id="mode-native" value="native" checked>
+            <span class="choice-title">Native, full depth</span>
+            <span class="choice-desc">kallisto on this computer reads every read from the files on disk, using all CPU cores.</span></label>
+          <label class="choice-card"><input type="radio" name="quant-exec-mode" id="mode-browser" value="browser">
+            <span class="choice-title">In the page</span>
+            <span class="choice-desc">Counted by kallisto in the page, as on the website: a preview, or all reads streamed from the files (next choice).</span></label>
+        </fieldset>
+        <p id="native-pairs-notice" class="small" hidden><strong>Full depth:</strong> every read in the files is counted; nothing is subsampled.</p>
         <fieldset id="read-depth" class="choice-cards">
           <legend>How many reads to count</legend>
           <label class="choice-card"><input type="radio" name="read-depth" id="depth-preview" value="preview" checked>
