@@ -127,3 +127,22 @@ On the simulation it finds all 20 changed genes at 1x, 100x and 10,000x depth, w
 a screen, not DESeq2: `qrnamap de` remains the analysis of record. The padj cutoff is now inclusive (`padj ≤ cutoff`),
 so a cutoff of 1 labels the top genes even when none is significant. The correlation heatmap's column labels are
 rotated -45° and the margins grow with the longest sample name, so long names no longer overlap.
+
+## Addendum (2026-11-26): gene counts table, gene function and popup
+
+`gene_info.tsv` gains a final column `description`: the gene's function text from the GFF3. Sources, in order: the gene
+feature's `description`, `Note` or `product`; else the `product` of its first transcript that has one; else that
+transcript's CDS `product` (NCBI RefSeq puts the product on the mRNA and CDS). Tabs and line breaks become spaces. The
+page reads columns by header name, so older tables (without `dbxref` or `description`) still load. Pre-built index sets
+made before this change have no `description` column: their genes show no function text until the set is rebuilt.
+
+The gene counts table:
+
+- shows 25, 50, 100 or 250 rows per page, with first / previous / next / last buttons and a page number box;
+- sits in a scroll box with a sticky header that can be dragged taller, or switched between short and tall (80% of the window);
+- has an optional "Gene info" column (symbol and function, wrapped to two lines; full text on hover);
+- searches the function text as well as the IDs;
+- opens a popup on a gene name with the function, IDs, location and the same link-outs as the volcano
+  (`genePopupHtml` in `site/analyze/gene-links.js`, unit-tested).
+
+Rows per page, the info column and the table height are remembered in the browser (`localStorage`, when available).

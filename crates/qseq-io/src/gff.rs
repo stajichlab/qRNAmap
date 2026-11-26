@@ -41,6 +41,10 @@ pub struct Gene {
     pub dbxref: Vec<String>,
     /// Old locus tag from `old_locus_tag` attribute (percent-decoded); `None` when absent or empty.
     pub old_locus_tag: Option<String>,
+    /// Function text (percent-decoded): the gene's `description`, `Note` or `product` attribute, else the
+    /// `product` of its first transcript that has one, else of that transcript's CDS (NCBI puts the product on
+    /// the mRNA and the CDS). `None` when absent.
+    pub description: Option<String>,
     pub transcripts: Vec<Transcript>,
 }
 
@@ -178,6 +182,7 @@ struct Children {
     utr5: Vec<(u64, u64)>,
     utr3: Vec<(u64, u64)>,
     proteins: Vec<String>,
+    product: Option<String>,
 }
 
 fn percent_decode(s: &str) -> String {
@@ -238,6 +243,8 @@ struct ChildRec {
     start: u64,
     end: u64,
     protein_id: Option<String>,
+    /// CDS `product` (function text), the last source of [`Gene::description`].
+    product: Option<String>,
 }
 
 struct Builder<'a> {
@@ -322,6 +329,10 @@ impl Builder<'_> {
             gene_id,
             dbxref,
             old_locus_tag,
+            description: f
+                .get("description")
+                .or_else(|| f.get("Note"))
+                .or_else(|| f.get("product")),
             transcripts: Vec::new(),
         });
         self.gene_of_feat.insert(fi, gi);
@@ -373,10 +384,10 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
         };
         if is_child_kind(&feat.kind) {
             let parents = feat.parents();
-            let protein_id = if feat.kind == "CDS" {
-                feat.get("protein_id")
+            let (protein_id, product) = if feat.kind == "CDS" {
+                (feat.get("protein_id"), feat.get("product"))
             } else {
-                None
+                (None, None)
             };
             child_recs.push(ChildRec {
                 line: lineno,
@@ -386,6 +397,7 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
                 start,
                 end,
                 protein_id,
+                product,
             });
         } else {
             if feat.kind == "region"
@@ -443,6 +455,9 @@ pub fn parse_gff3<R: BufRead>(reader: R) -> Result<GeneModel, GffError> {
             let ch = children.entry(fi).or_default();
             let list = match c.kind.as_str() {
                 "CDS" => {
+                    if ch.product.is_none() {
+                        ch.product.clone_from(&c.product);
+                    }
                     if let Some(pid) = &c.protein_id {
                         // Unknown attributes are ignored; a parse error in one alias never fails the transcriptome build (the alias cell is empty).
                         for p in pid.split(',') {
@@ -539,6 +554,9 @@ fn push_transcript(gene: &mut Gene, f: &Feat, id: Option<String>, ch: Option<&Ch
                 proteins.push(p.to_string());
             }
         }
+    }
+    if gene.description.is_none() {
+        gene.description = f.get("product").or_else(|| ch.product.clone());
     }
     gene.transcripts.push(Transcript {
         id: id.unwrap_or_else(|| format!("{}@line{}", f.kind, f.line)),

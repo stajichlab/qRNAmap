@@ -1,7 +1,7 @@
 // Step 3: results view, downloads and plots.
 import { assemble_matrix, qc, de_command, validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
-import { geneExternalLinks } from './gene-links.js?v=__BUILD__';
+import { geneExternalLinks, genePopupHtml } from './gene-links.js?v=__BUILD__';
 import { computeDifferentialExpression } from './de-stats.js?v=__BUILD__';
 
 const STORE_KEY = 'results';
@@ -10,22 +10,39 @@ const STORE_KEY = 'results';
 const escSvg = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Parse gene_info.tsv into a map of gene -> { tokens, symbol, geneId, dbxref }. */
+/**
+ * Parse gene_info.tsv into a map of gene -> { tokens, symbol, geneId, oldLocusTag, transcripts, proteins, biotype, contig,
+ * strand, dbxref, description }. Columns are found by header name, so older tables (without dbxref or description) still load.
+ */
 export function parseAliasIndex(geneInfoTsv) {
   const map = new Map();
   if (!geneInfoTsv) return map;
   const lines = geneInfoTsv.trim().split('\n');
   if (lines.length <= 1) return map;
-  // gene_info.tsv may come from an older build without the dbxref column.
-  const dbxrefCol = lines[0].split('\t').indexOf('dbxref');
+  const head = lines[0].split('\t');
+  const col = (name) => head.indexOf(name);
+  const at = (cols, name) => (col(name) >= 0 ? cols[col(name)] || '' : '');
   for (const line of lines.slice(1)) {
     const cols = line.split('\t');
     if (!cols.length) continue;
     const gene = cols[0];
-    // gene, symbol, gene_id, old_locus_tag, transcripts, proteins
-    const tokens = cols.slice(0, 6).filter(Boolean).join(' ').toLowerCase();
-    const dbxref = dbxrefCol >= 0 && cols[dbxrefCol] ? cols[dbxrefCol].split(',').filter(Boolean) : [];
-    map.set(gene, { tokens, symbol: cols[1] || '', geneId: cols[2] || '', dbxref });
+    const description = at(cols, 'description');
+    // gene, symbol, gene_id, old_locus_tag, transcripts, proteins, and the function text
+    const tokens = [...cols.slice(0, 6), description].filter(Boolean).join(' ').toLowerCase();
+    const dbxrefCell = at(cols, 'dbxref');
+    map.set(gene, {
+      tokens,
+      symbol: cols[1] || '',
+      geneId: cols[2] || '',
+      oldLocusTag: at(cols, 'old_locus_tag'),
+      transcripts: at(cols, 'transcripts'),
+      proteins: at(cols, 'proteins'),
+      biotype: at(cols, 'biotype'),
+      contig: at(cols, 'contig'),
+      strand: at(cols, 'strand'),
+      dbxref: dbxrefCell ? dbxrefCell.split(',').filter(Boolean) : [],
+      description,
+    });
   }
   return map;
 }
@@ -672,24 +689,40 @@ export function createResultsStep({ $, app, shell }) {
   }
 
   // Render count table
-  function renderCountTable(sampleNames, preview) {
-    const table = $('results-count-table');
-    const labelEl = $('count-table-label');
-    if (labelEl) labelEl.textContent = preview;
+  // Count table view state: page (0-based), rows per page, gene-info column on/off. Remembered per viewer when storage works.
+  const COUNT_PREFS = 'qrnamap.countTable';
+  let countPage = 0;
+  let countPageSize = 25;
+  let countShowInfo = true;
+  try {
+    const p = JSON.parse(localStorage.getItem(COUNT_PREFS) || '{}');
+    if ([25, 50, 100, 250].includes(p.pageSize)) countPageSize = p.pageSize;
+    if (typeof p.showInfo === 'boolean') countShowInfo = p.showInfo;
+    if (p.tall) $('count-table-wrap')?.classList.add('tall');
+  } catch { /* storage unavailable: defaults */ }
+  if ($('count-page-size')) $('count-page-size').value = String(countPageSize);
+  if ($('count-show-info')) $('count-show-info').checked = countShowInfo;
+  const tallNow = () => Boolean($('count-table-wrap')?.classList.contains('tall'));
+  function syncHeightButton() {
+    const b = $('count-height');
+    if (!b) return;
+    b.textContent = tallNow() ? 'Shorter table' : 'Taller table';
+    b.setAttribute('aria-pressed', String(tallNow()));
+  }
+  syncHeightButton();
+  function saveCountPrefs() {
+    try {
+      localStorage.setItem(COUNT_PREFS, JSON.stringify({ pageSize: countPageSize, showInfo: countShowInfo, tall: tallNow() }));
+    } catch { /* not saved */ }
+  }
 
+  /** Genes matching the search box, sorted by the chosen column. */
+  function filteredSortedRows() {
     const query = $('count-search')?.value.trim().toLowerCase() || '';
-
-    let visibleRows = matrixRows;
-    if (query) {
-      visibleRows = matrixRows.filter((r) => {
-        const info = aliasIndex.get(r.gene);
-        const tokens = info?.tokens || r.gene.toLowerCase();
-        return tokens.includes(query);
-      });
-    }
-
-    // Sort
-    visibleRows.sort((a, b) => {
+    const rows = query
+      ? matrixRows.filter((r) => (aliasIndex.get(r.gene)?.tokens || r.gene.toLowerCase()).includes(query))
+      : matrixRows.slice();
+    rows.sort((a, b) => {
       let va = sortCol === 0 ? a.gene : a.counts[sortCol - 1] ?? 0;
       let vb = sortCol === 0 ? b.gene : b.counts[sortCol - 1] ?? 0;
       if (sortCol > 0) {
@@ -700,36 +733,63 @@ export function createResultsStep({ $, app, shell }) {
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
+    return rows;
+  }
+
+  function renderCountTable(sampleNames, preview) {
+    const table = $('results-count-table');
+    const labelEl = $('count-table-label');
+    if (labelEl) labelEl.textContent = preview;
+
+    const rows = filteredSortedRows();
+    const nPages = Math.max(1, Math.ceil(rows.length / countPageSize));
+    countPage = Math.min(Math.max(0, countPage), nPages - 1);
+    const start = countPage * countPageSize;
+    const pageRows = rows.slice(start, start + countPageSize);
+    const nCols = sampleNames.length + 1 + (countShowInfo ? 1 : 0);
 
     let head = '<thead><tr>';
     head += `<th data-col="0" data-sort="${sortCol === 0 ? sortDir : ''}">Gene</th>`;
+    if (countShowInfo) head += '<th class="info-head">Gene info</th>';
     sampleNames.forEach((s, idx) => {
       const c = idx + 1;
-      head += `<th data-col="${c}" data-sort="${sortCol === c ? sortDir : ''}">${s}</th>`;
+      head += `<th data-col="${c}" data-sort="${sortCol === c ? sortDir : ''}">${escSvg(s)}</th>`;
     });
     head += '</tr></thead>';
 
-    // Limit initial display rows to 300 for UI responsiveness
-    const limit = Math.min(visibleRows.length, 300);
     let body = '<tbody>';
-    for (let i = 0; i < limit; i++) {
-      const r = visibleRows[i];
-      body += `<tr><td>${r.gene}</td>`;
-      for (const val of r.counts) {
-        body += `<td>${fmt(val)}</td>`;
+    for (const r of pageRows) {
+      const info = aliasIndex.get(r.gene);
+      body += `<tr><td><button type="button" class="gene-link" data-gene="${escSvg(r.gene)}" title="Function and links">${escSvg(r.gene)}</button></td>`;
+      if (countShowInfo) {
+        const sym = info?.symbol && info.symbol !== r.gene ? `<b>${escSvg(info.symbol)}</b> ` : '';
+        const desc = info?.description || '';
+        body += `<td class="gene-info"><span class="clamp" title="${escSvg(desc)}">${sym}${escSvg(desc)}</span></td>`;
       }
+      for (const val of r.counts) body += `<td class="num">${fmt(val)}</td>`;
       body += '</tr>';
     }
-    if (visibleRows.length === 0) {
-      body += `<tr><td colspan="${sampleNames.length + 1}" class="small">No matching genes found.</td></tr>`;
-    } else if (visibleRows.length > limit) {
-      body += `<tr><td colspan="${sampleNames.length + 1}" class="small">Showing first ${limit} of ${visibleRows.length} genes. Use search above to find specific genes.</td></tr>`;
-    }
+    if (rows.length === 0) body += `<tr><td colspan="${nCols}" class="small">No matching genes found.</td></tr>`;
     body += '</tbody>';
-
     table.innerHTML = head + body;
 
-    table.querySelectorAll('th').forEach((th) => {
+    const of = $('count-page-of');
+    if (of) {
+      of.textContent = rows.length
+        ? `of ${fmt(nPages)} (genes ${fmt(start + 1)}–${fmt(start + pageRows.length)} of ${fmt(rows.length)})`
+        : 'of 1 (no genes)';
+    }
+    const pageInput = $('count-page');
+    if (pageInput) {
+      pageInput.value = String(countPage + 1);
+      pageInput.max = String(nPages);
+    }
+    for (const [id, off] of [['count-first', countPage === 0], ['count-prev', countPage === 0],
+      ['count-next', countPage >= nPages - 1], ['count-last', countPage >= nPages - 1]]) {
+      if ($(id)) $(id).disabled = off;
+    }
+
+    table.querySelectorAll('th[data-col]').forEach((th) => {
       th.addEventListener('click', () => {
         const col = Number(th.dataset.col);
         if (sortCol === col) {
@@ -738,15 +798,67 @@ export function createResultsStep({ $, app, shell }) {
           sortCol = col;
           sortDir = 'asc';
         }
+        countPage = 0;
         renderCountTable(sampleNames, preview);
       });
     });
   }
 
-  $('count-search')?.addEventListener('input', () => {
-    if (currentResults) {
-      renderCountTable(currentResults.sampleNames, previewLabelText());
+  const rerenderCounts = () => {
+    if (currentResults) renderCountTable(currentResults.sampleNames, previewLabelText());
+  };
+  const goPage = (p) => {
+    countPage = p;
+    rerenderCounts();
+  };
+
+  $('count-search')?.addEventListener('input', () => goPage(0));
+  $('count-first')?.addEventListener('click', () => goPage(0));
+  $('count-prev')?.addEventListener('click', () => goPage(countPage - 1));
+  $('count-next')?.addEventListener('click', () => goPage(countPage + 1));
+  $('count-last')?.addEventListener('click', () => goPage(Number.MAX_SAFE_INTEGER));
+  $('count-page')?.addEventListener('change', (e) => {
+    const n = parseInt(e.target.value, 10);
+    goPage(Number.isFinite(n) ? n - 1 : countPage);
+  });
+  $('count-page-size')?.addEventListener('change', (e) => {
+    const first = countPage * countPageSize; // keep the first visible gene on screen
+    countPageSize = Number(e.target.value) || 25;
+    saveCountPrefs();
+    goPage(Math.floor(first / countPageSize));
+  });
+  $('count-show-info')?.addEventListener('change', (e) => {
+    countShowInfo = e.target.checked;
+    saveCountPrefs();
+    rerenderCounts();
+  });
+  $('count-height')?.addEventListener('click', () => {
+    const wrap = $('count-table-wrap');
+    wrap?.classList.toggle('tall');
+    if (wrap) wrap.style.height = ''; // drop a height set with the resize handle
+    syncHeightButton();
+    saveCountPrefs();
+  });
+
+  // Gene popup: function, IDs and link-outs (same links as the volcano), next to the clicked gene.
+  $('results-count-table')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button.gene-link');
+    const pop = $('gene-popup');
+    if (!btn || !pop) return;
+    pop.innerHTML = genePopupHtml(btn.dataset.gene, aliasIndex.get(btn.dataset.gene));
+    if (typeof pop.showPopover === 'function') {
+      if (pop.matches(':popover-open')) pop.hidePopover();
+      pop.showPopover();
+    } else {
+      pop.hidden = false; // browsers without the popover API
     }
+    const r = btn.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const left = Math.max(16, Math.min(r.left, window.innerWidth - w - 16));
+    const top = r.bottom + 6 + h > window.innerHeight ? Math.max(16, r.top - h - 6) : r.bottom + 6;
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
   });
 
   // Render QC plots
@@ -894,7 +1006,8 @@ export function createResultsStep({ $, app, shell }) {
     const matrixTsv = assembled.tsv;
     const sampleNames = doneSamples.map((s) => s.name);
 
-    // Parse rows for count table
+    // Parse rows for count table (new results start on page 1)
+    countPage = 0;
     const lines = matrixTsv.trim().split('\n');
     matrixRows = lines.slice(1).map((line) => {
       const parts = line.split('\t');

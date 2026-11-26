@@ -24,6 +24,7 @@ fn gene(label: &str, contig: &str, strand: Strand, biotype: Option<&str>, kinds:
         gene_id: None,
         dbxref: vec![],
         old_locus_tag: None,
+        description: None,
         transcripts: kinds.iter().map(|k| tx(k)).collect(),
     }
 }
@@ -205,7 +206,7 @@ fn rows_follow_model_order() {
 fn gene_info_tsv_exact_bytes_for_snippet() {
     let s = "##gff-version 3\n\
 chr1\tsrc\tgene\t100\t1000\t.\t+\t.\tID=g1;locus_tag=LOC1;Name=SYM%3B1;Dbxref=GeneID:1001,SGD:S001;old_locus_tag=OLD%2C1\n\
-chr1\tsrc\tmRNA\t100\t1000\t.\t+\t.\tID=t1;Parent=g1\n\
+chr1\tsrc\tmRNA\t100\t1000\t.\t+\t.\tID=t1;Parent=g1;product=heat%09shock protein\n\
 chr1\tsrc\texon\t100\t500\t.\t+\t.\tID=e1;Parent=t1\n\
 chr1\tsrc\tCDS\t200\t500\t.\t+\t0\tID=c1;Parent=t1;protein_id=PROT1\n\
 chr1\tsrc\tmRNA\t100\t800\t.\t+\t.\tID=t2;Parent=g1\n\
@@ -219,10 +220,10 @@ chr1\tsrc\tpseudogenic_transcript\t3000\t3500\t.\t-\t.\tID=t4;Parent=g3\n\
 chr1\tsrc\texon\t3000\t3500\t.\t-\t.\tID=e4;Parent=t4\n";
     let m = qseq_io::parse_gff3(std::io::Cursor::new(s.as_bytes())).unwrap();
     let tsv = qrnamap_core::gene_info_tsv(&m, &[]);
-    let want = "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n\
-LOC1\tSYM;1\t1001\tOLD,1\tt1,t2\tPROT1,PROT2\tmRNA\tprotein_coding\tchr1\t+\tGeneID:1001,SGD:S001\n\
-NAME2\tNAME2\t1002\t\tt3\t\ttRNA\ttRNA\tchr1\t+\tGeneID:1002\n\
-g3\t\t\t\tt4\t\tpseudogene\tpseudogene\tchr1\t-\t\n";
+    let want = "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\tdescription\n\
+LOC1\tSYM;1\t1001\tOLD,1\tt1,t2\tPROT1,PROT2\tmRNA\tprotein_coding\tchr1\t+\tGeneID:1001,SGD:S001\theat shock protein\n\
+NAME2\tNAME2\t1002\t\tt3\t\ttRNA\ttRNA\tchr1\t+\tGeneID:1002\t\n\
+g3\t\t\t\tt4\t\tpseudogene\tpseudogene\tchr1\t-\t\t\n";
     assert_eq!(tsv, want);
 }
 
@@ -236,7 +237,7 @@ chrI\tSGD\tmRNA\t335\t649\t.\t+\t.\tID=t1;Parent=S000006318\n";
     let tsv = qrnamap_core::gene_info_tsv(&m, &[]);
     let mut lines = tsv.lines();
     let header = lines.next().unwrap();
-    assert_eq!(header.split('\t').last().unwrap(), "dbxref");
+    let col = header.split('\t').position(|h| h == "dbxref").unwrap();
     let row = lines.next().unwrap();
-    assert_eq!(row.split('\t').last().unwrap(), "SGD:S000006318");
+    assert_eq!(row.split('\t').nth(col).unwrap(), "SGD:S000006318");
 }

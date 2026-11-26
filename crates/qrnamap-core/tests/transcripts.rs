@@ -70,6 +70,7 @@ fn gene(label: &str, contig: &str, strand: Strand, transcripts: Vec<Transcript>)
         gene_id: None,
         dbxref: vec![],
         old_locus_tag: None,
+        description: None,
         transcripts,
     }
 }

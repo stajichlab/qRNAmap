@@ -7,7 +7,7 @@ import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
 import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRecords } from '../../../site/analyze/fastq.js';
 import { StreamRingBuffer } from '../../../site/analyze/stream-ring.js';
-import { geneExternalLinks } from '../../../site/analyze/gene-links.js';
+import { geneExternalLinks, genePopupHtml } from '../../../site/analyze/gene-links.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
   'tx1\t1491\t1327.5\t9\t31.1145\n' +
@@ -285,4 +285,20 @@ test('computeDifferentialExpression: no replicates means no test (p = 1); missin
   assert.equal(res.length, 20);
   assert.ok(res.every((r) => r.pvalue === 1 && r.padj === 1));
   assert.deepEqual(computeDifferentialExpression(tsv, samples, { factor: 'condition', level: 'x', reference: 'ctl' }), []);
+});
+
+test('genePopupHtml: function text, IDs and the volcano link-outs, all escaped', () => {
+  const html = genePopupHtml('AFUA_2G00200', {
+    symbol: 'catA<x>', geneId: '3510001', description: 'catalase A & "B"', dbxref: ['FungiDB:AFUA_2G00200'], contig: 'NC_1', strand: '+',
+  });
+  assert.match(html, /<h4>AFUA_2G00200 <span class="small">\(catA&lt;x&gt;\)<\/span><\/h4>/);
+  assert.match(html, /<p>catalase A &amp; &quot;B&quot;<\/p>/);
+  assert.match(html, /<dt>NCBI GeneID<\/dt><dd>3510001<\/dd>/);
+  assert.match(html, /<dt>Location<\/dt><dd>NC_1 \(\+\)<\/dd>/);
+  const hrefs = [...html.matchAll(/href="([^"]+)" target="_blank" rel="noopener noreferrer"/g)].map((m) => m[1]);
+  assert.deepEqual(hrefs, geneExternalLinks('AFUA_2G00200', { geneId: '3510001', dbxref: ['FungiDB:AFUA_2G00200'] }).map((l) => l.url));
+  const bare = genePopupHtml('<g>', undefined);
+  assert.match(bare, /<h4>&lt;g&gt;<\/h4>/);
+  assert.match(bare, /No function text/);
+  assert.match(bare, /No database link/);
 });
