@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
-import { firstRecords, checkFastq, firstNameStem, firstReadLength } from '../../../site/analyze/fastq.js';
+import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRecords } from '../../../site/analyze/fastq.js';
+import { StreamRingBuffer } from '../../../site/analyze/stream-ring.js';
 import { geneExternalLinks } from '../../../site/analyze/gene-links.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
@@ -172,4 +173,68 @@ test('geneExternalLinks: no dbxref but a numeric gene_id still links NCBI; nothi
   assert.deepEqual(geneExternalLinks('YAL068C', { geneId: '', dbxref: [] }), []);
   assert.deepEqual(geneExternalLinks('tP(UGG)Q', { geneId: '', dbxref: ['FungiDB:', 'SGD:'] }), []);
   assert.deepEqual(geneExternalLinks('anything', undefined), []);
+});
+
+test('StreamRingBuffer and streamFastqRecords: streams gzip and plain FASTQ records through ring buffer', async () => {
+  const { Worker } = await import('node:worker_threads');
+  const text = fastq(20);
+  const ring = new StreamRingBuffer(null, 16384); // 16 KB ring buffer
+  const gzBlob = new Blob([gzipSync(text)]);
+
+  const worker = new Worker(`
+    import { parentPort, workerData } from 'node:worker_threads';
+    import { StreamRingBuffer } from './site/analyze/stream-ring.js';
+    const ring = new StreamRingBuffer(workerData.sab);
+    const buf = new Uint8Array(1024);
+    const chunks = [];
+    while (true) {
+      const n = ring.read(buf, 0, buf.length);
+      if (n === 0) break;
+      chunks.push(buf.slice(0, n));
+    }
+    const total = chunks.reduce((a, b) => a + b.length, 0);
+    const joined = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { joined.set(c, off); off += c.length; }
+    parentPort.postMessage({ total, text: new TextDecoder().decode(joined) });
+  `, { eval: true, type: 'module', workerData: { sab: ring.sab } });
+
+  const [streamRes, workerRes] = await Promise.all([
+    streamFastqRecords(gzBlob, 15, 'test-mate', ring),
+    new Promise(res => worker.on('message', res))
+  ]);
+
+  assert.equal(streamRes.records, 15);
+  assert.equal(streamRes.wholeFile, false);
+  assert.equal(workerRes.text, fastq(15));
+});
+
+
+test('mountBlobFile: a File-backed file in the real kallisto.mjs FS has the blob size and its bytes, read through a small window', async () => {
+  const { mountBlobFile } = await import('../../../site/vendor/kallisto/runtime/execute.mjs');
+  const factory = (await import('../../../site/vendor/kallisto/kallisto.mjs')).default;
+  const data = new Uint8Array(100_003).map((_, i) => (i * 7 + 3) & 255);
+  const blob = new Blob([data]);
+  const reads = [];
+  // Node has no FileReaderSync: the test reader takes the bytes from `data` and records each window read.
+  const readSync = (b, start, end) => { assert.equal(b, blob); reads.push([start, end]); return data.slice(start, end); };
+  const m = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
+  m.FS.mkdirTree('/work');
+  mountBlobFile(m.FS, '/work/r1.fastq.gz', blob, { readSync, window: 4096 });
+  assert.equal(m.FS.stat('/work/r1.fastq.gz').size, data.length);
+  assert.ok(m.FS.isFile(m.FS.stat('/work/r1.fastq.gz').mode));
+  assert.deepEqual(m.FS.readFile('/work/r1.fastq.gz'), data);
+  assert.ok(reads.every(([s, e]) => e - s <= Math.max(4096, data.length)), 'each read asks for a window, not the file');
+  // Small sequential reads and a seek back are served from the window; a read past the end gives 0 bytes.
+  const s = m.FS.open('/work/r1.fastq.gz', 'r');
+  const buf = new Uint8Array(10);
+  reads.length = 0;
+  assert.equal(m.FS.read(s, buf, 0, 10), 10);
+  assert.equal(m.FS.read(s, buf, 0, 10), 10);
+  assert.deepEqual(buf, data.slice(10, 20));
+  assert.ok(reads.length <= 1, 'two small reads, at most one window read');
+  m.FS.llseek(s, 0, 2);
+  assert.equal(m.FS.read(s, buf, 0, 10), 0);
+  m.FS.close(s);
+  assert.throws(() => m.FS.writeFile('/work/r1.fastq.gz', 'x'));
 });

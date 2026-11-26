@@ -17,15 +17,20 @@ export class ToolRunner {
     this.waitForExit = waitForExit;
   }
 
-  async run(args = [], { files = [], outputs = [], outputDirectories = [], stdin = new Uint8Array(), signal, timeoutMs = 0 } = {}) {
+  async run(args = [], { files = [], devices = [], outputs = [], outputDirectories = [], stdin = new Uint8Array(), signal, timeoutMs = 0 } = {}) {
     if (!Array.isArray(args) || args.some(arg => typeof arg !== 'string' || arg.includes('\0'))) {
       throw new TypeError('args must be an array of strings without NUL characters');
     }
-    if (!Array.isArray(files) || !Array.isArray(outputs) || !Array.isArray(outputDirectories)) throw new TypeError('files, outputs and outputDirectories must be arrays');
+    if (!Array.isArray(files) || !Array.isArray(devices) || !Array.isArray(outputs) || !Array.isArray(outputDirectories)) {
+      throw new TypeError('files, devices, outputs and outputDirectories must be arrays');
+    }
     if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new TypeError('timeoutMs must be a non-negative number');
     if (signal?.aborted) throw abortError();
     const inputFiles = files.map(file => ({ path: workspacePath(file.path), data: bytes(file.data) }));
     if (new Set(inputFiles.map(file => file.path)).size !== inputFiles.length) throw new TypeError('Input file paths must be unique');
+    // A device is a streaming ring (`sab`/`ring`) or a File/Blob (`blob`) that the tool reads on demand (execute.mjs, mountBlobFile).
+    // Posting a File copies only its handle, not its bytes.
+    const inputDevices = devices.map(dev => dev.blob ? { path: workspacePath(dev.path), blob: dev.blob } : { path: workspacePath(dev.path), sab: dev.sab || dev.ring?.sab });
     const requestedOutputs = [...new Set(outputs.map(workspacePath))];
     const requestedDirectories = [...new Set(outputDirectories.map(workspacePath))];
     const input = bytes(stdin);
@@ -81,7 +86,7 @@ export class ToolRunner {
           worker.addEventListener('messageerror', () => finish(new Error('Could not read tool worker response')));
         }
         // Structured cloning leaves caller-owned input buffers intact.
-        worker.postMessage({ moduleUrl: this.moduleUrl, waitForExit: this.waitForExit, args, files: inputFiles, outputs: requestedOutputs, outputDirectories: requestedDirectories, stdin: input });
+        worker.postMessage({ moduleUrl: this.moduleUrl, waitForExit: this.waitForExit, args, files: inputFiles, devices: inputDevices, outputs: requestedOutputs, outputDirectories: requestedDirectories, stdin: input });
       };
       start().catch(error => finish(error));
     });
