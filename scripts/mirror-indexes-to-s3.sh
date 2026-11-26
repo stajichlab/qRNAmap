@@ -3,7 +3,8 @@
 # bucket, where the web page and the desktop app can fetch them. GitHub release downloads cannot be fetched from a web
 # page: github.com answers with a redirect that has no Access-Control-Allow-Origin header. The S3 bucket has a CORS rule.
 #
-# Usage: mirror-indexes-to-s3.sh [TAG] [S3_PREFIX]
+# Usage: [SRC_DIR=dir] mirror-indexes-to-s3.sh [TAG] [S3_PREFIX]
+#   SRC_DIR    take the files from this folder instead of the GitHub release (its <acc>.sha256 files are checked)
 #   TAG        release tag (default indexes-v1); a draft release works (gh reads it with your login)
 #   S3_PREFIX  destination (default s3://stajichlab/qRNAmap/<TAG>/)
 # Needs: gh (logged in), s3cmd (~/.s3cfg), sha256sum. Run it on the HPCC as a job: the files are staged in $SCRATCH.
@@ -24,10 +25,18 @@ mkdir -p "$WORK"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-echo "== download release $TAG of $REPO into $WORK"
-start=$(date +%s)
-gh release download "$TAG" --repo "$REPO" --dir "$WORK" --clobber
-echo "downloaded $(ls | wc -l) files, $(du -sh . | cut -f1), in $(( $(date +%s) - start )) s"
+if [[ -n "${SRC_DIR:-}" ]]; then
+  # A local set (for example made by an HPCC array of build-one-index.sh) instead of a GitHub release.
+  echo "== copy local set $SRC_DIR into $WORK"
+  cp "$SRC_DIR"/*.gz "$WORK"/
+  cat "$SRC_DIR"/*.sha256 2>/dev/null | sort -u -k2 > "$WORK/checksums.sha256" || true
+  [[ -s "$WORK/checksums.sha256" ]] || rm -f "$WORK/checksums.sha256"
+else
+  echo "== download release $TAG of $REPO into $WORK"
+  start=$(date +%s)
+  gh release download "$TAG" --repo "$REPO" --dir "$WORK" --clobber
+  echo "downloaded $(ls | wc -l) files, $(du -sh . | cut -f1), in $(( $(date +%s) - start )) s"
+fi
 
 echo "== check the files"
 # checksums.sha256 of indexes-v1 lists only one genome (the build artifacts overwrote each other; fixed in
