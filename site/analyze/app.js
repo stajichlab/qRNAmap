@@ -5,6 +5,10 @@ import { createResultsStep } from './results.js?v=__BUILD__';
 import { createTestsets } from './testsets.js?v=__BUILD__';
 import { clearStore } from '../persist.js?v=__BUILD__';
 import * as wasm from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
+import { isTauri } from './tauri-bridge.js?v=__BUILD__';
+
+// The desktop window is wide and has no phone layout: style.css widens the page under html.desktop.
+if (isTauri()) document.documentElement.classList.add('desktop');
 
 const ORDER = ['genome', 'samples', 'results'];
 const REASONS = {
@@ -53,6 +57,7 @@ window.qrnamapApp = {
   cancelGenome: genomeStep.cancel,
   nextId: genomeStep.nextId,
   loadCatalogAccession: genomeStep.loadCatalogAccession,
+  getIndexBytes: genomeStep.getIndexBytes,
 };
 const samplesStep = createSamplesStep({ $, app: window.qrnamapApp, shell: { markDone: completeStep, resetFrom } });
 window.qrnamapApp.samplesStep = samplesStep;
