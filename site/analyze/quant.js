@@ -6,6 +6,7 @@
 // and its index stay, so a new run needs no new index.
 import { gene_counts } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
+import { isTauri, runNativeQuant, prepareNativeIndex } from './tauri-bridge.js?v=__BUILD__';
 
 /** The largest value of the page field "Read pairs per sample". The N of each sample also depends on its read length (preview-limit.js). */
 export const MAX_PAIRS = HARD_LIMIT;
@@ -20,8 +21,12 @@ export const previewLabel = (n) => `preview of the first ${fmt(n)} pairs`;
  * different N (then the label gives the range, and each sample has its own `previewN`). Empty label when no sample is counted.
  */
 export function previewOf(samples) {
-  const used = [...new Set(samples.filter((s) => s.status === 'done').map((s) => s.previewN))].sort((a, b) => a - b);
-  if (!used.length) return { n: null, label: '' };
+  const doneSamples = samples.filter((s) => s.status === 'done');
+  if (!doneSamples.length) return { n: null, label: '' };
+  const allFull = doneSamples.every((s) => s.allPairs || s.previewN === null || s.previewN === 0);
+  if (allFull) return { n: null, label: 'full depth (all read pairs directly from disk)' };
+  const used = [...new Set(doneSamples.map((s) => s.previewN).filter((n) => typeof n === 'number' && n > 0))].sort((a, b) => a - b);
+  if (!used.length) return { n: null, label: 'full depth (all read pairs directly from disk)' };
   if (used.length === 1) return { n: used[0], label: previewLabel(used[0]) };
   return { n: null, label: `preview of the first ${fmt(used[0])} to ${fmt(used[used.length - 1])} pairs (the N of each sample is in its row)` };
 }
@@ -71,28 +76,90 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
     const mine = ++runNumber;
     const state = app.state;
     state.preview = { n: null, label: '' };
-    state.samples = jobs.map((j) => ({ name: j.name, covariates: { ...j.covariates }, fastq1: j.mate1?.name || j.fastq1 || '', fastq2: j.mate2?.name || j.fastq2 || '',
+    state.samples = jobs.map((j) => ({
+      name: j.name,
+      covariates: { ...j.covariates },
+      fastq1: j.mate1?.name || (j.paths1 ? j.paths1.map((p) => p.split(/[\\/]/).pop()).join(',') : '') || j.fastq1 || '',
+      fastq2: j.mate2?.name || (j.paths2 ? j.paths2.map((p) => p.split(/[\\/]/).pop()).join(',') : '') || j.fastq2 || '',
       status: 'waiting', nPairs: 0, processed: 0, pseudoaligned: 0,
-      fraction: 0, allPairs: false, previewN: 0, readLength: 0, geneCounts: null, error: '', warning: '', reruns: 0 }));
+      fraction: 0, allPairs: false, previewN: 0, readLength: 0, geneCounts: null, error: '', warning: '', reruns: 0,
+    }));
     state.samplesPhase = 'running';
     state.samples.forEach(onChange);
+
+    const isDesktopNative = isTauri() &&
+      (document.getElementById('mode-native')?.checked ?? true) &&
+      jobs.some((j) => j.paths1 && j.paths1.length > 0);
+
+    if (isDesktopNative) {
+      if (!state.nativeIndexPath) {
+        onProgress({ text: 'Preparing native kallisto index on disk...' });
+        const idxBytes = await app.getIndexBytes?.();
+        if (idxBytes) {
+          const prep = await prepareNativeIndex({ index_bytes: Array.from(idxBytes) });
+          state.nativeIndexPath = prep.index_path;
+        } else {
+          throw new Error('Native kallisto index is not available. Please build the genome index in step 1 first.');
+        }
+      }
+    }
+
+    current = { id: 0, cancelRequested: false };
+
     for (const [i, job] of jobs.entries()) {
       const sample = state.samples[i];
       sample.status = 'running';
       onChange(sample);
+      if (current?.cancelRequested) {
+        sample.status = 'cancelled';
+        onChange(sample);
+        state.samples.slice(i + 1).forEach((s) => { s.status = 'not run'; onChange(s); });
+        state.samplesPhase = 'cancelled';
+        return;
+      }
       try {
-        const done = await request({ name: job.name, mate1: job.mate1, mate2: job.mate2, pairs, limitOverride, fragment: job.fragment, nTranscripts: state.nTranscripts });
-        const counts = JSON.parse(gene_counts(done.abundance, state.tx2gene));
-        Object.assign(sample, {
-          status: 'done', nPairs: done.nPairs, processed: done.runInfo.n_processed, pseudoaligned: done.runInfo.n_pseudoaligned,
-          fraction: done.nPairs ? done.runInfo.n_pseudoaligned / done.nPairs : 0, allPairs: done.wholeFile, geneCounts: counts.counts,
-          reruns: done.reruns, args: done.args, warning: done.warning || '', previewN: done.previewN, readLength: done.readLength,
-        });
+        if (isDesktopNative && job.paths1 && job.paths1.length > 0) {
+          onProgress({ text: `Running native kallisto on ${job.name} (full depth)...` });
+          const resp = await runNativeQuant({
+            name: job.name,
+            fastq1: job.paths1,
+            fastq2: job.paths2 || [],
+            index_path: state.nativeIndexPath,
+            tx2gene: state.tx2gene,
+            strandedness: app.state.strandedness || 'unstranded',
+            fragment_mean: job.fragment ? job.fragment[0] : null,
+            fragment_sd: job.fragment ? job.fragment[1] : null,
+            threads: null,
+            out_dir: null,
+          });
+          Object.assign(sample, {
+            status: 'done',
+            nPairs: resp.n_processed,
+            processed: resp.n_processed,
+            pseudoaligned: resp.n_pseudoaligned,
+            fraction: resp.p_pseudoaligned || (resp.n_processed ? resp.n_pseudoaligned / resp.n_processed : 0),
+            allPairs: true,
+            geneCounts: resp.gene_counts,
+            reruns: 0,
+            args: resp.args,
+            warning: resp.warning || '',
+            previewN: 0,
+            readLength: 0,
+          });
+        } else {
+          const done = await request({ name: job.name, mate1: job.mate1, mate2: job.mate2, pairs, limitOverride, fragment: job.fragment, nTranscripts: state.nTranscripts });
+          const counts = JSON.parse(gene_counts(done.abundance, state.tx2gene));
+          Object.assign(sample, {
+            status: 'done', nPairs: done.nPairs, processed: done.runInfo.n_processed, pseudoaligned: done.runInfo.n_pseudoaligned,
+            fraction: done.nPairs ? done.runInfo.n_pseudoaligned / done.nPairs : 0, allPairs: done.wholeFile, geneCounts: counts.counts,
+            reruns: done.reruns, args: done.args, warning: done.warning || '', previewN: done.previewN, readLength: done.readLength,
+          });
+        }
       } catch (error) {
         if (mine !== runNumber) return; // a newer run took over
-        const message = typeof error === 'string' ? `The gene counts could not be made: ${error}` : error.message; // gene_counts throws a string
-        Object.assign(sample, { status: error.kind === 'cancelled' ? 'cancelled' : 'error', error: message, kind: error.kind || 'internal' });
-        if (error.kind === 'lost' || error.kind === 'cancelled') {
+        const message = typeof error === 'string' ? error : error.message;
+        Object.assign(sample, { status: error.kind === 'cancelled' || current?.cancelRequested ? 'cancelled' : 'error', error: message, kind: error.kind || 'internal' });
+        if (error.kind === 'lost' || error.kind === 'cancelled' || current?.cancelRequested) {
           state.samples.slice(i + 1).forEach((s) => { s.status = 'not run'; onChange(s); });
           state.samplesPhase = error.kind === 'lost' ? 'lost' : 'cancelled';
           onChange(sample);
@@ -106,6 +173,7 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
       onChange(sample);
       if (mine !== runNumber) return;
     }
+    current = null;
     state.samplesPhase = 'done';
     document.dispatchEvent(new CustomEvent('qrnamap:samples-done', { detail: { samples: state.samples, preview: state.preview } }));
   }
@@ -114,7 +182,9 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
   function cancel() {
     if (!current) return;
     current.cancelRequested = true;
-    current.worker.postMessage({ type: 'quant-cancel', id: current.id });
+    if (current.worker && current.id) {
+      current.worker.postMessage({ type: 'quant-cancel', id: current.id });
+    }
   }
 
   return { run, cancel, busy: () => app.state.samplesPhase === 'running' };

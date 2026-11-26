@@ -6,6 +6,7 @@
 import { validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { baseName, pageRules, filesByName, sheetText } from './sheet.js?v=__BUILD__';
 import { createQuant, MAX_PAIRS, previewLabel } from './quant.js?v=__BUILD__';
+import { isTauri, checkNative, pickFile, readLocalSheet } from './tauri-bridge.js?v=__BUILD__';
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 // Measurement option (page-quant-memory.yml): `?preview_pairs=N` replaces the read-length limit of preview-limit.js with N for every
@@ -48,7 +49,16 @@ export function createSamplesStep({ $, app, shell }) {
     const expect = row.expect[mate];
     let text = '';
     let missing = false;
-    if (file) text = expect && file.name === expect ? `${file.name} (matched to the sheet)` : file.name;
+    if (file) {
+      if (row.exists && row.exists[mate] && row.exists[mate].includes(false)) {
+        text = `missing on disk: ${file.path || file.name}`;
+        missing = true;
+      } else if (file.path) {
+        text = `${file.name} (local disk)`;
+      } else {
+        text = expect && file.name === expect ? `${file.name} (matched to the sheet)` : file.name;
+      }
+    }
     else if (row.loading && row.loading[mate]) text = row.loading[mate];
     else if (expect) { text = `missing: the sheet names "${expect}". Pick that file.`; missing = true; }
     else if (mate === 2) text = 'none (single-end)';
@@ -59,7 +69,9 @@ export function createSamplesStep({ $, app, shell }) {
       accept: '.fastq,.fq,.gz,.fastq.gz,application/gzip,application/x-gzip,text/plain,*/*',
     });
     input.dataset.mate = mate;
-    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [input, el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text })]);
+    const span = el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text });
+    if (file?.path) span.title = file.path;
+    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [input, span]);
   }
 
   function render() {
@@ -159,16 +171,111 @@ export function createSamplesStep({ $, app, shell }) {
     render();
   });
 
+  // ------------------------------------------------------------------ desktop native local sheet loader
+  async function loadNativeSheet(sheetPath) {
+    const statusEl = $('native-sheet-status');
+    if (statusEl) statusEl.textContent = 'Reading local sample sheet...';
+    sheetError([]);
+    try {
+      const res = await readLocalSheet(sheetPath);
+      if (!res || !res.samples || !res.samples.length) {
+        if (statusEl) statusEl.textContent = 'Sample sheet is empty or contains no samples.';
+        return;
+      }
+      model.columns = res.columns.map(([name, type]) => ({
+        key: key(),
+        name: type === 'numeric' ? `${name}:numeric` : name,
+      }));
+      model.rows = res.samples.map((s) => newRow({
+        name: s.name,
+        values: Object.fromEntries(model.columns.map((c, i) => [c.key, s.covariates[res.columns[i][0]] ?? ''])),
+        expect: {
+          1: s.fastq1[0] ? baseName(s.fastq1[0]) : null,
+          2: s.fastq2[0] ? baseName(s.fastq2[0]) : null,
+        },
+        files: {
+          1: s.fastq1[0] ? { name: baseName(s.fastq1[0]), path: s.fastq1[0] } : null,
+          2: s.fastq2[0] ? { name: baseName(s.fastq2[0]), path: s.fastq2[0] } : null,
+        },
+        paths: {
+          1: s.fastq1,
+          2: s.fastq2,
+        },
+        exists: {
+          1: s.fastq1_exists,
+          2: s.fastq2_exists,
+        },
+      }));
+      render();
+      $('samples-panel').dataset.sheet = baseName(sheetPath);
+      const missingCount = res.warnings.length;
+      if (missingCount > 0) {
+        if (statusEl) statusEl.textContent = `Loaded ${res.samples.length} samples (${missingCount} file warnings: see table or check paths).`;
+        sheetError(res.warnings);
+      } else {
+        if (statusEl) statusEl.textContent = `Loaded ${res.samples.length} samples from ${baseName(sheetPath)}. All FASTQ files verified on disk!`;
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err?.message || err}`;
+      sheetError([`Failed to read local sheet ${sheetPath}: ${err?.message || err}`]);
+    }
+  }
+
+  $('btn-browse-sheet')?.addEventListener('click', async () => {
+    try {
+      const pickedPath = await pickFile('Select Sample Sheet', 'Sample sheet (*.txt, *.tsv)', ['txt', 'tsv']);
+      if (pickedPath) {
+        $('native-sheet-path').value = pickedPath;
+        await loadNativeSheet(pickedPath);
+      }
+    } catch (err) {
+      sheetError([`Error picking sheet: ${err.message || err}`]);
+    }
+  });
+
+  $('btn-load-native-sheet')?.addEventListener('click', async () => {
+    const p = $('native-sheet-path')?.value.trim();
+    if (!p) {
+      sheetError(['Please enter or browse for a sample sheet path first.']);
+      return;
+    }
+    await loadNativeSheet(p);
+  });
+
+  if (isTauri()) {
+    checkNative().then((caps) => {
+      if (caps && caps.available) {
+        const banner = $('desktop-native-banner');
+        if (banner) banner.hidden = false;
+        const opts = $('native-mode-options');
+        if (opts) opts.hidden = false;
+        const info = $('desktop-native-info');
+        if (info) {
+          info.textContent = `kallisto detected: ${caps.kallisto_version || caps.kallisto_path} (${caps.num_cpus} CPUs available)`;
+        }
+      }
+    });
+  }
+
   // ------------------------------------------------------------------ checks before a run
   function check() {
     const errors = [];
     const rowErrors = new Map();
     const fail = (row, text) => { errors.push(text); if (row) rowErrors.set(row, [...(rowErrors.get(row) || []), text]); };
     if (!model.rows.length) fail(null, 'Add at least one sample.');
+    const isNativeMode = isTauri() &&
+      (document.getElementById('mode-native')?.checked ?? true) &&
+      model.rows.some((r) => r.paths?.[1]?.length);
+
     model.rows.forEach((row, i) => {
       const who = `Row ${i + 1}${row.name ? ` (${row.name})` : ''}`;
       for (const mate of [1, 2]) {
-        if (row.files[mate]) continue;
+        if (row.files[mate]) {
+          if (row.exists && row.exists[mate] && row.exists[mate].includes(false)) {
+            fail(row, `${who}: mate ${mate} file does not exist on disk: ${row.paths?.[mate]?.join(', ')}.`);
+          }
+          continue;
+        }
         if (row.expect[mate]) fail(row, `${who}: the sheet names "${row.expect[mate]}" for mate ${mate}, but no picked file has that name. Pick the file.`);
         else if (mate === 1) fail(row, `${who}: pick the mate 1 file.`);
       }
@@ -182,9 +289,16 @@ export function createSamplesStep({ $, app, shell }) {
     model.columns.forEach((col) => {
       if (!col.name.trim() && model.rows.some((r) => String(r.values[col.key] ?? '').trim())) fail(null, 'A covariate column has values but no name. Give it a name or remove it.');
     });
+
     const pairs = Number($('preview-pairs').value);
-    if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
-      fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
+    if (!isNativeMode) {
+      if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
+        fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
+      }
+      const hasOnlyPaths = model.rows.some((r) => r.files[1] && !(r.files[1] instanceof File) && r.paths?.[1]);
+      if (hasOnlyPaths) {
+        fail(null, "Local disk files require Desktop Native Execution. Please select 'Native Execution (Full depth)'.");
+      }
     }
     const single = model.rows.some((r) => r.files[1] && !r.files[2] && !r.expect[2]);
     const mean = Number($('frag-mean').value);
@@ -207,7 +321,15 @@ export function createSamplesStep({ $, app, shell }) {
     if (errors.length) return { errors, rowErrors };
     return {
       errors, rowErrors, pairs, text,
-      jobs: model.rows.map((r, i) => ({ name: r.name, covariates: result.rows[i].covariates, mate1: r.files[1], mate2: r.files[2], fragment: r.files[2] ? null : [mean, sd] })),
+      jobs: model.rows.map((r, i) => ({
+        name: r.name,
+        covariates: result.rows[i].covariates,
+        mate1: r.files[1],
+        mate2: r.files[2],
+        paths1: r.paths?.[1] || (r.files[1]?.path ? [r.files[1].path] : null),
+        paths2: r.paths?.[2] || (r.files[2]?.path ? [r.files[2].path] : []),
+        fragment: r.files[2] ? null : [mean, sd],
+      })),
     };
   }
 
@@ -220,8 +342,9 @@ export function createSamplesStep({ $, app, shell }) {
       case 'waiting': return 'Waiting.';
       case 'running': return 'Running.';
       case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
-        `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(s.previewN).replace(/^p/, 'P')}.`}` +
-        ` Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.` +
+        (s.allPairs
+          ? `All ${unit} (${fmt(s.nPairs)}). Full depth.`
+          : `${previewLabel(s.previewN).replace(/^p/, 'P')}. Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.`) +
         `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}` +
         `${s.warning ? ` Warning: ${s.warning}` : ''}`;
       case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
