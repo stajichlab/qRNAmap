@@ -65,4 +65,11 @@ make_release badsum; rm -rf "$T/uploaded"
 if bash "$HERE/mirror-indexes-to-s3.sh" indexes-test s3://b/ > "$T/out" 2>&1; then fail "bad checksum accepted"; fi
 grep -q put "$T/s3.log" && fail "upload after a bad checksum"
 echo "ok: release checksum mismatch stops before upload"
+
+# A local set given as a relative SRC_DIR (as from the HPCC array): uploads every .gz and the joined .sha256 list.
+make_release good; rm -rf "$T/uploaded"; mkdir -p "$T/local"; cp "$T/release"/*.gz "$T/local/"
+(cd "$T/local" && $SHA GCF_1.idx.gz > GCF_1.sha256 && $SHA GCF_2.idx.gz > GCF_2.sha256)
+(cd "$T" && SRC_DIR=local bash "$HERE/mirror-indexes-to-s3.sh" indexes-test s3://b/ > "$T/out" 2>&1) || { cat "$T/out"; fail "local relative SRC_DIR"; }
+[[ $(ls "$T/uploaded"/*.gz | wc -l) -eq 8 ]] || fail "local set: 8 .gz uploaded"
+echo "ok: local set with a relative SRC_DIR"
 echo "all mirror tests passed"

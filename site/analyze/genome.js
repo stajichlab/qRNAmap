@@ -20,7 +20,12 @@ export const LIMIT_BASES = Number.isFinite(askedLimit) && askedLimit >= 1 ? Math
 const fmt = (n) => Number(n).toLocaleString('en-US');
 const STORE_KEY = 'last-genome';
 
-const RELEASE_INDEX_URL = 'https://github.com/stajichlab/qRNAmap/releases/download/indexes-v1';
+// Pre-built indexes, built with kallisto.wasm (scripts/build-indexes-slurm.sh, then scripts/mirror-indexes-to-s3.sh): index
+// files differ between kallisto builds of the same version, and indexes-v1 (Linux conda kallisto) is "Corrupted" for
+// kallisto.wasm. Served from the lab S3 bucket, not a GitHub release: a release download URL answers with a redirect that
+// has no CORS header, so a page cannot fetch it. The bucket has a CORS rule.
+// `?index_base=URL` replaces it (measurements, other mirrors).
+const RELEASE_INDEX_URL = new URLSearchParams(location.search).get('index_base') || 'https://s3-west.nrp-nautilus.io/stajichlab/qRNAmap/indexes-v2';
 
 let prebuiltAccessions = new Set();
 try {
@@ -278,7 +283,9 @@ export async function createGenomeStep({ $, shell }) {
     busy(true);
     changed();
     try {
-      let isPrebuilt = entry && accession && prebuiltAccessions.has(accession);
+      // `?prebuilt=0` builds the index in the page even when a pre-built one exists (measurements, comparison).
+      const allowPrebuilt = new URLSearchParams(location.search).get('prebuilt') !== '0';
+      let isPrebuilt = allowPrebuilt && entry && accession && prebuiltAccessions.has(accession);
       let prebuiltPayload = null;
 
       if (isPrebuilt) {
@@ -304,8 +311,10 @@ export async function createGenomeStep({ $, shell }) {
             label,
             accession,
             bases: entry.genome_size,
-            nTranscripts: entry.protein_coding_genes || 0,
-            nGenes: entry.genes || 0,
+            // 0: the worker counts them from tx2gene (one line per transcript) and genes.tsv. The catalog's protein-coding gene
+            // count is not the transcript count, and the abundance.tsv check of every sample needs the exact transcript count.
+            nTranscripts: 0,
+            nGenes: 0,
             idxGz,
             tx2geneGz,
             geneInfoGz,

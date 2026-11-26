@@ -20,6 +20,8 @@ DEST="${2:-s3://stajichlab/qRNAmap/${TAG}/}"
 REPO="${REPO:-stajichlab/qRNAmap}"
 [[ "$DEST" == */ ]] || DEST="$DEST/"
 
+# SRC_DIR as an absolute path: the script works inside $WORK.
+if [[ -n "${SRC_DIR:-}" ]]; then SRC_DIR="$(cd "$SRC_DIR" && pwd)"; fi
 WORK="${SCRATCH:-${TMPDIR:-/tmp}}/qrnamap_mirror_${TAG}_$$"
 mkdir -p "$WORK"
 trap 'rm -rf "$WORK"' EXIT
