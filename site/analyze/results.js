@@ -559,7 +559,9 @@ export function createResultsStep({ $, app, shell }) {
     return app.state?.preview?.n || app.state?.samples?.find((s) => s.status === 'done')?.previewN || 0;
   }
 
+  /** counts.full.tsv when every sample counted all its reads (streamed or native), else counts.preview[-N].tsv. */
   function countsFileName() {
+    if (app.state?.preview?.full) return 'counts.full.tsv';
     const n = getPreviewN();
     return n ? `counts.preview-${n}.tsv` : 'counts.preview.tsv';
   }
