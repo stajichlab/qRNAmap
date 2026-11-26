@@ -4,6 +4,7 @@
 import init, { catalog } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { checkUrl, mb } from '../reference-panel.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
+import { isTauri, writeNativeIndex } from './tauri-bridge.js?v=__BUILD__';
 
 /**
  * The largest genome that finished download, transcript building and kallisto index in Chromium, Firefox and WebKit in the
@@ -46,7 +47,7 @@ function limitText(entry) {
 }
 
 /** The state that the later steps read. `indexReady` is true only while the worker holds the index of `genome`. */
-export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [] };
+export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [], nativeIndexPath: null };
 
 let worker = null;
 let pending = null; // { id, resolve, reject, onProgress }
@@ -54,6 +55,22 @@ let messageId = 0;
 
 /** A message id for the page worker. Every step takes its ids from here, so no two messages share an id. */
 export const nextId = () => ++messageId;
+
+export function getIndexBytes() {
+  return new Promise((resolve) => {
+    const id = nextId();
+    const w = getWorker();
+    if (!w) return resolve(null);
+    const handler = ({ data }) => {
+      if (data.id === id && data.type === 'index-data') {
+        w.removeEventListener('message', handler);
+        resolve(data.index);
+      }
+    };
+    w.addEventListener('message', handler);
+    w.postMessage({ type: 'get-index', id });
+  });
+}
 
 function startWorker() {
   worker = new Worker(new URL(`worker.js?v=__BUILD__`, import.meta.url), { type: 'module' });
@@ -78,6 +95,7 @@ function startWorker() {
  * 'change'. The event `qrnamap:worker-replaced` on window tells the other steps (detail: { reason }).
  */
 function restartWorker(reason) {
+  state.nativeIndexPath = null;
   worker?.terminate();
   startWorker();
   window.dispatchEvent(new CustomEvent('qrnamap:worker-replaced', { detail: { reason } }));
@@ -336,6 +354,24 @@ export async function createGenomeStep({ $, shell }) {
         genome: { label, accession, source: entry ? 'catalog' : 'upload', bases: ready.bases },
         nTranscripts: ready.nTranscripts, nGenes: ready.nGenes, indexReady: true, tx2gene: ready.tx2gene, genesTsv: ready.genesTsv, geneInfoTsv: ready.geneInfoTsv, indexArgs: ready.indexArgs,
       });
+
+      if (isTauri()) {
+        try {
+          if (prebuiltPayload?.idxGz) {
+            const prep = await writeNativeIndex(prebuiltPayload.idxGz, { gzip: true });
+            state.nativeIndexPath = prep.index_path;
+          } else {
+            const idxBytes = await getIndexBytes();
+            if (idxBytes) {
+              const prep = await writeNativeIndex(idxBytes);
+              state.nativeIndexPath = prep.index_path;
+            }
+          }
+        } catch (e) {
+          console.warn('Native index preparation note:', e);
+        }
+      }
+
       setPhase('ready');
       busy(false);
       $('ready-label').textContent = label;
@@ -405,5 +441,5 @@ export async function createGenomeStep({ $, shell }) {
 
   setPhase('choose');
   section.dataset.ready = 'menu'; // the tests wait for this
-  return { state, getWorker, cancel, nextId, loadCatalogAccession };
+  return { state, getWorker, cancel, nextId, loadCatalogAccession, getIndexBytes };
 }

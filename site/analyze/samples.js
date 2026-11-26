@@ -6,6 +6,7 @@
 import { validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { baseName, pageRules, filesByName, sheetText } from './sheet.js?v=__BUILD__';
 import { createQuant, MAX_PAIRS, previewLabel } from './quant.js?v=__BUILD__';
+import { isTauri, checkNative, pickFile, pickFiles, readLocalSheet, FASTQ_EXTS } from './tauri-bridge.js?v=__BUILD__';
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 // Measurement option (page-quant-memory.yml): `?preview_pairs=N` replaces the read-length limit of preview-limit.js with N for every
@@ -48,7 +49,16 @@ export function createSamplesStep({ $, app, shell }) {
     const expect = row.expect[mate];
     let text = '';
     let missing = false;
-    if (file) text = expect && file.name === expect ? `${file.name} (matched to the sheet)` : file.name;
+    if (file) {
+      if (row.exists && row.exists[mate] && row.exists[mate].includes(false)) {
+        text = `missing on disk: ${file.path || file.name}`;
+        missing = true;
+      } else if (file.path) {
+        text = `${file.name} (local disk)`;
+      } else {
+        text = expect && file.name === expect ? `${file.name} (matched to the sheet)` : file.name;
+      }
+    }
     else if (row.loading && row.loading[mate]) text = row.loading[mate];
     else if (expect) { text = `missing: the sheet names "${expect}". Pick that file.`; missing = true; }
     else if (mate === 2) text = 'none (single-end)';
@@ -59,7 +69,12 @@ export function createSamplesStep({ $, app, shell }) {
       accept: '.fastq,.fq,.gz,.fastq.gz,application/gzip,application/x-gzip,text/plain,*/*',
     });
     input.dataset.mate = mate;
-    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [input, el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text })]);
+    // The input is visually hidden inside a label styled as a button (native file inputs do not take styles and wrap badly
+    // in a table cell). In the desktop app a click opens the native dialog instead (handled on the table), so the row gets a disk path.
+    const pick = el('label', { className: 'file-button' }, [input, file ? 'Change…' : 'Choose file…']);
+    const span = el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text });
+    if (file?.path) span.title = file.path;
+    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [pick, span]);
   }
 
   function render() {
@@ -101,6 +116,48 @@ export function createSamplesStep({ $, app, shell }) {
     row.files[target.dataset.mate] = target.files[0] || null;
     render();
   });
+  // Desktop app: a file picked through the page's file input is a browser File with no disk path, which only the
+  // in-page preview (75,000 to 200,000 pairs) can read. The native dialog gives the path, so native kallisto reads every read.
+  if (isTauri()) {
+    $('sample-table').addEventListener('click', async (event) => {
+      const input = event.target.closest('label.file-button')?.querySelector('input.mate-file')
+        || (event.target.classList?.contains('mate-file') ? event.target : null);
+      if (!input || !nativeSelected()) return; // "In the page" keeps the browser file picker (a File the page can read)
+      event.preventDefault();
+      const row = rowOf(input);
+      const mate = Number(input.dataset.mate);
+      const path = await pickFile(`Mate ${mate} FASTQ for ${row.name || 'this sample'}`, 'FASTQ (.fastq, .fq, .gz)', FASTQ_EXTS);
+      if (!path) return;
+      row.files[mate] = { name: baseName(path), path };
+      row.paths = { ...(row.paths || {}), [mate]: [path] };
+      if (row.exists) row.exists = { ...row.exists, [mate]: [true] };
+      render();
+    });
+    $('sheet-file').addEventListener('click', async (event) => {
+      if (!nativeSelected()) return;
+      event.preventDefault();
+      const path = await pickFile('Sample sheet', 'Sample sheet (.tsv, .txt)', ['tsv', 'txt']);
+      if (!path) return;
+      if ($('native-sheet-path')) $('native-sheet-path').value = path;
+      await loadNativeSheet(path); // resolves the FASTQ paths against the sheet's folder and checks them on disk
+    });
+    $('sheet-fastqs').addEventListener('click', async (event) => {
+      if (!nativeSelected()) return;
+      event.preventDefault();
+      const paths = await pickFiles('The FASTQ files the sheet names', 'FASTQ (.fastq, .fq, .gz)', FASTQ_EXTS);
+      if (!paths.length) return;
+      picked = new Map(paths.map((p) => [baseName(p), { name: baseName(p), path: p }]));
+      for (const row of model.rows) {
+        for (const mate of [1, 2]) {
+          const f = row.expect[mate] && picked.get(row.expect[mate]);
+          if (f) { row.paths = { ...(row.paths || {}), [mate]: [f.path] }; if (row.exists) row.exists = { ...row.exists, [mate]: [true] }; }
+        }
+      }
+      sheetError([]);
+      applyPicked();
+      render();
+    });
+  }
   $('sample-table').addEventListener('click', ({ target }) => {
     if (target.classList.contains('remove-row')) {
       model.rows = model.rows.filter((r) => r !== rowOf(target));
@@ -159,16 +216,133 @@ export function createSamplesStep({ $, app, shell }) {
     render();
   });
 
+  // ------------------------------------------------------------------ desktop native local sheet loader
+  async function loadNativeSheet(sheetPath) {
+    const statusEl = $('native-sheet-status');
+    if (statusEl) statusEl.textContent = 'Reading local sample sheet...';
+    sheetError([]);
+    try {
+      const res = await readLocalSheet(sheetPath);
+      if (!res || !res.samples || !res.samples.length) {
+        if (statusEl) statusEl.textContent = 'Sample sheet is empty or contains no samples.';
+        return;
+      }
+      model.columns = res.columns.map(([name, type]) => ({
+        key: key(),
+        name: type === 'numeric' ? `${name}:numeric` : name,
+      }));
+      model.rows = res.samples.map((s) => newRow({
+        name: s.sample || s.name || '',
+        values: Object.fromEntries(model.columns.map((c, i) => [c.key, s.covariates[res.columns[i][0]] ?? ''])),
+        expect: {
+          1: s.fastq1[0] ? baseName(s.fastq1[0]) : null,
+          2: s.fastq2[0] ? baseName(s.fastq2[0]) : null,
+        },
+        files: {
+          1: s.fastq1[0] ? { name: baseName(s.fastq1[0]), path: s.fastq1[0] } : null,
+          2: s.fastq2[0] ? { name: baseName(s.fastq2[0]), path: s.fastq2[0] } : null,
+        },
+        paths: {
+          1: s.fastq1,
+          2: s.fastq2,
+        },
+        exists: {
+          1: s.fastq1_exists,
+          2: s.fastq2_exists,
+        },
+      }));
+      render();
+      $('samples-panel').dataset.sheet = baseName(sheetPath);
+      const missingCount = res.warnings.length;
+      if (missingCount > 0) {
+        if (statusEl) statusEl.textContent = `Loaded ${res.samples.length} samples (${missingCount} file warnings: see table or check paths).`;
+        sheetError(res.warnings);
+      } else {
+        if (statusEl) statusEl.textContent = `Loaded ${res.samples.length} samples from ${baseName(sheetPath)}. All FASTQ files verified on disk!`;
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err?.message || err}`;
+      sheetError([`Failed to read local sheet ${sheetPath}: ${err?.message || err}`]);
+    }
+  }
+
+  $('btn-browse-sheet')?.addEventListener('click', async () => {
+    try {
+      const pickedPath = await pickFile('Select Sample Sheet', 'Sample sheet (*.txt, *.tsv)', ['txt', 'tsv']);
+      if (pickedPath) {
+        $('native-sheet-path').value = pickedPath;
+        await loadNativeSheet(pickedPath);
+      }
+    } catch (err) {
+      sheetError([`Error picking sheet: ${err.message || err}`]);
+    }
+  });
+
+  $('btn-load-native-sheet')?.addEventListener('click', async () => {
+    const p = $('native-sheet-path')?.value.trim();
+    if (!p) {
+      sheetError(['Please enter or browse for a sample sheet path first.']);
+      return;
+    }
+    await loadNativeSheet(p);
+  });
+
+  let nativeReady = false; // native kallisto found, with an index-compatible version
+  /** True when this run goes to native kallisto (desktop app, native kallisto usable, "Native" chosen). */
+  const nativeSelected = () => isTauri() && nativeReady && Boolean(document.getElementById('mode-native')?.checked);
+
+  /** Show the controls of the chosen way of counting: Native (desktop) needs neither the depth choice nor N; "All reads" needs no N. */
+  function updateExecModeUI() {
+    const isNative = nativeSelected();
+    const allReads = Boolean($('depth-all')?.checked);
+    $('read-depth').hidden = isNative;
+    $('preview-pairs-p').hidden = isNative || allReads;
+    const notice = $('native-pairs-notice');
+    if (notice) notice.hidden = !isNative;
+  }
+
+  if (isTauri()) {
+    checkNative().then((caps) => {
+      nativeReady = Boolean(caps?.available && caps?.index_compatible);
+      const banner = $('desktop-native-banner');
+      if (banner) { banner.hidden = false; banner.dataset.native = String(nativeReady); }
+      const opts = $('native-mode-options');
+      if (opts) opts.hidden = !nativeReady;
+      if (!nativeReady) { const b = $('mode-browser'); if (b) b.checked = true; }
+      const info = $('desktop-native-info');
+      if (info) {
+        info.textContent = nativeReady
+          ? `${String(caps.kallisto_version || '').replace(/^kallisto,?\s*(version\s*)?/i, '') || 'found'} at ${caps.kallisto_path} (${caps.num_cpus} CPUs)`
+          : `not available: ${caps?.warning || caps?.error || 'kallisto was not found'} Counting uses the in-page preview until then.`;
+      }
+      updateExecModeUI();
+    });
+    document.querySelectorAll('input[name="quant-exec-mode"]').forEach((el) => {
+      el.addEventListener('change', updateExecModeUI);
+    });
+  }
+
   // ------------------------------------------------------------------ checks before a run
   function check() {
     const errors = [];
     const rowErrors = new Map();
     const fail = (row, text) => { errors.push(text); if (row) rowErrors.set(row, [...(rowErrors.get(row) || []), text]); };
     if (!model.rows.length) fail(null, 'Add at least one sample.');
+    const isNativeMode = nativeSelected();
+
     model.rows.forEach((row, i) => {
       const who = `Row ${i + 1}${row.name ? ` (${row.name})` : ''}`;
       for (const mate of [1, 2]) {
-        if (row.files[mate]) continue;
+        if (row.files[mate]) {
+          if (row.exists && row.exists[mate] && row.exists[mate].includes(false)) {
+            fail(row, `${who}: mate ${mate} file does not exist on disk: ${row.paths?.[mate]?.join(', ')}.`);
+          }
+          if (isNativeMode && !row.files[mate].path && !row.paths?.[mate]?.length) {
+            fail(row, `${who}: the mate ${mate} file (${row.files[mate].name}) is held in page memory (for example a test-set download), not on disk, so native kallisto cannot read it. ` +
+              'Pick it again with "Choose file…" (it then opens the desktop file dialog), or choose "Browser preview" to count a preview of it.');
+          }
+          continue;
+        }
         if (row.expect[mate]) fail(row, `${who}: the sheet names "${row.expect[mate]}" for mate ${mate}, but no picked file has that name. Pick the file.`);
         else if (mate === 1) fail(row, `${who}: pick the mate 1 file.`);
       }
@@ -182,9 +356,17 @@ export function createSamplesStep({ $, app, shell }) {
     model.columns.forEach((col) => {
       if (!col.name.trim() && model.rows.some((r) => String(r.values[col.key] ?? '').trim())) fail(null, 'A covariate column has values but no name. Give it a name or remove it.');
     });
+    // Native (desktop app) counts every read from disk; in the page, "All reads" streams the files and "Preview" reads the first N pairs.
+    const allReads = !isNativeMode && Boolean($('depth-all')?.checked);
     const pairs = Number($('preview-pairs').value);
-    if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
-      fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
+    if (!isNativeMode) {
+      if (!allReads && (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS)) {
+        fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
+      }
+      const hasOnlyPaths = model.rows.some((r) => r.files[1] && !(r.files[1] instanceof File) && r.paths?.[1]);
+      if (hasOnlyPaths) {
+        fail(null, 'Files chosen with the desktop file dialog are read by native kallisto. Choose "Native, full depth" to count them.');
+      }
     }
     const single = model.rows.some((r) => r.files[1] && !r.files[2] && !r.expect[2]);
     const mean = Number($('frag-mean').value);
@@ -206,8 +388,16 @@ export function createSamplesStep({ $, app, shell }) {
     }
     if (errors.length) return { errors, rowErrors };
     return {
-      errors, rowErrors, pairs, text,
-      jobs: model.rows.map((r, i) => ({ name: r.name, covariates: result.rows[i].covariates, mate1: r.files[1], mate2: r.files[2], fragment: r.files[2] ? null : [mean, sd] })),
+      errors, rowErrors, pairs, allReads, text,
+      jobs: model.rows.map((r, i) => ({
+        name: r.name,
+        covariates: result.rows[i].covariates,
+        mate1: r.files[1],
+        mate2: r.files[2],
+        paths1: r.paths?.[1] || (r.files[1]?.path ? [r.files[1].path] : null),
+        paths2: r.paths?.[2] || (r.files[2]?.path ? [r.files[2].path] : []),
+        fragment: r.files[2] ? null : [mean, sd],
+      })),
     };
   }
 
@@ -220,8 +410,12 @@ export function createSamplesStep({ $, app, shell }) {
       case 'waiting': return 'Waiting.';
       case 'running': return 'Running.';
       case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
-        `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(s.previewN).replace(/^p/, 'P')}.`}` +
-        ` Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.` +
+        (s.native
+          ? `All ${unit} (${fmt(s.nPairs)}), counted by native kallisto from disk.`
+          : s.allReads
+            ? `All ${unit} (${fmt(s.nPairs)}), streamed from the files.`
+            : `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(s.previewN).replace(/^p/, 'P')}.`} Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.` +
+              (isTauri() && !s.allPairs ? ' (A preview. Choose "All reads" or "Native" to count every read.)' : '')) +
         `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}` +
         `${s.warning ? ` Warning: ${s.warning}` : ''}`;
       case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
@@ -250,7 +444,9 @@ export function createSamplesStep({ $, app, shell }) {
       label = el('p', { id: 'preview-label', className: 'preview-label' });
       $('samples-results').append(label);
     }
-    label.textContent = `Counts: ${app.state.preview.label} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
+    label.textContent = app.state.preview.label === 'all reads'
+      ? 'Counts: all reads of each sample (streamed from the files).'
+      : `Counts: ${app.state.preview.label} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
   }
 
   const busy = (flag) => {
@@ -286,7 +482,7 @@ export function createSamplesStep({ $, app, shell }) {
     runRows = [...model.rows];
     busy(true);
     try {
-      await quant.run(checked.jobs, checked.pairs, LIMIT_OVERRIDE);
+      await quant.run(checked.jobs, checked.pairs, LIMIT_OVERRIDE, { allReads: checked.allReads });
     } finally {
       busy(false);
     }
@@ -335,6 +531,8 @@ export function createSamplesStep({ $, app, shell }) {
     }
   }
 
+  document.querySelectorAll('input[name="read-depth"]').forEach((r) => r.addEventListener('change', updateExecModeUI));
+  updateExecModeUI();
   $('preview-pairs').max = String(MAX_PAIRS);
   $('preview-pairs').value = String(MAX_PAIRS);
   app.state.samples = [];
