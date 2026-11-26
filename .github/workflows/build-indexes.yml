@@ -114,9 +114,9 @@ jobs:
           mkdir -p release-files
           mv all-artifacts/* release-files/ || true
           cd release-files
-          if [ -f checksums.sha256 ]; then
-            sort -u checksums.sha256 -o checksums.sha256
-          fi
+          # One <accession>.sha256 per genome (build-one-index.sh): join them into one list.
+          cat ./*.sha256 | sort -u -k2 > checksums.all && rm -f ./*.sha256 && mv checksums.all checksums.sha256
+          sha256sum --check --quiet checksums.sha256
           ls -lh
           echo "Total size: $(du -sh .)"
 

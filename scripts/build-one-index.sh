@@ -40,12 +40,13 @@ gzip -9 -c "$TMPDIR/tx2gene.tsv" > "$OUTDIR/${ACCESSION}.tx2gene.tsv.gz"
 gzip -9 -c "$TMPDIR/gene_info.tsv" > "$OUTDIR/${ACCESSION}.gene_info.tsv.gz"
 gzip -9 -c "$TMPDIR/genes.tsv" > "$OUTDIR/${ACCESSION}.genes.tsv.gz"
 
-# Compute sha256 checksums
+# Compute sha256 checksums (one file per accession: the release step joins them; a shared name was overwritten when
+# the build artifacts were merged, which left only the last genome in checksums.sha256 of indexes-v1)
 (cd "$OUTDIR" && sha256sum \
   "${ACCESSION}.idx.gz" \
   "${ACCESSION}.tx2gene.tsv.gz" \
   "${ACCESSION}.gene_info.tsv.gz" \
-  "${ACCESSION}.genes.tsv.gz" >> checksums.sha256)
+  "${ACCESSION}.genes.tsv.gz" > "${ACCESSION}.sha256")
 
 echo "=== Successfully built index for $ACCESSION ==="
 ls -lh "$OUTDIR/${ACCESSION}"*
