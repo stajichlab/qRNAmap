@@ -116,9 +116,10 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <div id="native-mode-options" class="note" style="margin-top: 0.5rem; margin-bottom: 0.5rem;" hidden>
           <p><strong>Execution mode:</strong></p>
           <label style="margin-right: 1rem;"><input type="radio" name="quant-exec-mode" id="mode-native" value="native" checked> <strong>Native Execution (Full depth)</strong> &mdash; Streams all reads from disk via native kallisto</label>
-          <label><input type="radio" name="quant-exec-mode" id="mode-browser" value="browser"> <strong>Browser Preview</strong> &mdash; Subsamples the first read pairs into browser memory</label>
+          <label><input type="radio" name="quant-exec-mode" id="mode-browser" value="browser"> <strong>Browser Preview</strong> &mdash; Subsamples read pairs into browser memory</label>
         </div>
-        <p><label for="preview-pairs">Read pairs per sample (at most)</label>
+        <p id="native-pairs-notice" class="small" hidden style="margin: 0.5rem 0;"><strong>Full-depth quantification:</strong> Native execution processes all reads from disk at full depth without subsampling (no read cap).</p>
+        <p id="preview-pairs-p"><label for="preview-pairs">Read pairs per sample (at most)</label>
           <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
           <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of
             up to 101 bases (measured), 75,000 pairs for longer reads (measured with 150-base reads; docs/browser/page-v1-measurements.md).

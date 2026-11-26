@@ -242,6 +242,15 @@ export function createSamplesStep({ $, app, shell }) {
     await loadNativeSheet(p);
   });
 
+  function updateExecModeUI() {
+    if (!isTauri()) return;
+    const isNative = document.getElementById('mode-native')?.checked ?? true;
+    const previewP = $('preview-pairs-p');
+    const notice = $('native-pairs-notice');
+    if (previewP) previewP.hidden = isNative;
+    if (notice) notice.hidden = !isNative;
+  }
+
   if (isTauri()) {
     checkNative().then((caps) => {
       if (caps && caps.available) {
@@ -253,7 +262,11 @@ export function createSamplesStep({ $, app, shell }) {
         if (info) {
           info.textContent = `kallisto detected: ${caps.kallisto_version || caps.kallisto_path} (${caps.num_cpus} CPUs available)`;
         }
+        updateExecModeUI();
       }
+    });
+    document.querySelectorAll('input[name="quant-exec-mode"]').forEach((el) => {
+      el.addEventListener('change', updateExecModeUI);
     });
   }
 
@@ -290,10 +303,11 @@ export function createSamplesStep({ $, app, shell }) {
       if (!col.name.trim() && model.rows.some((r) => String(r.values[col.key] ?? '').trim())) fail(null, 'A covariate column has values but no name. Give it a name or remove it.');
     });
 
+    const maxAllowed = isTauri() ? 100_000_000 : MAX_PAIRS;
     const pairs = Number($('preview-pairs').value);
     if (!isNativeMode) {
-      if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
-        fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
+      if (!Number.isInteger(pairs) || pairs < 1 || pairs > maxAllowed) {
+        fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(maxAllowed)}. The page can use fewer: the read length sets the largest N of each sample.`);
       }
       const hasOnlyPaths = model.rows.some((r) => r.files[1] && !(r.files[1] instanceof File) && r.paths?.[1]);
       if (hasOnlyPaths) {
@@ -458,8 +472,12 @@ export function createSamplesStep({ $, app, shell }) {
     }
   }
 
-  $('preview-pairs').max = String(MAX_PAIRS);
-  $('preview-pairs').value = String(MAX_PAIRS);
+  if (isTauri()) {
+    $('preview-pairs').max = '100000000';
+  } else {
+    $('preview-pairs').max = String(MAX_PAIRS);
+    $('preview-pairs').value = String(MAX_PAIRS);
+  }
   app.state.samples = [];
   app.state.preview = { n: null, label: '' };
   app.state.samplesPhase = 'edit';
