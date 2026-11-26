@@ -159,6 +159,11 @@ test('results step unlocks after run: mapping summary, count table, alias search
   const heatmap = page.locator('#heatmap-container svg');
   assert.equal(await heatmap.count(), 1, 'SVG heatmap is present');
   assert.match(await page.textContent('#heatmap-container'), /preview/i);
+  // Column labels are rotated and do not overlap one another
+  const colBoxes = await page.$$eval('#heatmap-container svg text[transform^="rotate(-45"]', (els) =>
+    els.map((e) => { const b = e.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom, w: e.getComputedTextLength() }; }));
+  assert.ok(colBoxes.length >= 3, 'rotated column labels');
+  for (let i = 1; i < colBoxes.length; i++) assert.ok(colBoxes[i].l > colBoxes[i - 1].l, 'labels step right');
 
   // PCA
   const pca = page.locator('#pca-container svg');
@@ -173,7 +178,10 @@ test('results step unlocks after run: mapping summary, count table, alias search
   const volcanoText = await page.textContent('#de-section, #volcano-container');
   assert.match(volcanoText, /Comparison: "trt" vs "ctl"/i);
 
-  // Labeled genes carry a mouseover title and a link out to SGD, FungiDB or NCBI (from the GFF Dbxref)
+  // Labeled genes carry a mouseover title and a link out to SGD, FungiDB or NCBI (from the GFF Dbxref).
+  // One control against two treated tiny previews has no gene at padj < 0.05, so open the cutoffs to label some.
+  await page.fill('#volcano-padj-cutoff', '1');
+  await page.fill('#volcano-fc-cutoff', '0.1');
   const volcanoLinks = await page.locator('#volcano-container svg a.volcano-gene-link').all();
   assert.ok(volcanoLinks.length > 0, 'volcano has linkable labeled genes');
   let labelLinks = 0;

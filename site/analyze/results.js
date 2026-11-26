@@ -2,6 +2,7 @@
 import { assemble_matrix, qc, de_command, validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
 import { geneExternalLinks } from './gene-links.js?v=__BUILD__';
+import { computeDifferentialExpression } from './de-stats.js?v=__BUILD__';
 
 const STORE_KEY = 'results';
 
@@ -96,8 +97,12 @@ const HEATMAP_RD_BU = [
 
 export function renderHeatmapSvg(samples, correlation, previewLabel) {
   const n = samples.length;
-  const padLeft = 85;
-  const padTop = 60;
+  // Column labels sit above the matrix rotated -45 degrees so long sample names do not run into each
+  // other; the margins grow with the longest name (about 7 px per character at font-size 12).
+  const maxChars = Math.max(1, ...samples.map((s) => String(s).length));
+  const labelPx = maxChars * 7;
+  const padLeft = Math.max(85, labelPx + 14);
+  const padTop = 48 + Math.ceil(labelPx * Math.SQRT1_2) + 12;
   const cellSize = Math.max(35, Math.min(60, Math.floor(300 / n)));
   const matrixW = n * cellSize;
   const matrixH = n * cellSize;
@@ -148,7 +153,7 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
   const legendX = padLeft + matrixW + 28;
   const legendY = padTop;
   const legendH = Math.min(matrixH, 200);
-  const width = legendX + legendW + 65;
+  const width = Math.max(legendX + legendW + 65, padLeft + matrixW + Math.ceil(labelPx * Math.SQRT1_2) + 10);
   const height = padTop + matrixH + 45;
 
   let rects = '';
@@ -156,9 +161,11 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
 
   for (let i = 0; i < n; i++) {
     // Row label
-    labels += `<text x="${padLeft - 8}" y="${padTop + i * cellSize + cellSize / 2 + 4}" text-anchor="end" font-size="12" fill="currentColor">${samples[i]}</text>`;
-    // Col label
-    labels += `<text x="${padLeft + i * cellSize + cellSize / 2}" y="${padTop - 8}" text-anchor="middle" font-size="12" fill="currentColor">${samples[i]}</text>`;
+    labels += `<text x="${padLeft - 8}" y="${padTop + i * cellSize + cellSize / 2 + 4}" text-anchor="end" font-size="12" fill="currentColor">${escSvg(samples[i])}</text>`;
+    // Col label, rotated -45 degrees about its anchor at the top of the column
+    const cx = padLeft + i * cellSize + cellSize / 2;
+    const cy = padTop - 6;
+    labels += `<text x="${cx}" y="${cy}" transform="rotate(-45 ${cx} ${cy})" text-anchor="start" font-size="12" fill="currentColor">${escSvg(samples[i])}</text>`;
 
     for (let j = 0; j < n; j++) {
       const isDiag = i === j;
@@ -169,7 +176,7 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
       const y = padTop + i * cellSize;
 
       rects += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="${fill}" stroke="var(--line, #ccc)">` +
-        `<title>${samples[i]} vs ${samples[j]}: ${r.toFixed(4)}${isDiag ? ' (self)' : ''}</title></rect>`;
+        `<title>${escSvg(samples[i])} vs ${escSvg(samples[j])}: ${r.toFixed(4)}${isDiag ? ' (self)' : ''}</title></rect>`;
       rects += `<text x="${x + cellSize / 2}" y="${y + cellSize / 2 + 4}" text-anchor="middle" font-size="11" font-weight="${isDiag ? '600' : '500'}" fill="${text}">${r.toFixed(3)}</text>`;
     }
   }
@@ -302,165 +309,7 @@ export function renderPcaSvg(pcaData, previewLabel, sampleGroups = new Map()) {
     `</svg>`;
 }
 
-function normalCdfComplement(z) {
-  // Abramowitz and Stegun formula 7.1.26 approximation
-  if (z >= 8) return 0;
-  const t = 1.0 / (1.0 + 0.2316419 * z);
-  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + 1.330274429 * t))));
-  const pdf = (1.0 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * z * z);
-  return pdf * poly;
-}
-
-/** Compute two-group differential expression statistics for count matrix. */
-export function computeDifferentialExpression(matrixTsv, samples, contrast) {
-  const lines = matrixTsv.trim().split('\n');
-  if (lines.length <= 1) return [];
-  const header = lines[0].split('\t');
-  const sampleCols = header.slice(1);
-
-  const factor = contrast?.factor || 'condition';
-  const trtLevel = contrast?.level;
-  const refLevel = contrast?.reference;
-
-  const sampleMap = new Map();
-  for (const s of samples) {
-    sampleMap.set(s.name, String(s.covariates?.[factor] ?? '').trim());
-  }
-
-  const trtIdxs = [];
-  const refIdxs = [];
-  for (let j = 0; j < sampleCols.length; j++) {
-    const sName = sampleCols[j];
-    const grp = sampleMap.get(sName);
-    if (grp === trtLevel) trtIdxs.push(j);
-    else if (grp === refLevel) refIdxs.push(j);
-  }
-
-  if (!trtIdxs.length || !refIdxs.length) return [];
-
-  const genes = [];
-  const rawMatrix = [];
-  for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split('\t');
-    genes.push(parts[0]);
-    rawMatrix.push(parts.slice(1).map(Number));
-  }
-  const nGenes = genes.length;
-  const nSamples = sampleCols.length;
-
-  // Size factors (DESeq2 median of ratios)
-  const sizeFactors = new Array(nSamples).fill(1);
-  const logGeoMeans = new Float64Array(nGenes);
-  let validGeoGenes = 0;
-
-  for (let i = 0; i < nGenes; i++) {
-    let sumLog = 0;
-    let allPos = true;
-    const row = rawMatrix[i];
-    for (let j = 0; j < nSamples; j++) {
-      if (row[j] <= 0) { allPos = false; break; }
-      sumLog += Math.log(row[j]);
-    }
-    if (allPos) {
-      logGeoMeans[i] = sumLog / nSamples;
-      validGeoGenes++;
-    } else {
-      logGeoMeans[i] = -Infinity;
-    }
-  }
-
-  if (validGeoGenes >= 10) {
-    for (let j = 0; j < nSamples; j++) {
-      const ratios = [];
-      for (let i = 0; i < nGenes; i++) {
-        if (logGeoMeans[i] !== -Infinity && rawMatrix[i][j] > 0) {
-          ratios.push(rawMatrix[i][j] / Math.exp(logGeoMeans[i]));
-        }
-      }
-      ratios.sort((a, b) => a - b);
-      if (ratios.length) {
-        const mid = Math.floor(ratios.length / 2);
-        sizeFactors[j] = ratios.length % 2 === 1 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
-      }
-    }
-  } else {
-    const totals = new Float64Array(nSamples);
-    for (let i = 0; i < nGenes; i++) {
-      for (let j = 0; j < nSamples; j++) totals[j] += rawMatrix[i][j];
-    }
-    const meanTot = totals.reduce((a, b) => a + b, 0) / nSamples;
-    for (let j = 0; j < nSamples; j++) sizeFactors[j] = (totals[j] || 1) / (meanTot || 1);
-  }
-
-  const results = [];
-  const nTrt = trtIdxs.length;
-  const nRef = refIdxs.length;
-
-  for (let i = 0; i < nGenes; i++) {
-    const row = rawMatrix[i];
-    let sumTrt = 0;
-    let sumRef = 0;
-    const trtVals = new Float64Array(nTrt);
-    const refVals = new Float64Array(nRef);
-
-    for (let k = 0; k < nTrt; k++) {
-      const j = trtIdxs[k];
-      const norm = row[j] / (sizeFactors[j] || 1);
-      trtVals[k] = norm;
-      sumTrt += norm;
-    }
-    for (let k = 0; k < nRef; k++) {
-      const j = refIdxs[k];
-      const norm = row[j] / (sizeFactors[j] || 1);
-      refVals[k] = norm;
-      sumRef += norm;
-    }
-
-    const meanTrt = sumTrt / nTrt;
-    const meanRef = sumRef / nRef;
-    const baseMean = (meanTrt + meanRef) / 2;
-
-    const lfc = Math.log2(meanTrt + 0.5) - Math.log2(meanRef + 0.5);
-
-    let varTrt = 0;
-    for (let k = 0; k < nTrt; k++) varTrt += (trtVals[k] - meanTrt) ** 2;
-    varTrt = nTrt > 1 ? varTrt / (nTrt - 1) : 0;
-
-    let varRef = 0;
-    for (let k = 0; k < nRef; k++) varRef += (refVals[k] - meanRef) ** 2;
-    varRef = nRef > 1 ? varRef / (nRef - 1) : 0;
-
-    const se = Math.sqrt(varTrt / nTrt + varRef / nRef + 0.05);
-    const stat = lfc / (se || 1);
-    const z = Math.abs(stat);
-    const pval = baseMean === 0 ? 1.0 : Math.min(1.0, 2.0 * normalCdfComplement(z));
-
-    results.push({
-      gene: genes[i],
-      baseMean,
-      log2FoldChange: lfc,
-      stat,
-      pvalue: pval,
-      padj: 1.0,
-    });
-  }
-
-  // Benjamini-Hochberg adjustment
-  const indexed = results.map((r, i) => ({ idx: i, pvalue: r.pvalue }));
-  indexed.sort((a, b) => a.pvalue - b.pvalue);
-  const m = indexed.length;
-  let cumMin = 1.0;
-
-  for (let k = m - 1; k >= 0; k--) {
-    const rawP = indexed[k].pvalue;
-    const rank = k + 1;
-    const adj = Math.min(1.0, (rawP * m) / rank);
-    cumMin = Math.min(cumMin, adj);
-    results[indexed[k].idx].padj = cumMin;
-  }
-
-  return results;
-}
+export { computeDifferentialExpression } from './de-stats.js?v=__BUILD__';
 
 /** Render SVG Volcano plot. */
 export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.0, padjCutoff = 0.05 } = {}) {
@@ -527,7 +376,7 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     const cx = scaleX(lfc);
     const cy = scaleY(nlp);
 
-    const isSig = p < padjCutoff;
+    const isSig = p <= padjCutoff;
     const isUp = isSig && lfc >= fcCutoff;
     const isDown = isSig && lfc <= -fcCutoff;
 
@@ -939,12 +788,12 @@ export function createResultsStep({ $, app, shell }) {
 
     container.innerHTML = renderVolcanoSvg(currentDeResults, aliasIndex, { fcCutoff, padjCutoff });
 
-    const nUp = currentDeResults.filter((r) => r.padj < padjCutoff && r.log2FoldChange >= fcCutoff).length;
-    const nDown = currentDeResults.filter((r) => r.padj < padjCutoff && r.log2FoldChange <= -fcCutoff).length;
+    const nUp = currentDeResults.filter((r) => r.padj <= padjCutoff && r.log2FoldChange >= fcCutoff).length;
+    const nDown = currentDeResults.filter((r) => r.padj <= padjCutoff && r.log2FoldChange <= -fcCutoff).length;
     const nTested = currentDeResults.length;
 
     if (summaryEl) {
-      summaryEl.textContent = `Significant (|log2 FC| \u2265 ${fcCutoff.toFixed(1)}, padj < ${padjCutoff}): ${nUp} upregulated, ${nDown} downregulated, ${nTested - nUp - nDown} unchanged out of ${nTested.toLocaleString()} genes.`;
+      summaryEl.textContent = `Significant (|log2 FC| \u2265 ${fcCutoff.toFixed(1)}, padj \u2264 ${padjCutoff}): ${nUp} upregulated, ${nDown} downregulated, ${nTested - nUp - nDown} unchanged out of ${nTested.toLocaleString()} genes.`;
     }
   }
 
@@ -998,8 +847,8 @@ export function createResultsStep({ $, app, shell }) {
       const alias = aliasIndex.get(r.gene);
       const sym = alias?.symbol || '';
       let sig = 'no';
-      if (r.padj < padjCutoff && r.log2FoldChange >= fcCutoff) sig = 'up';
-      else if (r.padj < padjCutoff && r.log2FoldChange <= -fcCutoff) sig = 'down';
+      if (r.padj <= padjCutoff && r.log2FoldChange >= fcCutoff) sig = 'up';
+      else if (r.padj <= padjCutoff && r.log2FoldChange <= -fcCutoff) sig = 'down';
 
       lines.push([
         r.gene,

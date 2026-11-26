@@ -106,3 +106,24 @@ In the results step, the volcano plot's labeled genes (top five up, top five dow
 Note: A1163's GenBank annotation (GCA_000150145.1) carries no `Dbxref` at all, so its genes link only through the `AFUB_` locus-tag rule; Af293's RefSeq GFF (GCF_000002655.1) carries both `FungiDB:` and `GeneID:` xrefs.
 
 The same fix defines the previously missing `downloadBlob` helper, so the `differential_expression.tsv` button works (it threw `ReferenceError: downloadBlob is not defined`).
+
+## Addendum (2026-11-26): the in-page DE test was on the wrong scale
+
+The volcano's test divided a log2 fold change by a standard error computed from normalized counts on the linear
+scale (`sqrt(var/n + 0.05)`). The SE grows with read depth, so deeper runs found less: a full-depth
+*A. fumigatus* run gave a median SE of about 148 log2 units, a largest |stat| of 3.2 and no gene at padj < 0.05.
+On simulated 3-vs-3 data with 20 genes up fourfold, the old test found none of them at any depth. The
+"insufficient power" conclusion of the Table S3 comparison above was measured with this test and should be re-run.
+
+The test now lives in `site/analyze/de-stats.js` (pure, unit-tested in `tests/units.test.mjs`):
+
+- DESeq2 median-of-ratios size factors, then log2(normalized + 0.5) per sample;
+- a two-sample t-test on that scale with a limma-style moderated variance
+  `s2_post = (d0*s0^2 + d*s2) / (d0 + d)`, `s0^2` the median gene variance among genes with mean ≥ 10, `d0 = 4`;
+- p-values from Student's t on `d + d0` degrees of freedom, then Benjamini-Hochberg;
+- no replicate in either group: p = 1 (nothing to test against).
+
+On the simulation it finds all 20 changed genes at 1x, 100x and 10,000x depth, with at most 5 of 380 false calls. It is
+a screen, not DESeq2: `qrnamap de` remains the analysis of record. The padj cutoff is now inclusive (`padj ≤ cutoff`),
+so a cutoff of 1 labels the top genes even when none is significant. The correlation heatmap's column labels are
+rotated -45° and the margins grow with the longest sample name, so long names no longer overlap.
