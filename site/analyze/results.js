@@ -560,27 +560,116 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
   topUp.sort((a, b) => (b.nlp * b.log2FoldChange) - (a.nlp * a.log2FoldChange));
   topDown.sort((a, b) => (b.nlp * Math.abs(b.log2FoldChange)) - (a.nlp * Math.abs(a.log2FoldChange)));
 
+  function layoutSideLabels(items, isRight) {
+    if (!items.length) return [];
+    const list = items.map((item) => {
+      const alias = aliasIndex.get(item.gene);
+      const txt = alias?.symbol || item.gene;
+      const links = geneExternalLinks(item.gene, alias);
+      const p = item.padj ?? item.pvalue;
+      let tip = `${item.gene}${alias?.symbol ? ` (${alias.symbol})` : ''}: log2FC=${item.log2FoldChange.toFixed(2)}, padj=${p.toExponential(2)}`;
+      for (const l of links) tip += `\nOpen ${l.name}: ${l.url}`;
+      return {
+        item,
+        txt,
+        alias,
+        links,
+        tip,
+        isRight,
+        origX: isRight ? item.cx + 8 : item.cx - 8,
+        origY: item.cy + 3,
+        x: isRight ? item.cx + 8 : item.cx - 8,
+        y: item.cy + 3,
+        anchor: isRight ? 'start' : 'end',
+      };
+    });
+
+    // Sort by y coordinate (top to bottom)
+    list.sort((a, b) => a.y - b.y);
+
+    const minGapY = 14;
+    const minY = pad.top + 10;
+    const maxY = pad.top + plotH - 5;
+
+    // Iterative repulsion passes to eliminate vertical overlap
+    for (let iter = 0; iter < 12; iter++) {
+      for (let i = 0; i < list.length - 1; i++) {
+        const a = list[i];
+        const b = list[i + 1];
+        const overlap = minGapY - (b.y - a.y);
+        if (overlap > 0) {
+          a.y -= overlap * 0.55;
+          b.y += overlap * 0.55;
+        }
+      }
+      for (let i = list.length - 1; i > 0; i--) {
+        const a = list[i - 1];
+        const b = list[i];
+        const overlap = minGapY - (b.y - a.y);
+        if (overlap > 0) {
+          a.y -= overlap * 0.55;
+          b.y += overlap * 0.55;
+        }
+      }
+      for (const l of list) {
+        if (l.y < minY) l.y = minY;
+        if (l.y > maxY) l.y = maxY;
+      }
+    }
+
+    // Ensure strictly no overlap after bounding
+    for (let i = 1; i < list.length; i++) {
+      if (list[i].y - list[i - 1].y < minGapY) {
+        list[i].y = Math.min(maxY, list[i - 1].y + minGapY);
+      }
+    }
+
+    // Offset / jitter horizontally if labels were displaced
+    for (let i = 0; i < list.length; i++) {
+      const l = list[i];
+      const dy = Math.abs(l.y - l.origY);
+      if (dy > 3) {
+        const stagger = (i % 2 === 1) ? 6 : 0;
+        l.x = isRight
+          ? Math.min(width - pad.right - 5, l.origX + 4 + stagger)
+          : Math.max(pad.left + 5, l.origX - 4 - stagger);
+      }
+    }
+
+    return list;
+  }
+
+  let lines = '';
   let labels = '';
   let hitAreas = '';
-  const labeled = [...topUp.slice(0, 5), ...topDown.slice(0, 5)];
-  for (const item of labeled) {
-    const alias = aliasIndex.get(item.gene);
-    const txt = alias?.symbol || item.gene;
-    const isRight = item.log2FoldChange >= 0;
-    const lx = isRight ? item.cx + 6 : item.cx - 6;
-    const anchor = isRight ? 'start' : 'end';
-    const p = item.padj ?? item.pvalue;
-    const links = geneExternalLinks(item.gene, alias);
-    let tip = `${item.gene}${alias?.symbol ? ` (${alias.symbol})` : ''}: log2FC=${item.log2FoldChange.toFixed(2)}, padj=${p.toExponential(2)}`;
-    for (const l of links) tip += `\nOpen ${l.name}: ${l.url}`;
-    const textAttrs = `x="${lx.toFixed(1)}" y="${(item.cy + 3).toFixed(1)}" font-size="10" font-weight="600" text-anchor="${anchor}" fill="currentColor"`;
-    if (links.length) {
-      const primary = links[0];
+  const layouted = [
+    ...layoutSideLabels(topUp.slice(0, 5), true),
+    ...layoutSideLabels(topDown.slice(0, 5), false),
+  ];
+
+  for (const l of layouted) {
+    const item = l.item;
+    const isRight = l.isRight;
+    const dy = Math.abs(l.y - l.origY);
+    const dx = Math.abs(l.x - l.origX);
+    const isDisplaced = dy > 3 || dx > 3;
+
+    if (isDisplaced) {
+      const startX = item.cx + (isRight ? 4.5 : -4.5);
+      const startY = item.cy;
+      const endX = isRight ? l.x - 3 : l.x + 3;
+      const endY = l.y - 3;
+      lines += `<line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${endX.toFixed(1)}" y2="${endY.toFixed(1)}" stroke="var(--line, #777)" stroke-width="0.8" stroke-dasharray="2,2" stroke-opacity="0.85"><title>${escSvg(l.tip)}</title></line>`;
+    }
+
+    const textAttrs = `x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-size="10" font-weight="600" text-anchor="${l.anchor}" fill="currentColor" paint-order="stroke fill" stroke="var(--bg, #fff)" stroke-width="2.5" stroke-linejoin="round"`;
+    if (l.links.length) {
+      const primary = l.links[0];
       // The label and the point itself link out; the mouseover names every linked database.
-      labels += `<a class="volcano-gene-link" href="${escSvg(primary.url)}" target="_blank" rel="noopener noreferrer"><title>${escSvg(tip)}</title><text ${textAttrs}>${escSvg(txt)}</text></a>`;
+      labels += `<a class="volcano-gene-link" href="${escSvg(primary.url)}" target="_blank" rel="noopener noreferrer"><title>${escSvg(l.tip)}</title><text ${textAttrs}>${escSvg(l.txt)}</text></a>`;
       hitAreas += `<a class="volcano-gene-link" href="${escSvg(primary.url)}" target="_blank" rel="noopener noreferrer"><title>${escSvg(tip)}</title><circle cx="${item.cx.toFixed(1)}" cy="${item.cy.toFixed(1)}" r="8" fill="#000" fill-opacity="0" stroke="none"/></a>`;
     } else {
-      labels += `<text ${textAttrs}><title>${escSvg(tip)}</title>${escSvg(txt)}</text>`;
+      labels += `<text ${textAttrs}><title>${escSvg(l.tip)}</title>${escSvg(l.txt)}</text>`;
     }
   }
 
@@ -597,6 +686,7 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     legend +
     `<rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}" fill="none" stroke="var(--line, #ccc)" />` +
     grid +
+    lines +
     points +
     labels +
     hitAreas +
