@@ -39,7 +39,11 @@ Vendored on 2026-11-21.
   from now also holds the protocol of the file itself (`ALLOWED_PROTOCOLS`). The upstream list is
   `file`, `http` and `https` only, which refused the desktop app: its page is served over the
   app's own protocol (`tauri:`), and the tool module and the tool worker are its siblings, so they
-  have that protocol too. Nothing else was changed. The change is in the SHA-256 list below.
+  have that protocol too.
+  It also supports passing `devices` (virtual block devices for streaming ring buffers) into the worker.
+- `runtime/execute.mjs` registers virtual block devices via `FS.registerDevice` and `FS.mkdev` when `devices` are passed,
+  allowing kallisto to stream reads on-the-fly through `StreamRingConsumer`.
+  The changes are in the SHA-256 list below.
 
 ## What is not verified
 
@@ -76,8 +80,8 @@ bc48df6b597a8d378c0674d4771b9cd02ab2626c1297e45d6b9a91cd74582249  browser.patch
 46c819c4cbf39bb58c6da337ef1cdb0ad3b712cd9349d4b800a292d598bf9469  build-manifest.json
 9836e42fc304d7616ec73d89262498b31cc96e2b35d2d7460b64f358b823b9f1  kallisto.mjs
 01ef635d8438b7e6ac9c74c9d04a89f83f6801959f799f9f657523c90d37adfc  kallisto.wasm
-b911f4edb82100d0f76da0143aef0ee52b6b777944721fa15f68313d511f2da7  runtime/execute.mjs
-d0998254d0100cdc804fdffa5e08d36d177e4b6f6eb5bcc7d60e1cd024cc35dc  runtime/index.mjs
+e727ce1205fc8b6b878d1603e4c0c6056b272016dc7951627de3b8cc9dfb6ac7  runtime/execute.mjs
+df29f87184a7c4e9096b7518d7321279ab040916fbf2701a3cd996d277dc004f  runtime/index.mjs
 19ac7d452ace47900eb93b7a65a55ff47d3cd5df33ddee35664b93cf7d9ddc4a  runtime/worker.mjs
 d3fb3b68d9517d4b982786a3825219d0845a7896772126c4286f1e8d762dc38a  sources.lock.json
 ```
