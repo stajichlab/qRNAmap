@@ -22,9 +22,10 @@ fn native_failure_reports_stderr() {
     assert!(matches!(err, ExecError::Failed { .. }), "{err:?}");
     let text = err.to_string();
     assert!(text.contains("kallisto"), "{text}");
-    // kallisto's own words, from its stderr.
+    // kallisto's own words, from its stderr (handling GNU getopt `... ' or '...').
     assert!(
-        text.contains("unrecognized option '--bogus-flag'"),
+        text.contains("unrecognized option '--bogus-flag'")
+            || text.contains("unrecognized option `--bogus-flag'"),
         "{text}"
     );
 }

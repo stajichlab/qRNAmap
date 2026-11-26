@@ -86,6 +86,17 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">One row per sample. Pick one mate 1 file and one mate 2 file per sample (leave mate 2 empty for single-end reads).
           This version takes one file per mate: lanes must be joined into one file first. FASTQ files can be plain or gzip.
           The files stay in this browser. The page reads only the first read pairs of each file (see "Read pairs per sample").</p>
+        <div id="desktop-native-banner" class="note" hidden>
+          <p><strong>Desktop Native Execution Active</strong> &mdash; <span id="desktop-native-info">kallisto detected</span></p>
+          <p class="small">In the desktop app, you can run full-depth quantification directly on local FASTQ files on disk, without browser memory limits.</p>
+          <div class="field-row" style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <label for="native-sheet-path"><strong>Local sample sheet:</strong></label>
+            <input id="native-sheet-path" type="text" size="40" placeholder="/path/to/samples.txt">
+            <button id="btn-browse-sheet" type="button">Browse...</button>
+            <button id="btn-load-native-sheet" type="button" class="button">Load local sheet</button>
+          </div>
+          <p id="native-sheet-status" class="small"></p>
+        </div>
         <details id="sheet-box">
           <summary>Or load a sample sheet (the command-line format)</summary>
           <p class="small">A tab-separated sheet with the columns <code>sample</code>, <code>fastq1</code>, optional <code>fastq2</code>, and covariate columns
@@ -102,6 +113,11 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
         <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
         <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
+        <div id="native-mode-options" class="note" style="margin-top: 0.5rem; margin-bottom: 0.5rem;" hidden>
+          <p><strong>Execution mode:</strong></p>
+          <label style="margin-right: 1rem;"><input type="radio" name="quant-exec-mode" id="mode-native" value="native" checked> <strong>Native Execution (Full depth)</strong> &mdash; Streams all reads from disk via native kallisto</label>
+          <label><input type="radio" name="quant-exec-mode" id="mode-browser" value="browser"> <strong>Browser Preview</strong> &mdash; Subsamples the first read pairs into browser memory</label>
+        </div>
         <p><label for="preview-pairs">Read pairs per sample (at most)</label>
           <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
           <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of

@@ -319,5 +319,7 @@ self.onmessage = async ({ data }) => {
     quantRuns.get(data.id)?.abort();
   } else if (data?.type === 'status') {
     post({ type: 'status', id: data.id, genome: genome && { label: genome.label, accession: genome.accession, indexBytes: genome.index.length } });
+  } else if (data?.type === 'get-index') {
+    post({ type: 'index-data', id: data.id, index: genome?.index || null });
   }
 };
