@@ -182,8 +182,9 @@ export function createSamplesStep({ $, app, shell }) {
     model.columns.forEach((col) => {
       if (!col.name.trim() && model.rows.some((r) => String(r.values[col.key] ?? '').trim())) fail(null, 'A covariate column has values but no name. Give it a name or remove it.');
     });
+    const allReads = Boolean($('depth-all')?.checked);
     const pairs = Number($('preview-pairs').value);
-    if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) {
+    if (!allReads && (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS)) {
       fail(null, `Read pairs per sample must be a whole number from 1 to ${fmt(MAX_PAIRS)}. The page can use fewer: the read length sets the largest N of each sample.`);
     }
     const single = model.rows.some((r) => r.files[1] && !r.files[2] && !r.expect[2]);
@@ -206,7 +207,7 @@ export function createSamplesStep({ $, app, shell }) {
     }
     if (errors.length) return { errors, rowErrors };
     return {
-      errors, rowErrors, pairs, text,
+      errors, rowErrors, pairs, allReads, text,
       jobs: model.rows.map((r, i) => ({ name: r.name, covariates: result.rows[i].covariates, mate1: r.files[1], mate2: r.files[2], fragment: r.files[2] ? null : [mean, sd] })),
     };
   }
@@ -220,8 +221,8 @@ export function createSamplesStep({ $, app, shell }) {
       case 'waiting': return 'Waiting.';
       case 'running': return 'Running.';
       case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
-        `${s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(s.previewN).replace(/^p/, 'P')}.`}` +
-        ` Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.` +
+        `${s.allReads ? `All ${unit} (${fmt(s.nPairs)}), streamed from the files.` : s.allPairs ? `All pairs (${fmt(s.nPairs)}).` : `${previewLabel(s.previewN).replace(/^p/, 'P')}.`}` +
+        `${s.allReads ? '' : ` Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.`}` +
         `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}` +
         `${s.warning ? ` Warning: ${s.warning}` : ''}`;
       case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
@@ -250,7 +251,9 @@ export function createSamplesStep({ $, app, shell }) {
       label = el('p', { id: 'preview-label', className: 'preview-label' });
       $('samples-results').append(label);
     }
-    label.textContent = `Counts: ${app.state.preview.label} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
+    label.textContent = app.state.preview.label === 'all reads'
+      ? 'Counts: all reads of each sample (streamed from the files).'
+      : `Counts: ${app.state.preview.label} of each sample. A sample with fewer pairs uses all its pairs ("all pairs").`;
   }
 
   const busy = (flag) => {
@@ -286,7 +289,7 @@ export function createSamplesStep({ $, app, shell }) {
     runRows = [...model.rows];
     busy(true);
     try {
-      await quant.run(checked.jobs, checked.pairs, LIMIT_OVERRIDE);
+      await quant.run(checked.jobs, checked.pairs, LIMIT_OVERRIDE, { allReads: checked.allReads });
     } finally {
       busy(false);
     }
@@ -335,6 +338,9 @@ export function createSamplesStep({ $, app, shell }) {
     }
   }
 
+  const showDepth = () => { $('preview-pairs-p').hidden = Boolean($('depth-all')?.checked); };
+  document.querySelectorAll('input[name="read-depth"]').forEach((r) => r.addEventListener('change', showDepth));
+  showDepth();
   $('preview-pairs').max = String(MAX_PAIRS);
   $('preview-pairs').value = String(MAX_PAIRS);
   app.state.samples = [];

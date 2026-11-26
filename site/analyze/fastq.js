@@ -112,6 +112,19 @@ export async function firstRecords(file, maxRecords, label, { signal, onRecords 
 }
 
 /**
+ * Read all of `file` once, keeping nothing: count its records and check it as `scan` does (a complete gzip, no blank line,
+ * whole records). Used next to an all-reads kallisto run, which reads the same file itself, so the page can still check
+ * n_processed and that the two mates have the same number of records. Memory: one chunk at a time.
+ * Returns `{ records }`.
+ */
+export async function countRecords(file, label, { signal, onRecords = () => {} } = {}) {
+  if (file.size === 0) throw new ReadError(`${label} is empty (0 bytes).`);
+  const res = await scan(file, Infinity, label, signal, onRecords, () => {});
+  onRecords(res.lines / 4);
+  return { records: res.lines / 4 };
+}
+
+/**
  * Stream records of `file` directly into a `StreamRingBuffer`.
  * Decompresses and writes chunks on-the-fly, pausing via ring buffer backpressure.
  * Closes the ring buffer on completion.

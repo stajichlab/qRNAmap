@@ -102,7 +102,16 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
         <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
         <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
-        <p><label for="preview-pairs">Read pairs per sample (at most)</label>
+        <fieldset id="read-depth" class="choice-cards">
+          <legend>How many reads to count</legend>
+          <label class="choice-card"><input type="radio" name="read-depth" id="depth-preview" value="preview" checked>
+            <span class="choice-title">Preview</span>
+            <span class="choice-desc">The first 75,000 to 200,000 pairs of each file (measured in Chromium, Firefox and WebKit). Quick.</span></label>
+          <label class="choice-card"><input type="radio" name="read-depth" id="depth-all" value="all">
+            <span class="choice-title">All reads (streamed)</span>
+            <span class="choice-desc">kallisto reads each file from disk a few MB at a time, so memory stays flat; only the counts are kept. Slower: one CPU core.</span></label>
+        </fieldset>
+        <p id="preview-pairs-p"><label for="preview-pairs">Read pairs per sample (at most)</label>
           <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
           <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of
             up to 101 bases (measured), 75,000 pairs for longer reads (measured with 150-base reads; docs/browser/page-v1-measurements.md).

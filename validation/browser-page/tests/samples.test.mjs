@@ -21,7 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FIX = resolve(here, '../fixtures');
 const root = resolve(process.env.DIST || resolve(here, '../../../dist-site'));
 const ENGINE = process.env.ENGINE || 'chromium';
-const WAIT_MS = 120_000;
+const WAIT_MS = Number(process.env.WAIT_MS || 120_000);
 
 const fixture = (name) => readFileSync(join(FIX, name));
 const fileArg = (name, buffer) => ({ name, mimeType: 'application/octet-stream', buffer });
@@ -577,5 +577,55 @@ test('a sample where no read pseudoaligns gives a clear message', async (t) => {
   assert.equal(s.status, 'error');
   assert.equal(s.kind, 'input');
   assert.match(s.error, /No read pseudoaligned to the transcripts of this genome \(kallisto: "zero reads pseudoaligned"\)/);
+  assert.deepEqual(errors, []);
+});
+
+// ------------------------------------------------------------------ all reads, streamed from the File objects
+test('all reads (streamed): three samples (gzip, plain, single-end) give the gene counts of the CLI', async (t) => {
+  const { page, errors } = await open(t);
+  assert.equal(await page.isVisible('#preview-pairs-p'), true);
+  await page.check('#depth-all');
+  assert.equal(await page.isVisible('#preview-pairs-p'), false, 'the N field is hidden for all reads');
+  await fillRow(page, 0, { name: 'S1', condition: 'ctl', mate1: 's1_R1.fastq.gz', mate2: 's1_R2.fastq.gz' });
+  await fillRow(page, 1, { name: 'S2', condition: 'trt', mate1: 's2_R1.fastq', mate2: 's2_R2.fastq' });
+  await fillRow(page, 2, { name: 'S3', condition: 'trt', mate1: 's3.fastq.gz' });
+  await page.fill('#frag-mean', '200');
+  await page.fill('#frag-sd', '20');
+  const samples = await run(page);
+  assert.equal(await noErrors(page), true);
+  assertCounts(samples[0], 's1');
+  assertCounts(samples[1], 's2');
+  assertCounts(samples[2], 's3');
+  assert.deepEqual(samples.map((s) => [s.allReads, s.allPairs, s.previewN]), [[true, true, 0], [true, true, 0], [true, true, 0]]);
+  // kallisto reads the files itself (gzip included): the names keep the .gz, and no file was copied into the page.
+  assert.deepEqual(samples[0].args, ['quant', '-i', 'transcripts.idx', '-o', 'kq', '--plaintext', '-t', '1', 'r1.fastq.gz', 'r2.fastq.gz']);
+  assert.deepEqual(samples[1].args, ['quant', '-i', 'transcripts.idx', '-o', 'kq', '--plaintext', '-t', '1', 'r1.fastq', 'r2.fastq']);
+  assert.match(await row(page, 0).locator('.status').textContent(), /^300 pairs processed, .* All pairs \(300\), streamed from the files\.$/);
+  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: null, label: 'all reads' });
+  assert.match(await page.textContent('#preview-label'), /all reads of each sample/);
+  assert.deepEqual(errors, []);
+});
+
+test('all reads (streamed): mates with different record counts and a cut gzip give clear errors', async (t) => {
+  const { page, errors } = await open(t);
+  await page.check('#depth-all');
+  const lines = fixture('s2_R2.fastq').toString().split('\n');
+  const short = { name: 'short_R2.fastq', mimeType: 'text/plain', buffer: Buffer.from(lines.slice(0, 200 * 4).join('\n') + '\n') };
+  const gz = fixture('s1_R2.fastq.gz');
+  const cut = { name: 'cut_R2.fastq.gz', mimeType: 'application/gzip', buffer: gz.subarray(0, gz.length - 20) };
+  await fillRow(page, 0, { name: 'A', condition: 'x', mate1: 's2_R1.fastq', mate2: short });
+  const b1 = { name: 'b_R1.fastq.gz', mimeType: 'application/gzip', buffer: fixture('s1_R1.fastq.gz') };
+  await fillRow(page, 1, { name: 'B', condition: 'x', mate1: b1, mate2: cut });
+  await fillRow(page, 2, { name: 'C', condition: 'y', mate1: 's1_R1.fastq.gz', mate2: 's1_R2.fastq.gz' });
+  await watchStatus(page);
+  await page.click('#run-samples');
+  assert.equal(await noErrors(page), true, await page.textContent('#samples-errors'));
+  await waitOrDump(page, () => ['done', 'cancelled', 'lost'].includes(window.qrnamapApp.state.samplesPhase), 'all-reads error run', errors);
+  const samples = await page.evaluate(() => window.qrnamapApp.state.samples);
+  assert.equal(samples[0].status, 'error');
+  assert.match(samples[0].error, /different record counts: mate 1 \(s2_R1\.fastq\) has 300, mate 2 \(short_R2\.fastq\) has 200/);
+  assert.equal(samples[1].status, 'error');
+  assert.match(samples[1].error, /cut_R2\.fastq\.gz.* (not a complete gzip file|not a valid gzip file)/);
+  assertCounts(samples[2], 's1');
   assert.deepEqual(errors, []);
 });
