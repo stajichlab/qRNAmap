@@ -7,7 +7,8 @@ import init, { kallisto_args } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { prepareTranscripts, StepError } from './prep.js?v=__BUILD__';
 import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
 import { ToolRunner } from '../vendor/kallisto/runtime/index.mjs?v=__BUILD__';
-import { firstRecords, checkFastq, firstNameStem, firstReadLength, ReadError } from './fastq.js?v=__BUILD__';
+import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRecords, ReadError } from './fastq.js?v=__BUILD__';
+import { StreamRingBuffer } from './stream-ring.js?v=__BUILD__';
 import { previewLimit, HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
 import { checkAbundance } from './abundance-check.js?v=__BUILD__';
 
@@ -149,11 +150,11 @@ const fmt = (n) => Number(n).toLocaleString('en-US');
  * One kallisto quant run. Gives { abundance (text), info (run_info.json numbers, or null when the file cannot be read),
  * infoError }. `files` is emptied as soon as ToolRunner has the run, so only ToolRunner refers to the reads. `signal` stops it.
  */
-async function kallistoQuant(args, files, signal) {
+async function kallistoQuant(args, files, signal, devices = []) {
   const runner = new ToolRunner({ moduleUrl: KALLISTO, workerUrl: RUNTIME_WORKER, waitForExit: false });
   let run;
   try {
-    const running = runner.run(args, { files: [...files], outputs: ['kq/abundance.tsv', 'kq/run_info.json'], signal });
+    const running = runner.run(args, { files: [...files], devices: [...devices], outputs: ['kq/abundance.tsv', 'kq/run_info.json'], signal });
     files.length = 0; // ToolRunner has posted (copied) the files; it keeps its own reference until the run returns
     run = await running;
   } catch (error) {
@@ -207,69 +208,133 @@ async function quantSample(message, signal) {
   // measurement option `limitOverride` replaces it (never above HARD_LIMIT); `message.pairs` (the page field) can lower it.
   progress('prep', `Reading the first record of each mate to find the read length`);
   let readLength = 0;
+  let first1 = null;
+  let first2 = null;
   for (const [file, mate] of [[mate1, 1], [mate2, 2]]) {
     if (!file) continue;
     const label = `Mate ${mate} of sample ${name} (${file.name})`;
     const first = await firstRecords(file, 1, label, { signal });
     checkFastq(first.bytes, label);
     readLength = Math.max(readLength, firstReadLength(first.bytes));
+    if (mate === 1) first1 = first;
+    else first2 = first;
   }
   if (readLength < 1) throw new StepError('input', `The first record of sample ${name} has no bases.`);
+  let warning = '';
+  if (first2) {
+    const a = firstNameStem(first1.bytes);
+    const b = firstNameStem(first2.bytes);
+    if (a !== b) warning = `the first read names of the two mates differ ("${a}" and "${b}"). Check that the two files belong together.`;
+  }
   const limit = limitOverride ? Math.min(limitOverride, HARD_LIMIT) : previewLimit(readLength);
   const pairs = Math.min(message.pairs, limit);
-  const read = async (file, mate) => {
-    const label = `Mate ${mate} of sample ${name} (${file.name})`;
-    progress('prep', `Reading the first ${fmt(pairs)} records of mate ${mate} (${file.name})`);
-    const r = await firstRecords(file, pairs, label, { signal, onRecords: (n) => progress('prep', `Reading mate ${mate} (${file.name}): ${fmt(n)} records`) });
-    checkFastq(r.bytes, label);
-    return r;
-  };
-  /** The kallisto input files of this sample, read from the File objects. */
-  const prepare = async () => {
-    const r1 = await read(mate1, 1);
-    const r2 = mate2 ? await read(mate2, 2) : null;
-    if (r2 && r1.records !== r2.records) {
-      const count = (r) => `${fmt(r.records)} records${r.wholeFile ? '' : ` in its first ${fmt(pairs)}`}`;
-      throw new StepError('input', `The mates of sample ${name} have different record counts: mate 1 (${mate1.name}) has ${count(r1)}, ` +
-        `mate 2 (${mate2.name}) has ${count(r2)}. kallisto pairs the records by position and stops at the shorter file without an error, so the page stops here. ` +
-        'Check that the two files belong together and are complete.');
-    }
-    let warning = '';
-    if (r2) {
-      const a = firstNameStem(r1.bytes);
-      const b = firstNameStem(r2.bytes);
-      if (a !== b) warning = `the first read names of the two mates differ ("${a}" and "${b}"). Check that the two files belong together.`;
-    }
-    const files = [{ path: 'transcripts.idx', data: genome.index }, { path: 'r1.fastq', data: r1.bytes }];
-    if (r2) files.push({ path: 'r2.fastq', data: r2.bytes });
-    return { files, nPairs: r1.records, wholeFile: r1.wholeFile && (!r2 || r2.wholeFile), warning };
-  };
-  let prepared = await prepare();
-  const { nPairs, wholeFile, warning } = prepared;
   const unit = mate2 ? 'pairs' : 'reads';
   await ready;
   const args = JSON.parse(kallisto_args(JSON.stringify({
     kind: 'quant', sample: { name, fastq1: ['r1.fastq'], fastq2: mate2 ? ['r2.fastq'] : [] },
     index: 'transcripts.idx', out: 'kq', threads: 1, ...(mate2 ? {} : { fragment_len: fragment }),
   })));
+
+  const canStream = typeof SharedArrayBuffer !== 'undefined';
   let result;
+  let nPairs = 0;
+  let wholeFile = false;
   let firstProblems = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    if (attempt === 2) {
-      progress('prep', `The kallisto output failed the check (${firstProblems.join('; ')}). Reading the files again for one more run.`);
-      prepared = await prepare();
+
+  if (canStream) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (attempt === 2) {
+        progress('prep', `The kallisto output failed the check (${firstProblems.join('; ')}). Streaming the files again for one more run.`);
+      }
+      progress('quant', `Streaming kallisto quant on up to ${fmt(pairs)} ${unit}${attempt === 2 ? ' (second run)' : ''}`);
+      const ring1 = new StreamRingBuffer();
+      const ring2 = mate2 ? new StreamRingBuffer() : null;
+      const devices = [{ path: 'r1.fastq', ring: ring1 }];
+      if (ring2) devices.push({ path: 'r2.fastq', ring: ring2 });
+      const files = [{ path: 'transcripts.idx', data: genome.index }];
+
+      const quantPromise = kallistoQuant(args, files, signal, devices);
+      const stream1 = streamFastqRecords(mate1, pairs, `Mate 1 of sample ${name} (${mate1.name})`, ring1, {
+        signal,
+        onRecords: (n) => progress('prep', `Streaming mate 1 (${mate1.name}): ${fmt(n)} ${unit}`)
+      });
+      const stream2 = ring2 ? streamFastqRecords(mate2, pairs, `Mate 2 of sample ${name} (${mate2.name})`, ring2, {
+        signal,
+        onRecords: (n) => progress('prep', `Streaming mate 2 (${mate2.name}): ${fmt(n)} ${unit}`)
+      }) : Promise.resolve(null);
+
+      let streamResults;
+      try {
+        [result, streamResults] = await Promise.all([
+          quantPromise,
+          Promise.all([stream1, stream2])
+        ]);
+      } catch (err) {
+        ring1.abort();
+        if (ring2) ring2.abort();
+        throw err;
+      }
+
+      const [r1, r2] = streamResults;
+      nPairs = r1.records;
+      wholeFile = r1.wholeFile && (!r2 || r2.wholeFile);
+
+      if (r2 && r1.records !== r2.records) {
+        const count = (r) => `${fmt(r.records)} records${r.wholeFile ? '' : ` in its first ${fmt(pairs)}`}`;
+        throw new StepError('input', `The mates of sample ${name} have different record counts: mate 1 (${mate1.name}) has ${count(r1)}, ` +
+          `mate 2 (${mate2.name}) has ${count(r2)}. kallisto pairs the records by position and stops at the shorter file without an error, so the page stops here. ` +
+          'Check that the two files belong together and are complete.');
+      }
+
+      const problems = outputProblems(result, nPairs, nTranscripts, unit);
+      if (!problems.length) break;
+      if (attempt === 2) {
+        throw new StepError('output', `kallisto wrote a damaged output twice for sample ${name} (first run: ${firstProblems.join('; ')}; second run: ${problems.join('; ')}). ` +
+          'The page does not use it. A damaged abundance.tsv was seen in Firefox in the measurements (docs/browser/page-v1-measurements.md). Try again, or use another browser or the command-line tool.');
+      }
+      firstProblems = problems;
     }
-    progress('quant', `Running kallisto quant on ${fmt(nPairs)} ${unit}${attempt === 2 ? ' (second run)' : ''}`);
-    const files = prepared.files;
-    prepared = null; // the reads are referenced only by `files`, which kallistoQuant empties
-    result = await kallistoQuant(args, files, signal);
-    const problems = outputProblems(result, nPairs, nTranscripts, unit);
-    if (!problems.length) break;
-    if (attempt === 2) {
-      throw new StepError('output', `kallisto wrote a damaged output twice for sample ${name} (first run: ${firstProblems.join('; ')}; second run: ${problems.join('; ')}). ` +
-        'The page does not use it. A damaged abundance.tsv was seen in Firefox in the measurements (docs/browser/page-v1-measurements.md). Try again, or use another browser or the command-line tool.');
+  } else {
+    const read = async (file, mate) => {
+      const label = `Mate ${mate} of sample ${name} (${file.name})`;
+      progress('prep', `Reading the first ${fmt(pairs)} records of mate ${mate} (${file.name})`);
+      const r = await firstRecords(file, pairs, label, { signal, onRecords: (n) => progress('prep', `Reading mate ${mate} (${file.name}): ${fmt(n)} records`) });
+      checkFastq(r.bytes, label);
+      return r;
+    };
+    const prepare = async () => {
+      const r1 = await read(mate1, 1);
+      const r2 = mate2 ? await read(mate2, 2) : null;
+      if (r2 && r1.records !== r2.records) {
+        const count = (r) => `${fmt(r.records)} records${r.wholeFile ? '' : ` in its first ${fmt(pairs)}`}`;
+        throw new StepError('input', `The mates of sample ${name} have different record counts: mate 1 (${mate1.name}) has ${count(r1)}, ` +
+          `mate 2 (${mate2.name}) has ${count(r2)}. kallisto pairs the records by position and stops at the shorter file without an error, so the page stops here. ` +
+          'Check that the two files belong together and are complete.');
+      }
+      const files = [{ path: 'transcripts.idx', data: genome.index }, { path: 'r1.fastq', data: r1.bytes }];
+      if (r2) files.push({ path: 'r2.fastq', data: r2.bytes });
+      return { files, nPairs: r1.records, wholeFile: r1.wholeFile && (!r2 || r2.wholeFile) };
+    };
+    let prepared = await prepare();
+    nPairs = prepared.nPairs;
+    wholeFile = prepared.wholeFile;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (attempt === 2) {
+        progress('prep', `The kallisto output failed the check (${firstProblems.join('; ')}). Reading the files again for one more run.`);
+        prepared = await prepare();
+      }
+      progress('quant', `Running kallisto quant on ${fmt(nPairs)} ${unit}${attempt === 2 ? ' (second run)' : ''}`);
+      const files = prepared.files;
+      prepared = null;
+      result = await kallistoQuant(args, files, signal);
+      const problems = outputProblems(result, nPairs, nTranscripts, unit);
+      if (!problems.length) break;
+      if (attempt === 2) {
+        throw new StepError('output', `kallisto wrote a damaged output twice for sample ${name} (first run: ${firstProblems.join('; ')}; second run: ${problems.join('; ')}). ` +
+          'The page does not use it. A damaged abundance.tsv was seen in Firefox in the measurements (docs/browser/page-v1-measurements.md). Try again, or use another browser or the command-line tool.');
+      }
+      firstProblems = problems;
     }
-    firstProblems = problems;
   }
   post({ type: 'quant-done', id, name, nPairs, wholeFile, previewN: pairs, readLength, limitSource: limitOverride ? 'override' : 'read length', args, reruns: firstProblems ? 1 : 0, warning,
     abundance: result.abundance, runInfo: result.info });

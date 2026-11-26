@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
-import { firstRecords, checkFastq, firstNameStem, firstReadLength } from '../../../site/analyze/fastq.js';
+import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRecords } from '../../../site/analyze/fastq.js';
+import { StreamRingBuffer } from '../../../site/analyze/stream-ring.js';
 import { geneExternalLinks } from '../../../site/analyze/gene-links.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
@@ -173,3 +174,38 @@ test('geneExternalLinks: no dbxref but a numeric gene_id still links NCBI; nothi
   assert.deepEqual(geneExternalLinks('tP(UGG)Q', { geneId: '', dbxref: ['FungiDB:', 'SGD:'] }), []);
   assert.deepEqual(geneExternalLinks('anything', undefined), []);
 });
+
+test('StreamRingBuffer and streamFastqRecords: streams gzip and plain FASTQ records through ring buffer', async () => {
+  const { Worker } = await import('node:worker_threads');
+  const text = fastq(20);
+  const ring = new StreamRingBuffer(null, 16384); // 16 KB ring buffer
+  const gzBlob = new Blob([gzipSync(text)]);
+
+  const worker = new Worker(`
+    import { parentPort, workerData } from 'node:worker_threads';
+    import { StreamRingBuffer } from './site/analyze/stream-ring.js';
+    const ring = new StreamRingBuffer(workerData.sab);
+    const buf = new Uint8Array(1024);
+    const chunks = [];
+    while (true) {
+      const n = ring.read(buf, 0, buf.length);
+      if (n === 0) break;
+      chunks.push(buf.slice(0, n));
+    }
+    const total = chunks.reduce((a, b) => a + b.length, 0);
+    const joined = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { joined.set(c, off); off += c.length; }
+    parentPort.postMessage({ total, text: new TextDecoder().decode(joined) });
+  `, { eval: true, type: 'module', workerData: { sab: ring.sab } });
+
+  const [streamRes, workerRes] = await Promise.all([
+    streamFastqRecords(gzBlob, 15, 'test-mate', ring),
+    new Promise(res => worker.on('message', res))
+  ]);
+
+  assert.equal(streamRes.records, 15);
+  assert.equal(streamRes.wholeFile, false);
+  assert.equal(workerRes.text, fastq(15));
+});
+
