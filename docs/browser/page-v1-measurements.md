@@ -516,3 +516,31 @@ Not tested:
   `check_abundance.py`, `s3_vs_gff.py`, `package.json` and `package-lock.json` (Playwright 1.64.0).
 - `validation/browser-page/measure/results/`: the merged TSVs of the runs above.
 - Full artifacts (logs, indexes, abundance files): the workflow runs (30-day retention) and `/bigdata/stajichlab/jstajich/projects/qRNAmap_data/page-v1/runs/`.
+
+## Pre-built indexes from S3 (2026-11-26)
+
+Script: `validation/browser-page/tests/prebuilt-index.mjs` (Chromium 1248 of Playwright 1.64.0, macOS laptop, home network;
+page served on `http://localhost:8000`, an origin the bucket CORS rule allows). Time from `loadCatalogAccession` to "index
+ready", 3 runs each, pre-built index from `https://s3-west.nrp-nautilus.io/stajichlab/qRNAmap/indexes-v2/` against the index
+built in the page (`?prebuilt=0`: NCBI download, transcripts, kallisto.wasm index).
+
+| genome | pre-built: median s (range) | bytes from S3 | built in page: median s (range) | bytes from NCBI | faster |
+|---|---|---|---|---|---|
+| S. cerevisiae GCF_000146045.2 | 3.3 (3.3 to 3.8) | 4.2 MB | 23.0 (22.9 to 23.4) | 6.0 MB | 7x |
+| C. neoformans GCF_000149245.1 | 0.8 (0.8 to 0.8) | 7.5 MB | 38.5 (38.0 to 39.0) | 7.9 MB | 48x |
+| A. fumigatus GCF_000002655.1 | 1.3 (0.8 to 1.3) | 8.8 MB | 48.6 (46.5 to 52.6) | 11.0 MB | 37x |
+| C. lupini GCF_023278565.1 | 1.3 (1.3 to 7.8) | 12.3 MB | 70.2 (67.2 to 71.2) | 22.9 MB | 54x |
+
+- Same counts: the fixture reads s1 counted with the pre-built yeast index and with the page-built one gave equal gene
+  counts (262 of 300 pairs pseudoaligned both times). Transcript and gene numbers equal in both modes for all four genomes.
+- Index files differ between kallisto 0.52.0 builds. The first set (`indexes-v1`, GitHub release, built by the Linux conda
+  kallisto) fails in kallisto.wasm and in macOS Homebrew kallisto with "Corrupted index; unitig not found"; the Linux conda
+  build reads it. An index built by kallisto.wasm works in kallisto.wasm and Homebrew kallisto, and crashes the Linux conda
+  build (`std::bad_array_new_length`). A 47-transcript index (the fixture genome) worked in all three, so a small test index
+  does not show this. Hence `indexes-v2` is built with kallisto.wasm (`scripts/build-index-wasm.mjs`, HPCC array
+  `scripts/build-indexes-slurm.sh`), each index self-checked in kallisto.wasm with 2,000 reads cut from its transcripts
+  (1,953 to 1,998 pseudoaligned for the 50 genomes). Build: 49 s and 230 MB for yeast in Node, at most 148 s per genome.
+- The GitHub release cannot serve the page: `github.com/.../releases/download/...` answers 302 without
+  `Access-Control-Allow-Origin`.
+- Not measured: Firefox, WebKit, other networks, a cold S3 cache against a warm one (the 3.3 s and 7.8 s runs may be first
+  fetches), the live origin (needs `https://qrnamap.fungalgenomes.org` in the bucket CORS rule).
