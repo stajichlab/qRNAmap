@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -11,6 +13,15 @@ use qrnamap_core::{
     Quantifier, RunConfig, Sample, Strandedness,
 };
 
+/// The kallisto version of the page's WebAssembly build (site/vendor/kallisto/PROVENANCE.md). A page-built index is only
+/// handed to a native kallisto of the same major.minor version: kallisto index files are not compatible across versions.
+pub const PAGE_KALLISTO_VERSION: &str = "0.52.0";
+
+/// The native kallisto quant that is running now (at most one), so `cancel_native_quant` can stop it.
+static RUNNING_QUANT: Mutex<Option<Child>> = Mutex::new(None);
+/// Set by `cancel_native_quant`, so a killed run is reported as cancelled (not as a kallisto failure) on every OS.
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
 /// Information about native execution capabilities on this machine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeCapabilities {
@@ -19,6 +30,19 @@ pub struct NativeCapabilities {
     pub kallisto_version: Option<String>,
     pub num_cpus: usize,
     pub temp_dir: String,
+    /// True when the native kallisto has the same major.minor version as the page build, so a page-built index can be used.
+    pub index_compatible: bool,
+    /// A sentence for the page when the native kallisto cannot use the page-built index (or cannot run).
+    pub warning: Option<String>,
+}
+
+/// `major.minor` of a kallisto version text such as "kallisto, version 0.52.0".
+pub fn major_minor(version_text: &str) -> Option<(u32, u32)> {
+    let v = version_text.split_whitespace().last()?;
+    let mut parts = v.trim_start_matches('v').split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
 }
 
 /// Request to prepare or verify a native index on disk.
@@ -193,6 +217,67 @@ pub fn resolve_path_str(path: &str, base_dir: Option<&Path>) -> PathBuf {
     }
 }
 
+/// Write index bytes to `target`, gunzipping them first when `gz` is set.
+pub fn write_index_bytes(target: &Path, bytes: &[u8], gz: bool) -> Result<(), String> {
+    if gz {
+        let mut decoder = flate2::read::GzDecoder::new(bytes);
+        let mut out = File::create(target).map_err(|e| format!("cannot create {}: {e}", target.display()))?;
+        std::io::copy(&mut decoder, &mut out).map_err(|e| format!("cannot decompress index.gz: {e}"))?;
+    } else {
+        fs::write(target, bytes).map_err(|e| format!("cannot write {}: {e}", target.display()))?;
+    }
+    Ok(())
+}
+
+/// Run `cmd` to the end, keeping its `Child` in `RUNNING_QUANT` so `cancel_native_quant` can kill it.
+/// stdout and stderr are read on their own threads (a full pipe would otherwise stall kallisto).
+/// Returns Err("Cancelled ...") when the process was killed through `cancel_native_quant`.
+pub fn run_cancellable(mut cmd: Command) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start kallisto: {e}"))?;
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let out_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = out_pipe.as_mut() { let _ = p.read_to_end(&mut buf); }
+        buf
+    });
+    let err_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = err_pipe.as_mut() { let _ = p.read_to_end(&mut buf); }
+        buf
+    });
+    {
+        let mut guard = RUNNING_QUANT.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_some() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("another native kallisto run is still going".to_string());
+        }
+        CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+        *guard = Some(child);
+    }
+    let status = loop {
+        {
+            let mut guard = RUNNING_QUANT.lock().unwrap_or_else(|e| e.into_inner());
+            let child = guard.as_mut().expect("RUNNING_QUANT holds the child until it ends");
+            match child.try_wait() {
+                Ok(Some(status)) => { *guard = None; break status; }
+                Ok(None) => {}
+                Err(e) => { *guard = None; return Err(format!("cannot wait for kallisto: {e}")); }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    let stdout = out_thread.join().unwrap_or_default();
+    let stderr = err_thread.join().unwrap_or_default();
+    if CANCEL_REQUESTED.swap(false, Ordering::SeqCst) {
+        return Err("Cancelled: kallisto was stopped.".to_string());
+    }
+    Ok(std::process::Output { status, stdout, stderr })
+}
+
 // ---------------------------------------------------------------------------------------------
 // Commands module to isolate Tauri macros and avoid namespace collisions in tests
 
@@ -224,16 +309,70 @@ pub mod commands {
             .unwrap_or(1);
         let temp_dir = std::env::temp_dir().to_string_lossy().to_string();
 
+        let page = major_minor(PAGE_KALLISTO_VERSION);
+        let native = kallisto_version.as_deref().and_then(major_minor);
+        let index_compatible = available && native.is_some() && native == page;
+        let warning = if !available {
+            Some("No kallisto binary was found (looked in QRNAMAP_KALLISTO, PATH, Homebrew, conda and pixi folders). \
+                  Install kallisto 0.52 (for example `brew install kallisto`) or set QRNAMAP_KALLISTO to its path."
+                .to_string())
+        } else if !index_compatible {
+            Some(format!(
+                "The native kallisto ({}) is not version {PAGE_KALLISTO_VERSION}, so it cannot read the index this app builds. \
+                 Install kallisto 0.52 or set QRNAMAP_KALLISTO to a 0.52 binary.",
+                kallisto_version.as_deref().unwrap_or("unknown version")
+            ))
+        } else {
+            None
+        };
+
         NativeCapabilities {
             available,
             kallisto_path,
             kallisto_version,
             num_cpus,
             temp_dir,
+            index_compatible,
+            warning,
         }
     }
 
+    /// Write the kallisto index that the page built (or the gzip of a prebuilt one) to disk for native kallisto.
+    /// The bytes come as the raw IPC body (a Uint8Array on the page side), not as a JSON number array: an index is
+    /// 100 to 300 MB, and JSON would make it several times bigger and slow. Header `x-qrnamap-gzip: 1` marks a gzip body.
+    #[tauri::command(async)]
+    pub fn write_native_index(request: tauri::ipc::Request<'_>) -> Result<PrepareIndexResponse, String> {
+        let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+            return Err("write_native_index needs the index bytes as a raw (Uint8Array) body".to_string());
+        };
+        let gz = request
+            .headers()
+            .get("x-qrnamap-gzip")
+            .and_then(|v| v.to_str().ok())
+            == Some("1");
+        let scratch_dir = std::env::temp_dir().join("qrnamap_desktop");
+        fs::create_dir_all(&scratch_dir).map_err(|e| format!("cannot create scratch dir: {e}"))?;
+        let target_idx = scratch_dir.join("transcripts.idx");
+        write_index_bytes(&target_idx, bytes, gz)?;
+        let size = fs::metadata(&target_idx).map(|m| m.len()).unwrap_or(0);
+        Ok(PrepareIndexResponse { index_path: target_idx.to_string_lossy().to_string(), index_size: size })
+    }
+
+    /// Stop the native kallisto quant that is running now, if any. The waiting `run_native_quant` then returns an error
+    /// that starts with "Cancelled".
     #[tauri::command]
+    pub fn cancel_native_quant() -> bool {
+        let mut guard = RUNNING_QUANT.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.as_mut() {
+            Some(child) => {
+                CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+                child.kill().is_ok()
+            }
+            None => false,
+        }
+    }
+
+    #[tauri::command(async)]
     pub fn prepare_native_index(req: PrepareIndexRequest) -> Result<PrepareIndexResponse, String> {
         let scratch_dir = std::env::temp_dir().join("qrnamap_desktop");
         fs::create_dir_all(&scratch_dir).map_err(|e| format!("cannot create scratch dir: {e}"))?;
@@ -311,7 +450,8 @@ pub mod commands {
         Err("no index or FASTA provided".to_string())
     }
 
-    #[tauri::command]
+    // `async`: a full-depth run takes minutes; a plain (sync) command would run on the main thread and freeze the window.
+    #[tauri::command(async)]
     pub fn run_native_quant(req: NativeQuantRequest) -> Result<NativeQuantResponse, String> {
         let kallisto = find_kallisto()
             .ok_or_else(|| "kallisto binary not found on this system. Install kallisto (e.g. brew install kallisto).".to_string())?;
@@ -416,7 +556,7 @@ pub mod commands {
         cmd.args(&call.args);
         cmd.current_dir(&out_dir);
 
-        let output = cmd.output().map_err(|e| format!("failed to start kallisto: {e}"))?;
+        let output = run_cancellable(cmd).map_err(|e| format!("sample '{}': {e}", req.name))?;
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !output.status.success() {
@@ -506,7 +646,7 @@ pub mod commands {
         })
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn read_local_sample_sheet(req: ReadSheetRequest) -> Result<ReadSheetResponse, String> {
         let sheet_path = resolve_path_str(&req.path, None);
         if !sheet_path.is_file() {
@@ -603,6 +743,25 @@ pub mod commands {
         Ok(res)
     }
 
+    /// Pick several files at once (the FASTQ files of a sample sheet). Returns their absolute paths (empty when cancelled).
+    #[tauri::command]
+    pub fn pick_files_dialog(title: Option<String>, filter_name: Option<String>, filter_exts: Option<Vec<String>>) -> Result<Vec<String>, String> {
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(t) = title {
+            dialog = dialog.set_title(&t);
+        }
+        if let (Some(name), Some(exts)) = (filter_name, filter_exts) {
+            let str_refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
+            dialog = dialog.add_filter(&name, &str_refs);
+        }
+        Ok(dialog
+            .pick_files()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect())
+    }
+
     #[tauri::command]
     pub fn pick_directory_dialog(title: Option<String>) -> Result<Option<String>, String> {
         let mut dialog = rfd::FileDialog::new();
@@ -644,6 +803,9 @@ pub fn run() {
             commands::run_native_quant,
             commands::read_local_sample_sheet,
             commands::pick_file_dialog,
+            commands::pick_files_dialog,
+            commands::write_native_index,
+            commands::cancel_native_quant,
             commands::pick_directory_dialog,
             commands::resolve_path,
         ])
@@ -682,6 +844,61 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Tests that start kallisto share RUNNING_QUANT (one native run at a time), so they take this lock.
+    static NATIVE_RUN_LOCK: Mutex<()> = Mutex::new(());
+    fn native_run_lock() -> std::sync::MutexGuard<'static, ()> {
+        NATIVE_RUN_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn test_major_minor() {
+        assert_eq!(major_minor("kallisto, version 0.52.0"), Some((0, 52)));
+        assert_eq!(major_minor("0.46.1"), Some((0, 46)));
+        assert_eq!(major_minor("kallisto (unknown version)"), None);
+        assert_eq!(major_minor(PAGE_KALLISTO_VERSION), Some((0, 52)));
+    }
+
+    #[test]
+    fn test_write_index_bytes_plain_and_gzip() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("plain.idx");
+        write_index_bytes(&plain, b"index-bytes", false).unwrap();
+        assert_eq!(fs::read(&plain).unwrap(), b"index-bytes");
+
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        enc.write_all(b"gzipped-index").unwrap();
+        let gz = enc.finish().unwrap();
+        let unz = dir.path().join("gz.idx");
+        write_index_bytes(&unz, &gz, true).unwrap();
+        assert_eq!(fs::read(&unz).unwrap(), b"gzipped-index");
+        assert!(write_index_bytes(&dir.path().join("bad.idx"), b"not gzip", true).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_cancellable_output_and_cancel() {
+        let _lock = native_run_lock();
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "echo out; echo err 1>&2"]);
+        let out = run_cancellable(cmd).unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "out");
+        assert_eq!(String::from_utf8_lossy(&out.stderr).trim(), "err");
+
+        let canceller = std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            commands::cancel_native_quant()
+        });
+        let mut slow = Command::new("sleep");
+        slow.arg("30");
+        let started = std::time::Instant::now();
+        let res = run_cancellable(slow);
+        assert!(canceller.join().unwrap(), "cancel found the running process");
+        assert!(res.unwrap_err().starts_with("Cancelled"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
 
     #[test]
     fn test_find_kallisto() {
@@ -730,6 +947,7 @@ mod tests {
 
     #[test]
     fn test_native_quant_flow() {
+        let _lock = native_run_lock();
         if find_kallisto().is_none() {
             return;
         }
@@ -792,6 +1010,7 @@ mod tests {
 
     #[test]
     fn test_dhingra_real_data_quant() {
+        let _lock = native_run_lock();
         if find_kallisto().is_none() {
             return;
         }

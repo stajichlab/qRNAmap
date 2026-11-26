@@ -6,7 +6,7 @@
 import { validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { baseName, pageRules, filesByName, sheetText } from './sheet.js?v=__BUILD__';
 import { createQuant, MAX_PAIRS, previewLabel } from './quant.js?v=__BUILD__';
-import { isTauri, checkNative, pickFile, readLocalSheet } from './tauri-bridge.js?v=__BUILD__';
+import { isTauri, checkNative, pickFile, pickFiles, readLocalSheet, FASTQ_EXTS } from './tauri-bridge.js?v=__BUILD__';
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 // Measurement option (page-quant-memory.yml): `?preview_pairs=N` replaces the read-length limit of preview-limit.js with N for every
@@ -69,9 +69,12 @@ export function createSamplesStep({ $, app, shell }) {
       accept: '.fastq,.fq,.gz,.fastq.gz,application/gzip,application/x-gzip,text/plain,*/*',
     });
     input.dataset.mate = mate;
+    // The input is visually hidden inside a label styled as a button (native file inputs do not take styles and wrap badly
+    // in a table cell). In the desktop app a click opens the native dialog instead (handled on the table), so the row gets a disk path.
+    const pick = el('label', { className: 'file-button' }, [input, file ? 'Change…' : 'Choose file…']);
     const span = el('span', { className: missing ? 'mate-name missing' : 'mate-name', textContent: text });
     if (file?.path) span.title = file.path;
-    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [input, span]);
+    return el('td', { className: 'mate', dataset: { mate: String(mate), missing: String(missing) } }, [pick, span]);
   }
 
   function render() {
@@ -113,6 +116,46 @@ export function createSamplesStep({ $, app, shell }) {
     row.files[target.dataset.mate] = target.files[0] || null;
     render();
   });
+  // Desktop app: a file picked through the page's file input is a browser File with no disk path, which only the
+  // in-page preview (75,000 to 200,000 pairs) can read. The native dialog gives the path, so native kallisto reads every read.
+  if (isTauri()) {
+    $('sample-table').addEventListener('click', async (event) => {
+      const input = event.target.closest('label.file-button')?.querySelector('input.mate-file')
+        || (event.target.classList?.contains('mate-file') ? event.target : null);
+      if (!input) return;
+      event.preventDefault();
+      const row = rowOf(input);
+      const mate = Number(input.dataset.mate);
+      const path = await pickFile(`Mate ${mate} FASTQ for ${row.name || 'this sample'}`, 'FASTQ (.fastq, .fq, .gz)', FASTQ_EXTS);
+      if (!path) return;
+      row.files[mate] = { name: baseName(path), path };
+      row.paths = { ...(row.paths || {}), [mate]: [path] };
+      if (row.exists) row.exists = { ...row.exists, [mate]: [true] };
+      render();
+    });
+    $('sheet-file').addEventListener('click', async (event) => {
+      event.preventDefault();
+      const path = await pickFile('Sample sheet', 'Sample sheet (.tsv, .txt)', ['tsv', 'txt']);
+      if (!path) return;
+      if ($('native-sheet-path')) $('native-sheet-path').value = path;
+      await loadNativeSheet(path); // resolves the FASTQ paths against the sheet's folder and checks them on disk
+    });
+    $('sheet-fastqs').addEventListener('click', async (event) => {
+      event.preventDefault();
+      const paths = await pickFiles('The FASTQ files the sheet names', 'FASTQ (.fastq, .fq, .gz)', FASTQ_EXTS);
+      if (!paths.length) return;
+      picked = new Map(paths.map((p) => [baseName(p), { name: baseName(p), path: p }]));
+      for (const row of model.rows) {
+        for (const mate of [1, 2]) {
+          const f = row.expect[mate] && picked.get(row.expect[mate]);
+          if (f) { row.paths = { ...(row.paths || {}), [mate]: [f.path] }; if (row.exists) row.exists = { ...row.exists, [mate]: [true] }; }
+        }
+      }
+      sheetError([]);
+      applyPicked();
+      render();
+    });
+  }
   $('sample-table').addEventListener('click', ({ target }) => {
     if (target.classList.contains('remove-row')) {
       model.rows = model.rows.filter((r) => r !== rowOf(target));
@@ -242,9 +285,13 @@ export function createSamplesStep({ $, app, shell }) {
     await loadNativeSheet(p);
   });
 
+  let nativeReady = false; // native kallisto found, with an index-compatible version
+  /** True when this run goes to native kallisto (desktop app, native kallisto usable, "Native" chosen). */
+  const nativeSelected = () => isTauri() && nativeReady && Boolean(document.getElementById('mode-native')?.checked);
+
   function updateExecModeUI() {
     if (!isTauri()) return;
-    const isNative = document.getElementById('mode-native')?.checked ?? true;
+    const isNative = nativeSelected();
     const previewP = $('preview-pairs-p');
     const notice = $('native-pairs-notice');
     if (previewP) previewP.hidden = isNative;
@@ -253,17 +300,19 @@ export function createSamplesStep({ $, app, shell }) {
 
   if (isTauri()) {
     checkNative().then((caps) => {
-      if (caps && caps.available) {
-        const banner = $('desktop-native-banner');
-        if (banner) banner.hidden = false;
-        const opts = $('native-mode-options');
-        if (opts) opts.hidden = false;
-        const info = $('desktop-native-info');
-        if (info) {
-          info.textContent = `kallisto detected: ${caps.kallisto_version || caps.kallisto_path} (${caps.num_cpus} CPUs available)`;
-        }
-        updateExecModeUI();
+      nativeReady = Boolean(caps?.available && caps?.index_compatible);
+      const banner = $('desktop-native-banner');
+      if (banner) { banner.hidden = false; banner.dataset.native = String(nativeReady); }
+      const opts = $('native-mode-options');
+      if (opts) opts.hidden = !nativeReady;
+      if (!nativeReady) { const b = $('mode-browser'); if (b) b.checked = true; }
+      const info = $('desktop-native-info');
+      if (info) {
+        info.textContent = nativeReady
+          ? `${String(caps.kallisto_version || '').replace(/^kallisto,?\s*(version\s*)?/i, '') || 'found'} at ${caps.kallisto_path} (${caps.num_cpus} CPUs)`
+          : `not available: ${caps?.warning || caps?.error || 'kallisto was not found'} Counting uses the in-page preview until then.`;
       }
+      updateExecModeUI();
     });
     document.querySelectorAll('input[name="quant-exec-mode"]').forEach((el) => {
       el.addEventListener('change', updateExecModeUI);
@@ -276,9 +325,7 @@ export function createSamplesStep({ $, app, shell }) {
     const rowErrors = new Map();
     const fail = (row, text) => { errors.push(text); if (row) rowErrors.set(row, [...(rowErrors.get(row) || []), text]); };
     if (!model.rows.length) fail(null, 'Add at least one sample.');
-    const isNativeMode = isTauri() &&
-      (document.getElementById('mode-native')?.checked ?? true) &&
-      model.rows.some((r) => r.paths?.[1]?.length);
+    const isNativeMode = nativeSelected();
 
     model.rows.forEach((row, i) => {
       const who = `Row ${i + 1}${row.name ? ` (${row.name})` : ''}`;
@@ -286,6 +333,10 @@ export function createSamplesStep({ $, app, shell }) {
         if (row.files[mate]) {
           if (row.exists && row.exists[mate] && row.exists[mate].includes(false)) {
             fail(row, `${who}: mate ${mate} file does not exist on disk: ${row.paths?.[mate]?.join(', ')}.`);
+          }
+          if (isNativeMode && !row.files[mate].path && !row.paths?.[mate]?.length) {
+            fail(row, `${who}: the mate ${mate} file (${row.files[mate].name}) is held in page memory (for example a test-set download), not on disk, so native kallisto cannot read it. ` +
+              'Pick it again with "Choose file…" (it then opens the desktop file dialog), or choose "Browser preview" to count a preview of it.');
           }
           continue;
         }
@@ -303,7 +354,7 @@ export function createSamplesStep({ $, app, shell }) {
       if (!col.name.trim() && model.rows.some((r) => String(r.values[col.key] ?? '').trim())) fail(null, 'A covariate column has values but no name. Give it a name or remove it.');
     });
 
-    const maxAllowed = isTauri() ? 100_000_000 : MAX_PAIRS;
+    const maxAllowed = MAX_PAIRS; // the in-page preview (browser mode, also in the desktop app) never reads more than this
     const pairs = Number($('preview-pairs').value);
     if (!isNativeMode) {
       if (!Number.isInteger(pairs) || pairs < 1 || pairs > maxAllowed) {
@@ -358,7 +409,8 @@ export function createSamplesStep({ $, app, shell }) {
       case 'done': return `${fmt(s.processed)} ${unit} processed, ${fmt(s.pseudoaligned)} pseudoaligned (${(100 * s.fraction).toFixed(1)}%). ` +
         (s.allPairs
           ? `All ${unit} (${fmt(s.nPairs)}). Full depth.`
-          : `${previewLabel(s.previewN).replace(/^p/, 'P')}. Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.`) +
+          : `${previewLabel(s.previewN).replace(/^p/, 'P')}. Reads of ${fmt(s.readLength)} bases: N = ${fmt(s.previewN)}.` +
+            (isTauri() ? ' (In-page preview. Choose "Native" with files on disk for all reads.)' : '')) +
         `${s.reruns ? ' kallisto ran twice: the first output failed the check.' : ''}` +
         `${s.warning ? ` Warning: ${s.warning}` : ''}`;
       case 'error': return `Error: ${s.error}${['memory', 'kallisto'].includes(s.kind) ? ` ${ROUTE}` : ''}`;
@@ -472,12 +524,8 @@ export function createSamplesStep({ $, app, shell }) {
     }
   }
 
-  if (isTauri()) {
-    $('preview-pairs').max = '100000000';
-  } else {
-    $('preview-pairs').max = String(MAX_PAIRS);
-    $('preview-pairs').value = String(MAX_PAIRS);
-  }
+  $('preview-pairs').max = String(MAX_PAIRS);
+  $('preview-pairs').value = String(MAX_PAIRS);
   app.state.samples = [];
   app.state.preview = { n: null, label: '' };
   app.state.samplesPhase = 'edit';

@@ -4,7 +4,7 @@
 import init, { catalog } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { checkUrl, mb } from '../reference-panel.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
-import { isTauri, prepareNativeIndex } from './tauri-bridge.js?v=__BUILD__';
+import { isTauri, writeNativeIndex } from './tauri-bridge.js?v=__BUILD__';
 
 /**
  * The largest genome that finished download, transcript building and kallisto index in Chromium, Firefox and WebKit in the
@@ -358,12 +358,12 @@ export async function createGenomeStep({ $, shell }) {
       if (isTauri()) {
         try {
           if (prebuiltPayload?.idxGz) {
-            const prep = await prepareNativeIndex({ index_gz_bytes: Array.from(prebuiltPayload.idxGz) });
+            const prep = await writeNativeIndex(prebuiltPayload.idxGz, { gzip: true });
             state.nativeIndexPath = prep.index_path;
           } else {
             const idxBytes = await getIndexBytes();
             if (idxBytes) {
-              const prep = await prepareNativeIndex({ index_bytes: Array.from(idxBytes) });
+              const prep = await writeNativeIndex(idxBytes);
               state.nativeIndexPath = prep.index_path;
             }
           }

@@ -87,13 +87,13 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
           This version takes one file per mate: lanes must be joined into one file first. FASTQ files can be plain or gzip.
           The files stay in this browser. The page reads only the first read pairs of each file (see "Read pairs per sample").</p>
         <div id="desktop-native-banner" class="note" hidden>
-          <p><strong>Desktop Native Execution Active</strong> &mdash; <span id="desktop-native-info">kallisto detected</span></p>
-          <p class="small">In the desktop app, you can run full-depth quantification directly on local FASTQ files on disk, without browser memory limits.</p>
-          <div class="field-row" style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <label for="native-sheet-path"><strong>Local sample sheet:</strong></label>
-            <input id="native-sheet-path" type="text" size="40" placeholder="/path/to/samples.txt">
-            <button id="btn-browse-sheet" type="button">Browse...</button>
-            <button id="btn-load-native-sheet" type="button" class="button">Load local sheet</button>
+          <p><strong>Desktop app</strong> &mdash; native kallisto <span id="desktop-native-info">checking…</span></p>
+          <p class="small">Files chosen here are read from disk at full depth. Load a sample sheet (paths are resolved against its folder), or use “Choose file…” in the table.</p>
+          <label for="native-sheet-path"><strong>Local sample sheet</strong></label>
+          <div class="field-row">
+            <input id="native-sheet-path" type="text" placeholder="/path/to/samples.txt">
+            <button id="btn-browse-sheet" type="button">Browse…</button>
+            <button id="btn-load-native-sheet" type="button" class="button button-small">Load sheet</button>
           </div>
           <p id="native-sheet-status" class="small"></p>
         </div>
@@ -113,12 +113,16 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
         <p class="small">Fragment length for single-end samples (kallisto needs it, as the command-line tool does with <code>--fragment-length MEAN,SD</code>):</p>
         <label for="frag-mean">Mean</label> <input id="frag-mean" type="number" min="1" step="any" size="6">
         <label for="frag-sd">SD</label> <input id="frag-sd" type="number" min="0" step="any" size="6">
-        <div id="native-mode-options" class="note" style="margin-top: 0.5rem; margin-bottom: 0.5rem;" hidden>
-          <p><strong>Execution mode:</strong></p>
-          <label style="margin-right: 1rem;"><input type="radio" name="quant-exec-mode" id="mode-native" value="native" checked> <strong>Native Execution (Full depth)</strong> &mdash; Streams all reads from disk via native kallisto</label>
-          <label><input type="radio" name="quant-exec-mode" id="mode-browser" value="browser"> <strong>Browser Preview</strong> &mdash; Subsamples read pairs into browser memory</label>
-        </div>
-        <p id="native-pairs-notice" class="small" hidden style="margin: 0.5rem 0;"><strong>Full-depth quantification:</strong> Native execution processes all reads from disk at full depth without subsampling (no read cap).</p>
+        <fieldset id="native-mode-options" class="choice-cards" hidden>
+          <legend>How to count the reads</legend>
+          <label class="choice-card"><input type="radio" name="quant-exec-mode" id="mode-native" value="native" checked>
+            <span class="choice-title">Native, full depth</span>
+            <span class="choice-desc">kallisto on this computer reads every read from the files on disk, using all CPU cores.</span></label>
+          <label class="choice-card"><input type="radio" name="quant-exec-mode" id="mode-browser" value="browser">
+            <span class="choice-title">In-page preview</span>
+            <span class="choice-desc">The first 75,000 to 200,000 pairs of each file, counted in the page (as on the website).</span></label>
+        </fieldset>
+        <p id="native-pairs-notice" class="small" hidden><strong>Full depth:</strong> every read in the files is counted; nothing is subsampled.</p>
         <p id="preview-pairs-p"><label for="preview-pairs">Read pairs per sample (at most)</label>
           <input id="preview-pairs" type="number" min="1" max="200000" step="1" value="200000">
           <span class="small">The read length sets the largest N of each sample, because longer reads need more memory: 200,000 pairs for reads of
