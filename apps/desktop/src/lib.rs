@@ -77,6 +77,7 @@ pub struct ReadSheetRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedSampleRow {
     pub sample: String,
+    pub name: String,
     pub fastq1: Vec<String>,
     pub fastq2: Vec<String>,
     pub fastq1_raw: Vec<String>,
@@ -554,6 +555,7 @@ pub mod commands {
 
             samples.push(ResolvedSampleRow {
                 sample: s.name.clone(),
+                name: s.name.clone(),
                 fastq1: r1_paths,
                 fastq2: r2_paths,
                 fastq1_raw: s.fastq1.clone(),
@@ -719,6 +721,7 @@ mod tests {
 
             assert!(!res.samples.is_empty(), "should have parsed samples");
             assert_eq!(res.samples[0].sample, "AF293_Azole_2");
+            assert_eq!(res.samples[0].name, "AF293_Azole_2");
             assert!(res.samples[0].fastq1[0].contains("LCS9590_Af293_Azole_2_Clean_Data1.fq.gz"));
             assert!(res.samples[0].fastq1_exists[0], "first sample fastq1 file should exist on disk");
             assert!(res.samples[0].fastq2_exists[0], "first sample fastq2 file should exist on disk");
