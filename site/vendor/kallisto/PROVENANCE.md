@@ -43,6 +43,10 @@ Vendored on 2026-11-21.
   It also supports passing `devices` (virtual block devices for streaming ring buffers) into the worker.
 - `runtime/execute.mjs` registers virtual block devices via `FS.registerDevice` and `FS.mkdev` when `devices` are passed,
   allowing kallisto to stream reads on-the-fly through `StreamRingConsumer`.
+- `runtime/execute.mjs` also mounts a device given as `{ path, blob }` (a File or Blob) as a read-only regular file
+  (`mountBlobFile`): a MEMFS file node whose size is the blob size and whose `read` takes the bytes from `FileReaderSync`
+  through one 4 MiB read-ahead window. This is what Emscripten's WORKERFS does, without rebuilding kallisto.wasm, and it
+  needs no SharedArrayBuffer. `runtime/index.mjs` passes such devices to the worker (a File is posted as a handle).
   The changes are in the SHA-256 list below.
 
 ## What is not verified
@@ -80,8 +84,8 @@ bc48df6b597a8d378c0674d4771b9cd02ab2626c1297e45d6b9a91cd74582249  browser.patch
 46c819c4cbf39bb58c6da337ef1cdb0ad3b712cd9349d4b800a292d598bf9469  build-manifest.json
 9836e42fc304d7616ec73d89262498b31cc96e2b35d2d7460b64f358b823b9f1  kallisto.mjs
 01ef635d8438b7e6ac9c74c9d04a89f83f6801959f799f9f657523c90d37adfc  kallisto.wasm
-e727ce1205fc8b6b878d1603e4c0c6056b272016dc7951627de3b8cc9dfb6ac7  runtime/execute.mjs
-df29f87184a7c4e9096b7518d7321279ab040916fbf2701a3cd996d277dc004f  runtime/index.mjs
+7ab5f899ab37231fdbd2eb34263803c8aaccf7ab2be2d0bc12b3c7a71d6a1b3f  runtime/execute.mjs
+2ed55dab721f474e797449fa02b4b7f3a067607d788d994eb21beb6b8c5b5f68  runtime/index.mjs
 19ac7d452ace47900eb93b7a65a55ff47d3cd5df33ddee35664b93cf7d9ddc4a  runtime/worker.mjs
 d3fb3b68d9517d4b982786a3825219d0845a7896772126c4286f1e8d762dc38a  sources.lock.json
 ```

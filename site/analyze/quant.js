@@ -20,7 +20,9 @@ export const previewLabel = (n) => `preview of the first ${fmt(n)} pairs`;
  * different N (then the label gives the range, and each sample has its own `previewN`). Empty label when no sample is counted.
  */
 export function previewOf(samples) {
-  const used = [...new Set(samples.filter((s) => s.status === 'done').map((s) => s.previewN))].sort((a, b) => a - b);
+  const done = samples.filter((s) => s.status === 'done');
+  if (done.length && done.every((s) => s.allReads)) return { n: null, label: 'all reads' };
+  const used = [...new Set(done.filter((s) => !s.allReads).map((s) => s.previewN))].sort((a, b) => a - b);
   if (!used.length) return { n: null, label: '' };
   if (used.length === 1) return { n: used[0], label: previewLabel(used[0]) };
   return { n: null, label: `preview of the first ${fmt(used[0])} to ${fmt(used[used.length - 1])} pairs (the N of each sample is in its row)` };
@@ -66,8 +68,11 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
     reject(Object.assign(new Error(`The page worker was replaced (${detail?.reason || 'unknown reason'}), so the kallisto index is gone. Build the genome index again (step 1), then count the reads again.`), { kind: 'lost' }));
   });
 
-  /** `pairs`: the page field (an upper bound). `limitOverride`: the measurement option ?preview_pairs (replaces the read-length limit), or 0. */
-  async function run(jobs, pairs, limitOverride = 0) {
+  /**
+   * `pairs`: the page field (an upper bound). `limitOverride`: the measurement option ?preview_pairs (replaces the read-length limit), or 0.
+   * `allReads`: kallisto reads every read of the files, streamed from the File objects (worker.js quantAllReads); `pairs` is then unused.
+   */
+  async function run(jobs, pairs, limitOverride = 0, { allReads = false } = {}) {
     const mine = ++runNumber;
     const state = app.state;
     state.preview = { n: null, label: '' };
@@ -81,12 +86,13 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
       sample.status = 'running';
       onChange(sample);
       try {
-        const done = await request({ name: job.name, mate1: job.mate1, mate2: job.mate2, pairs, limitOverride, fragment: job.fragment, nTranscripts: state.nTranscripts });
+        const done = await request({ name: job.name, mate1: job.mate1, mate2: job.mate2, pairs, limitOverride, allReads, fragment: job.fragment, nTranscripts: state.nTranscripts });
         const counts = JSON.parse(gene_counts(done.abundance, state.tx2gene));
         Object.assign(sample, {
           status: 'done', nPairs: done.nPairs, processed: done.runInfo.n_processed, pseudoaligned: done.runInfo.n_pseudoaligned,
           fraction: done.nPairs ? done.runInfo.n_pseudoaligned / done.nPairs : 0, allPairs: done.wholeFile, geneCounts: counts.counts,
           reruns: done.reruns, args: done.args, warning: done.warning || '', previewN: done.previewN, readLength: done.readLength,
+          allReads: done.limitSource === 'all reads',
         });
       } catch (error) {
         if (mine !== runNumber) return; // a newer run took over

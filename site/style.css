@@ -101,3 +101,80 @@ ul.error { padding-left: 2rem; }
 svg.heatmap, svg.pca-plot, svg.volcano-plot { max-width: 100%; height: auto; font-family: system-ui, sans-serif; }
 svg.volcano-plot a.volcano-gene-link { cursor: pointer; }
 svg.volcano-plot a.volcano-gene-link:hover text { text-decoration: underline; }
+
+/* ---------------------------------------------------------------------------------------------
+   Controls: one button system for every panel, choice cards for radio groups, and file pickers that
+   look like buttons. Labels never break inside a button; groups wrap as whole items instead. */
+:root { --accent-hover: #094a8c; --ring: color-mix(in srgb, var(--accent) 35%, transparent); --radius: 8px; }
+:root[data-theme="dark"] { --accent-hover: #8ec4ff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent-hover: #8ec4ff; } }
+
+button, .button, .file-button {
+  font: inherit; font-size: .95rem; line-height: 1.2; white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  min-height: 2.25rem; padding: .45rem .95rem; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--note); color: var(--fg);
+  transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease, transform .05s ease;
+}
+button:hover, .file-button:hover { border-color: var(--accent); }
+button:active, .button:active, .file-button:active { transform: translateY(1px); }
+button:disabled, button:disabled:hover { opacity: .5; cursor: not-allowed; border-color: var(--line); transform: none; }
+.button, button.button { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; padding: .55rem 1.2rem; font-size: 1rem; }
+.button:hover, button.button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.button-small, button.button.button-small { padding: .45rem .95rem; font-size: .95rem; margin-top: 0 !important; }
+button:focus-visible, .file-button:focus-within { outline: none; box-shadow: 0 0 0 3px var(--ring); border-color: var(--accent); }
+/* The panel rules above set padding per panel; these keep every panel on the same sizes. */
+#genome-panel button:not(.button), #samples-panel button:not(.button), #results-panel button:not(.button), #testset-section button {
+  padding: .45rem .95rem; border-radius: var(--radius);
+}
+.themes button, .button-reset { min-height: 1.9rem; padding: .25rem .7rem; font-size: .85rem; }
+
+/* File inputs: the real input stays (keyboard, tests) but is hidden inside a label styled as a button. */
+.file-button { position: relative; font-size: .875rem; min-height: 2rem; padding: .3rem .75rem; }
+.file-button input[type="file"] { position: absolute; inset: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+#sample-table td.mate { min-width: 11rem; }
+#sample-table .mate-name { margin-top: .3rem; overflow-wrap: anywhere; }
+#sample-table td { vertical-align: middle; }
+#sample-table th { white-space: nowrap; background: var(--note); font-weight: 600; font-size: .9rem; }
+#sample-table th input.col-name { width: 7rem; }
+#sample-table input[type="text"], #samples-panel input[type="number"], #native-sheet-path, #genome-filter {
+  padding: .4rem .55rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg);
+}
+#sample-table input[type="text"]:focus, #samples-panel input:focus, #genome-filter:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+
+/* Rows of controls: items wrap as a whole, never in the middle of a label. */
+.field-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .35rem 0 .25rem; }
+.field-row input[type="text"] { flex: 1 1 18rem; min-width: 0; font: inherit; }
+.testset-buttons button { white-space: normal; text-align: left; justify-content: flex-start; }
+
+/* Radio groups as cards: a grid that stacks when narrow instead of wrapping text around the radios. */
+fieldset.choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .6rem; border: 0; padding: 0; margin: .75rem 0; }
+fieldset.choice-cards[hidden] { display: none; }
+fieldset.choice-cards legend { font-weight: 600; margin-bottom: .4rem; padding: 0; }
+.choice-card { display: grid; grid-template-columns: auto 1fr; column-gap: .6rem; row-gap: .15rem; align-items: start;
+  padding: .7rem .85rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease, box-shadow .12s ease; }
+.choice-card:hover { border-color: var(--accent); }
+.choice-card input[type="radio"] { grid-row: 1 / span 2; margin: .2rem 0 0; accent-color: var(--accent); width: 1.05rem; height: 1.05rem; }
+.choice-card .choice-title { font-weight: 600; white-space: nowrap; }
+.choice-card .choice-desc { grid-column: 2; font-size: .875rem; color: var(--muted); line-height: 1.4; }
+.choice-card:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); box-shadow: inset 0 0 0 1px var(--accent); }
+.choice-card:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--ring); }
+/* The genome-source radios: the same look as a segmented control. */
+.choice[role="radiogroup"] { flex-direction: row; flex-wrap: wrap; gap: .5rem; }
+.choice[role="radiogroup"] label { display: inline-flex; align-items: center; gap: .45rem; white-space: nowrap; padding: .45rem .8rem;
+  border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; background: var(--bg); }
+.choice[role="radiogroup"] label:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+.choice[role="radiogroup"] input { accent-color: var(--accent); margin: 0; }
+
+#desktop-native-banner[data-native="false"] { border-color: var(--warn); background: var(--warn-bg); }
+#desktop-native-banner p { margin: .2rem 0; }
+#samples-busy:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+#samples-busy progress { flex: 1 1 100%; }
+#samples-busy p { margin: 0; flex: 1 1 auto; }
+
+/* Desktop app: a wider page (the window is 1100 px or more), so the sample table and plots need no side scroll. */
+#frag-mean, #frag-sd { width: 6rem; }
+#preview-pairs { width: 8rem; }
+html.desktop body { max-width: min(76rem, 100%); padding-top: 1.25rem; }
+html.desktop .step { padding: .5rem 1.25rem 1.25rem; }

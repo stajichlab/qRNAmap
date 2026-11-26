@@ -28,7 +28,9 @@ export class ToolRunner {
     if (signal?.aborted) throw abortError();
     const inputFiles = files.map(file => ({ path: workspacePath(file.path), data: bytes(file.data) }));
     if (new Set(inputFiles.map(file => file.path)).size !== inputFiles.length) throw new TypeError('Input file paths must be unique');
-    const inputDevices = devices.map(dev => ({ path: workspacePath(dev.path), sab: dev.sab || dev.ring?.sab }));
+    // A device is a streaming ring (`sab`/`ring`) or a File/Blob (`blob`) that the tool reads on demand (execute.mjs, mountBlobFile).
+    // Posting a File copies only its handle, not its bytes.
+    const inputDevices = devices.map(dev => dev.blob ? { path: workspacePath(dev.path), blob: dev.blob } : { path: workspacePath(dev.path), sab: dev.sab || dev.ring?.sab });
     const requestedOutputs = [...new Set(outputs.map(workspacePath))];
     const requestedDirectories = [...new Set(outputDirectories.map(workspacePath))];
     const input = bytes(stdin);

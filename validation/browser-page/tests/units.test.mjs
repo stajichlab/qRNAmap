@@ -209,3 +209,32 @@ test('StreamRingBuffer and streamFastqRecords: streams gzip and plain FASTQ reco
   assert.equal(workerRes.text, fastq(15));
 });
 
+
+test('mountBlobFile: a File-backed file in the real kallisto.mjs FS has the blob size and its bytes, read through a small window', async () => {
+  const { mountBlobFile } = await import('../../../site/vendor/kallisto/runtime/execute.mjs');
+  const factory = (await import('../../../site/vendor/kallisto/kallisto.mjs')).default;
+  const data = new Uint8Array(100_003).map((_, i) => (i * 7 + 3) & 255);
+  const blob = new Blob([data]);
+  const reads = [];
+  // Node has no FileReaderSync: the test reader takes the bytes from `data` and records each window read.
+  const readSync = (b, start, end) => { assert.equal(b, blob); reads.push([start, end]); return data.slice(start, end); };
+  const m = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
+  m.FS.mkdirTree('/work');
+  mountBlobFile(m.FS, '/work/r1.fastq.gz', blob, { readSync, window: 4096 });
+  assert.equal(m.FS.stat('/work/r1.fastq.gz').size, data.length);
+  assert.ok(m.FS.isFile(m.FS.stat('/work/r1.fastq.gz').mode));
+  assert.deepEqual(m.FS.readFile('/work/r1.fastq.gz'), data);
+  assert.ok(reads.every(([s, e]) => e - s <= Math.max(4096, data.length)), 'each read asks for a window, not the file');
+  // Small sequential reads and a seek back are served from the window; a read past the end gives 0 bytes.
+  const s = m.FS.open('/work/r1.fastq.gz', 'r');
+  const buf = new Uint8Array(10);
+  reads.length = 0;
+  assert.equal(m.FS.read(s, buf, 0, 10), 10);
+  assert.equal(m.FS.read(s, buf, 0, 10), 10);
+  assert.deepEqual(buf, data.slice(10, 20));
+  assert.ok(reads.length <= 1, 'two small reads, at most one window read');
+  m.FS.llseek(s, 0, 2);
+  assert.equal(m.FS.read(s, buf, 0, 10), 0);
+  m.FS.close(s);
+  assert.throws(() => m.FS.writeFile('/work/r1.fastq.gz', 'x'));
+});
