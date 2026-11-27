@@ -224,3 +224,5 @@ html.desktop .step { padding: .5rem 1.25rem 1.25rem; }
 body.wide-page { max-width: 80rem; }
 .table-scroll .builder-table { display: table; }
 .builder-table td.files { min-width: 16rem; }
+/* A link styled as a button wraps on a narrow screen (the nowrap of buttons would make the page scroll sideways). */
+a.button { white-space: normal; max-width: 100%; box-sizing: border-box; text-align: center; }
