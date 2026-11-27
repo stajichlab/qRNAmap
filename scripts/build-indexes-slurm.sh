@@ -6,6 +6,9 @@
 #   OUT=bench/<id>_indexes-v2/out sbatch --array=0-49%10 -p short -c 2 --mem 8G -t 1:00:00 \
 #     -o bench/<id>_indexes-v2/logs/%a.log scripts/build-indexes-slurm.sh
 # Then upload the set:  SRC_DIR=$OUT scripts/mirror-indexes-to-s3.sh indexes-v2
+# To refresh only the annotation tables of a published set (no index build), add
+#   INDEX_FROM_BASE=https://s3-west.nrp-nautilus.io/stajichlab/qRNAmap/indexes-v2
+# Each task then keeps <base>/<acc>.idx.gz byte for byte and stops when the new tx2gene differs from the published one.
 # Needs: target/release/qrnamap (cargo build --release -p qrnamap-cli), node, curl, gzip, sha256sum.
 # Work files go to $SCRATCH (build-one-index.sh); OUT keeps only the four .gz files and the .sha256 of each genome.
 set -euo pipefail
@@ -27,6 +30,7 @@ EOF
 )
 [[ -n "${acc:-}" ]] || { echo "no genome at index $i"; exit 0; }
 mkdir -p "$OUT"
+if [[ -n "${INDEX_FROM_BASE:-}" ]]; then export INDEX_FROM="${INDEX_FROM_BASE%/}/$acc.idx.gz"; fi
 start=$(date +%s)
 bash scripts/build-one-index.sh "$acc" "$fna" "$gff" "$OUT"
 echo "$acc done in $(( $(date +%s) - start )) s"
