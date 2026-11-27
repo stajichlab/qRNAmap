@@ -4,6 +4,7 @@ pub mod config;
 pub mod counts;
 pub mod de;
 pub mod design;
+pub mod fastq_names;
 pub mod genes;
 pub mod matrix;
 pub mod qc;

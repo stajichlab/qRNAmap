@@ -23,6 +23,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
 
 <p class="warn"><strong>Status:</strong> under construction. Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet. Step 1 downloads a catalog genome (or reads your FASTA and GFF3) and builds the kallisto index in your browser. Step 2 counts the first read pairs of each sample with kallisto and shows the mapping numbers per sample. There is no count table, plot or download yet.</p>
 <p><a class="button" id="analyze-link" href="analyze/">Open the tool (genome and samples steps)</a></p>
+<p><a id="sheet-link" href="sheet/">Make a sample sheet from FASTQ file names</a>: pairs mates and lanes, lets you add treatment columns, and writes the <code>samples.tsv</code> of the tool and the command line.</p>
 <p class="lead">The button leads to the three steps of the tool. Steps 1 (genome) and 2 (samples) work. Step 3 (results) is locked until it is built.</p>
 
 <h2>What qRNAmap is</h2>
