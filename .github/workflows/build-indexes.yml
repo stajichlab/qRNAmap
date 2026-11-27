@@ -114,9 +114,15 @@ jobs:
           mkdir -p release-files
           mv all-artifacts/* release-files/ || true
           cd release-files
-          if [ -f checksums.sha256 ]; then
-            sort -u checksums.sha256 -o checksums.sha256
-          fi
+          # The qrnamap CLI artifact is downloaded with the indexes; it is a build tool, not a release asset.
+          rm -f qrnamap
+          # Every accession needs all four files (a missing one makes the page fall back to building the index).
+          for f in ./*.idx.gz; do acc=$(basename "$f" .idx.gz)
+            for k in tx2gene.tsv gene_info.tsv genes.tsv; do [ -f "$acc.$k.gz" ] || { echo "missing $acc.$k.gz" >&2; exit 1; }; done
+          done
+          # One <accession>.sha256 per genome (build-one-index.sh): join them into one list.
+          cat ./*.sha256 | sort -u -k2 > checksums.all && rm -f ./*.sha256 && mv checksums.all checksums.sha256
+          sha256sum --check --quiet checksums.sha256
           ls -lh
           echo "Total size: $(du -sh .)"
 
@@ -134,13 +140,15 @@ jobs:
           for f in *; do
             [ -f "$f" ] || continue
             echo "Uploading $f..."
+            ok=0
             for attempt in {1..5}; do
               if gh release upload "$TAG" "$f" --clobber; then
-                break
+                ok=1; break
               fi
               echo "Upload failed for $f, retrying in 3s (attempt $attempt/5)..."
               sleep 3
             done
+            [ "$ok" = 1 ] || { echo "giving up on $f: the release would miss it" >&2; exit 1; }
           done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
