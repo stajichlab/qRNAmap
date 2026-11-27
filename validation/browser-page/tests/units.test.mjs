@@ -8,6 +8,7 @@ import { baseName, pageRules, filesByName, sheetText } from '../../../site/analy
 import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRecords } from '../../../site/analyze/fastq.js';
 import { StreamRingBuffer } from '../../../site/analyze/stream-ring.js';
 import { geneExternalLinks, genePopupHtml } from '../../../site/analyze/gene-links.js';
+import * as builder from '../../../site/sheet/builder.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
   'tx1\t1491\t1327.5\t9\t31.1145\n' +
@@ -301,4 +302,63 @@ test('genePopupHtml: function text, IDs and the volcano link-outs, all escaped',
   assert.match(bare, /<h4>&lt;g&gt;<\/h4>/);
   assert.match(bare, /No function text/);
   assert.match(bare, /No database link/);
+});
+
+// ------------------------------------------------------------------ sample sheet builder (site/sheet/builder.js)
+
+const grouped = (name, f1, f2, rule = 'read-tag') => ({ name, fromName: name, fastq1: f1, fastq2: f2, rule, problems: [], notes: [] });
+
+test('sheet builder: columns from name parts keep only the parts that differ', () => {
+  const rows = builder.rowsFromGrouping([
+    grouped('WT_rep1_30C', ['a_R1.fq'], ['a_R2.fq']),
+    grouped('WT_rep2_37C', ['b_R1.fq'], ['b_R2.fq']),
+    grouped('dcat_rep1_37C', ['c_R1.fq'], ['c_R2.fq']),
+  ]);
+  const cols = [builder.newColumn('part1')];
+  const added = builder.columnsFromNameParts(rows, cols);
+  assert.deepEqual(added.map((c) => c.name), ['part1_', 'part2', 'part3']);
+  assert.deepEqual(rows.map((r) => added.map((c) => r.values[c.key])), [['WT', 'rep1', '30C'], ['WT', 'rep2', '37C'], ['dcat', 'rep1', '37C']]);
+  assert.deepEqual(builder.nameParts(['a_b', 'c']).parts, [['a', 'b'], ['c', '']]);
+});
+
+test('sheet builder: pair, split and swap', () => {
+  const [a, b, p] = builder.rowsFromGrouping([
+    grouped('x1', ['x1.fq'], [], 'single'), grouped('x2', ['x2.fq'], [], 'single'), grouped('p', ['p_R1.fq'], ['p_R2.fq']),
+  ]);
+  a.values.k = 'ctl';
+  const made = builder.pairRows(a, b);
+  assert.deepEqual([made.name, made.fastq1, made.fastq2, made.values.k, made.rule], ['x1', ['x1.fq'], ['x2.fq'], 'ctl', 'manual']);
+  assert.match(builder.pairRows(a, p), /two single-end rows/);
+  const [s1, s2] = builder.splitRow(p);
+  assert.deepEqual([s1.name, s1.fastq1, s1.fastq2, s2.name, s2.fastq1], ['p-1', ['p_R1.fq'], [], 'p-2', ['p_R2.fq']]);
+  assert.equal(builder.splitRow(a), null);
+  assert.ok(builder.swapMates(p));
+  assert.deepEqual([p.fastq1, p.fastq2], [['p_R2.fq'], ['p_R1.fq']]);
+  assert.equal(builder.swapMates(a), false);
+});
+
+test('sheet builder: sheet text with lanes, folder prefix and every column', () => {
+  const rows = builder.rowsFromGrouping([
+    grouped('A', ['A_L001_R1.fq.gz', 'A_L002_R1.fq.gz'], ['A_L001_R2.fq.gz', 'A_L002_R2.fq.gz']),
+    grouped('B', ['/abs/B.fq'], [], 'single'),
+  ]);
+  const cols = [builder.newColumn('condition'), builder.newColumn('batch')];
+  rows[0].values[cols[0].key] = 'ctl';
+  rows[1].values[cols[0].key] = ' trt\t';
+  assert.equal(builder.sheetText(cols, rows, '/data/run1/'),
+    'sample\tfastq1\tfastq2\tcondition\tbatch\n' +
+    'A\t/data/run1/A_L001_R1.fq.gz,/data/run1/A_L002_R1.fq.gz\t/data/run1/A_L001_R2.fq.gz,/data/run1/A_L002_R2.fq.gz\tctl\t\n' +
+    'B\t/abs/B.fq\t\ttrt\t\n');
+  assert.equal(builder.sheetPath('x.fq', 'C:\\reads'), 'C:\\reads/x.fq');
+  assert.equal(builder.sheetPath('x.fq', ''), 'x.fq');
+  assert.match(builder.analyzePageNotes(rows)[0], /1 sample\(s\) have several lanes \(A\)/);
+  assert.deepEqual(builder.analyzePageNotes([rows[1]]), []);
+});
+
+test('sheet builder: a saved draft is read back, and junk is refused', () => {
+  const state = { names: ['a.fq'], columns: [{ key: 900, name: 'c' }], rows: [{ key: 901, name: 'a', fastq1: ['a.fq'], fastq2: [], values: {} }] };
+  assert.deepEqual(builder.fromSaved(builder.toSaved(state)), state);
+  assert.ok(builder.newColumn('z').key > 901, 'new keys do not reuse saved ones');
+  assert.equal(builder.fromSaved({ rows: 'x' }), null);
+  assert.equal(builder.fromSaved(null), null);
 });

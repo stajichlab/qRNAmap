@@ -285,6 +285,24 @@ enum Cmd {
         #[arg(long)]
         tmpdir: Option<PathBuf>,
     },
+    /// Write a sample sheet from FASTQ file names (pairs R1/R2 mates, lists lanes, makes safe
+    /// sample names). Only the names are read. Prints the sheet, or writes it to --out.
+    Sheet {
+        /// FASTQ files, or folders whose FASTQ files are listed (not their subfolders). Paths are
+        /// written as given: pass absolute paths for a sheet that works from any folder.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Write the sheet here instead of standard output. An existing file is not replaced.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Add an empty covariate column to fill in (repeatable), for example --column condition or
+        /// --column dose:numeric.
+        #[arg(long = "column", value_name = "NAME")]
+        columns: Vec<String>,
+        /// Do not treat a trailing _1/_2 (SRR123_1.fastq.gz) as mates: each is a single-end sample.
+        #[arg(long)]
+        no_numeric_mates: bool,
+    },
     /// Launch the local web user interface in the default browser.
     Ui {
         /// Port to bind the local web server. Default: 8080.
@@ -488,6 +506,85 @@ impl RunFlags {
             ..RunConfig::default()
         }
     }
+}
+
+/// The sheet text of `qrnamap sheet`. Notes, skipped files and row problems go to standard error.
+fn sheet_from_names(
+    paths: &[PathBuf],
+    columns: &[String],
+    numeric_mates: bool,
+) -> Result<String, String> {
+    use qrnamap_core::fastq_names::{group_fastq_names, grouping_sheet_tsv, GroupOptions};
+    for c in columns {
+        let mut it = c.strip_suffix(":numeric").unwrap_or(c).chars();
+        let ok = it.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && it.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.'));
+        if !ok {
+            return Err(format!(
+                "--column {c:?}: a column name starts with a letter and has only letters, digits, '_' and '.' (optionally followed by :numeric)"
+            ));
+        }
+    }
+    let mut names = Vec::new();
+    for p in paths {
+        if p.is_dir() {
+            let mut inside: Vec<String> = std::fs::read_dir(p)
+                .map_err(|x| format!("{}: {x}", p.display()))?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .map(|e| e.path().to_string_lossy().into_owned())
+                .collect();
+            inside.sort();
+            names.extend(inside);
+        } else {
+            names.push(p.to_string_lossy().into_owned());
+        }
+    }
+    let g = group_fastq_names(&names, &GroupOptions { numeric_mates });
+    for s in &g.skipped {
+        eprintln!("skipped {}: {}", s.path, s.reason);
+    }
+    let mut problems = 0;
+    for r in &g.samples {
+        for n in &r.notes {
+            eprintln!("note: sample '{}': {n}", r.name);
+        }
+        for p in &r.problems {
+            eprintln!("problem: sample '{}': {p}", r.name);
+            problems += 1;
+        }
+    }
+    if g.samples.is_empty() {
+        return Err(
+            "no FASTQ files (.fastq or .fq, optionally .gz or .zst) among the paths".into(),
+        );
+    }
+    let paired = g
+        .samples
+        .iter()
+        .filter(|r| r.problems.is_empty() && !r.fastq2.is_empty())
+        .count();
+    let single = g
+        .samples
+        .iter()
+        .filter(|r| r.problems.is_empty() && r.fastq2.is_empty())
+        .count();
+    let bad_rows = g.samples.len() - paired - single;
+    eprintln!(
+        "{} samples ({paired} paired-end, {single} single-end, {bad_rows} with a problem), {} files skipped",
+        g.samples.len(),
+        g.skipped.len()
+    );
+    if problems > 0 {
+        eprintln!("{problems} problem(s) above: fix those rows before using the sheet");
+    }
+    if !columns.is_empty() {
+        eprintln!(
+            "fill in the {} column(s) before using the sheet",
+            columns.join(", ")
+        );
+    }
+    Ok(grouping_sheet_tsv(&g.samples, columns))
 }
 
 fn load_sheet(path: &Path) -> Result<Vec<Sample>, String> {
@@ -993,6 +1090,27 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             pipeline::write_output(&out.join("strand_check.tsv"), table.as_bytes()).map_err(e)?;
             scratch.cleanup();
+        }
+        Cmd::Sheet {
+            paths,
+            out,
+            columns,
+            no_numeric_mates,
+        } => {
+            let text = sheet_from_names(&paths, &columns, !no_numeric_mates)?;
+            match out {
+                None => print!("{text}"),
+                Some(path) => {
+                    let mut f = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        .map_err(|x| format!("{}: {x}", path.display()))?;
+                    std::io::Write::write_all(&mut f, text.as_bytes())
+                        .map_err(|x| format!("{}: {x}", path.display()))?;
+                    eprintln!("wrote {}", path.display());
+                }
+            }
         }
         Cmd::Ui {
             port,

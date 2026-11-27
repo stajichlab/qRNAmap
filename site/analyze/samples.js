@@ -1,9 +1,10 @@
 // Step 2 of /analyze/: the sample table (sample name, covariate columns, one mate 1 and one mate 2 file per row), the
+// filling of the table from picked FASTQ files (mates paired by name with group_fastq_names, the rules of /sheet/), the
 // upload of a command-line sample sheet with file-name matching, the checks before a run, and the run (quant.js).
 // The table is the one place the samples live: a loaded sheet fills it, and a run reads it.
 // Checks: the sheet that the table gives is checked with validate_sheet (the command-line parser and reserved names)
 // and with the page rules of sheet.js. The page does not refuse a file by its size: it reads only the first N pairs.
-import { validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
+import { validate_sheet, group_fastq_names } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { baseName, pageRules, filesByName, sheetText } from './sheet.js?v=__BUILD__';
 import { createQuant, MAX_PAIRS, previewLabel } from './quant.js?v=__BUILD__';
 import { isTauri, checkNative, pickFile, pickFiles, readLocalSheet, FASTQ_EXTS } from './tauri-bridge.js?v=__BUILD__';
@@ -215,6 +216,65 @@ export function createSamplesStep({ $, app, shell }) {
     applyPicked();
     render();
   });
+
+  // ------------------------------------------------------------------ fill the table from picked FASTQ files
+  /**
+   * One row per sample of the picked files, mates paired by file name (group_fastq_names). `files`: browser Files, or
+   * {name, path} in the desktop app. Rows with nothing in them are replaced; filled rows stay. A sample the page cannot
+   * take (several lanes, a missing mate, a name already in the table) is reported, not added.
+   */
+  function fillFromFiles(files) {
+    const { byName, errors } = filesByName(files);
+    if (errors.length) { sheetError(['The picked FASTQ files were not used:', ...errors]); return; }
+    const result = JSON.parse(group_fastq_names(JSON.stringify({ names: [...byName.keys()], numericMates: $('fill-numeric-mates').checked })));
+    if (!result.ok) { sheetError([result.error]); return; }
+    const isBlank = (r) => !r.name.trim() && !r.files[1] && !r.files[2] && !r.expect[1] && !r.expect[2]
+      && !Object.values(r.values).some((v) => String(v).trim());
+    model.rows = model.rows.filter((r) => !isBlank(r));
+    const taken = new Set(model.rows.map((r) => r.name.trim()));
+    const messages = result.skipped.map((s) => `${s.path} was left out: ${s.reason}.`);
+    let added = 0;
+    let paired = 0;
+    for (const s of result.samples) {
+      if (s.problems.length) { messages.push(`sample "${s.name}" was not added: ${s.problems.join('; ')}.`); continue; }
+      if (s.fastq1.length > 1 || s.fastq2.length > 1) {
+        messages.push(`sample "${s.name}" was not added: it has ${Math.max(s.fastq1.length, s.fastq2.length)} lanes per mate, and this page takes one file per mate. ` +
+          'Join the lanes into one file first (gzip files can be joined with cat), or use the command-line tool.');
+        continue;
+      }
+      if (taken.has(s.name)) { messages.push(`sample "${s.name}" was not added: the table already has a row with that name.`); continue; }
+      const file = (n) => (n ? byName.get(n) : null);
+      const fields = { name: s.name, files: { 1: file(s.fastq1[0]), 2: file(s.fastq2[0]) } };
+      if (fields.files[1]?.path) {
+        fields.paths = { 1: [fields.files[1].path], 2: fields.files[2] ? [fields.files[2].path] : [] };
+      }
+      model.rows.push(newRow(fields));
+      taken.add(s.name);
+      added += 1;
+      if (s.fastq2.length) paired += 1;
+    }
+    if (!model.rows.length) model.rows.push(newRow());
+    delete $('samples-panel').dataset.sheet;
+    sheetError(messages);
+    $('fill-status').textContent = added
+      ? `${added} sample(s) added (${paired} paired-end, ${added - paired} single-end). Check the names, then fill in the covariate columns.`
+      : 'No sample was added.';
+    render();
+  }
+
+  $('fill-fastqs').addEventListener('change', ({ target }) => {
+    const files = [...target.files];
+    target.value = '';
+    if (files.length) fillFromFiles(files);
+  });
+  if (isTauri()) {
+    $('fill-fastqs').addEventListener('click', async (event) => {
+      if (!nativeSelected()) return; // "In the page" keeps the browser file picker
+      event.preventDefault();
+      const paths = await pickFiles('FASTQ files of all samples', 'FASTQ (.fastq, .fq, .gz)', FASTQ_EXTS);
+      if (paths.length) fillFromFiles(paths.map((p) => ({ name: baseName(p), path: p })));
+    });
+  }
 
   // ------------------------------------------------------------------ desktop native local sheet loader
   async function loadNativeSheet(sheetPath) {

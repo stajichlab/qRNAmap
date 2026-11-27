@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qRNAmap sample sheet</title>
+<meta name="description" content="Build a qRNAmap sample sheet from FASTQ file names: mates paired, lanes listed, treatment columns filled in. Only the file names are read.">
+<script>
+try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
+</head>
+<body class="wide-page">
+<div class="topbar">
+  <h1>Sample sheet</h1>
+  <div class="topbar-actions">
+    <button type="button" id="btn-start-over" class="button-reset" title="Clear the names and the table">Start over</button>
+    <nav class="themes" aria-label="Colour theme">
+      <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+      <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
+    </nav>
+  </div>
+</div>
+<p class="lead"><a href="../">qRNAmap</a>: make the <code>samples.tsv</code> of the command-line tool and the <a href="../analyze/">Analyze page</a> from your FASTQ file names.</p>
+
+<section class="step" id="sheet-names" aria-labelledby="h-names">
+  <h2 id="h-names">1. File names</h2>
+  <p class="small">Only the names are read: the files are not opened and nothing is uploaded.
+    Mates are paired by fixed rules (Illumina <code>_S1_L001_R1_001</code>, <code>_R1</code>/<code>_R2</code>, <code>_1</code>/<code>_2</code>), lanes of a sample are listed together,
+    and sample names are made safe for the sheet. The same names always give the same table.</p>
+  <div id="drop-zone" class="drop-zone" tabindex="-1">
+    <p><strong>Drop FASTQ files or a folder here</strong>, or</p>
+    <p class="field-row">
+      <label class="file-button button-small">Choose files…<input id="pick-files" type="file" multiple accept=".fastq,.fq,.gz,.fastq.gz,.fq.gz"></label>
+      <label class="file-button button-small">Choose a folder…<input id="pick-folder" type="file" webkitdirectory multiple></label>
+    </p>
+  </div>
+  <details id="paste-box">
+    <summary>Or paste file names or paths (one per line, for example from <code>ls</code> on the cluster)</summary>
+    <label for="paste-names" class="visually-hidden">File names or paths, one per line</label>
+    <textarea id="paste-names" rows="6" spellcheck="false" placeholder="WT1_S1_L001_R1_001.fastq.gz&#10;WT1_S1_L001_R2_001.fastq.gz&#10;/bigdata/lab/reads/SRR1234567_1.fastq.gz"></textarea>
+    <p><button type="button" id="btn-use-pasted">Add these names</button></p>
+  </details>
+  <p><label><input type="checkbox" id="numeric-mates" checked> A name ending in <code>_1</code> / <code>_2</code> is mate 1 / mate 2 (SRA and ENA files).
+    Turn off when <code>_1</code>, <code>_2</code> number replicates.</label></p>
+  <p id="names-status" class="small" role="status" aria-live="polite"></p>
+</section>
+
+<section class="step" id="sheet-table-step" aria-labelledby="h-table" hidden>
+  <h2 id="h-table">2. Samples and treatments</h2>
+  <p id="group-summary"></p>
+  <details id="skipped-box" hidden>
+    <summary id="skipped-summary"></summary>
+    <ul id="skipped-list" class="small"></ul>
+  </details>
+  <div class="sheet-tools">
+    <div class="tool-group">
+      <label for="new-col-name">Column</label>
+      <input id="new-col-name" type="text" size="12" placeholder="condition" spellcheck="false">
+      <button type="button" id="btn-add-col">Add column</button>
+      <button type="button" id="btn-name-parts" title="One column for each part of the sample names (split at _ - .) that differs between samples">Columns from name parts</button>
+    </div>
+    <div class="tool-group">
+      <span id="selected-count">0 selected</span>
+      <label for="bulk-col" class="visually-hidden">Column to set</label>
+      <select id="bulk-col"></select>
+      <label for="bulk-value" class="visually-hidden">Value</label>
+      <input id="bulk-value" type="text" size="10" placeholder="value" spellcheck="false">
+      <button type="button" id="btn-bulk-set">Set for selected</button>
+    </div>
+    <div class="tool-group">
+      <button type="button" id="btn-pair" title="Two selected single-end rows become one paired sample (the upper row is mate 1)">Pair</button>
+      <button type="button" id="btn-split" title="Each selected pair becomes two single-end samples">Split</button>
+      <button type="button" id="btn-swap" title="Swap mate 1 and mate 2 of the selected pairs">Swap mates</button>
+      <button type="button" id="btn-remove" title="Remove the selected rows">Remove</button>
+    </div>
+  </div>
+  <ul id="action-error" class="error" role="alert" hidden></ul>
+  <div class="table-scroll">
+    <table id="builder-table" class="builder-table"></table>
+  </div>
+</section>
+
+<section class="step" id="sheet-out" aria-labelledby="h-out" hidden>
+  <h2 id="h-out">3. Sheet</h2>
+  <p>
+    <label for="path-prefix">Folder of the files on the computer that runs <code>qrnamap</code> (optional)</label><br>
+    <input id="path-prefix" type="text" size="48" placeholder="/bigdata/mylab/reads/run1" spellcheck="false">
+  </p>
+  <p class="small">Added in front of each file name that came without a folder. The command-line tool needs it unless it runs in the folder of the files;
+    the Analyze page ignores folders (it matches files by name).</p>
+  <ul id="sheet-check" class="error" role="alert" hidden></ul>
+  <p id="sheet-ok" class="note" hidden></p>
+  <ul id="page-notes" class="small" hidden></ul>
+  <p class="field-row">
+    <button type="button" id="btn-download" class="button">Download samples.tsv</button>
+    <button type="button" id="btn-copy">Copy</button>
+    <span id="copy-status" class="small" role="status" aria-live="polite"></span>
+  </p>
+  <details open>
+    <summary>Preview</summary>
+    <pre id="sheet-preview" class="sheet-preview"></pre>
+  </details>
+</section>
+
+<footer>qRNAmap, Stajich Lab. <a href="https://github.com/stajichlab/qRNAmap">github.com/stajichlab/qRNAmap</a>.
+  Command line: <code>qrnamap sheet READS_DIR --column condition &gt; samples.tsv</code> uses the same rules.</footer>
+<script src="../theme.js?v=__BUILD__"></script>
+<script type="module" src="app.js?v=__BUILD__"></script>
+</body>
+</html>
