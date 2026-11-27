@@ -65,6 +65,13 @@ after(async () => {
   server.close();
 });
 
+/** The /analyze/ address with `query`, always with `prebuilt=0`: these tests check the in-page build from the NCBI fixtures, and
+ * the catalog test genomes have pre-built indexes on S3, which the page would otherwise fetch over the network. */
+const analyzeUrl = (query = '') => {
+  const params = new URLSearchParams(query);
+  if (!params.has('prebuilt')) params.set('prebuilt', '0');
+  return `${base}/analyze/?${params}`;
+};
 /** A new context and page. `ncbi(route, url)` answers NCBI requests (default: the fixtures for the S288C URLs, 404 otherwise). */
 async function open(t, { query = '', ncbi, context } = {}) {
   context = context || await browser.newContext();
@@ -80,7 +87,9 @@ async function open(t, { query = '', ncbi, context } = {}) {
     if (url === GFF_URL) return route.fulfill({ status: 200, body: fixture('mito.gff3.gz'), headers: { 'access-control-allow-origin': '*' } });
     return route.fulfill({ status: 404, body: 'not found', headers: { 'access-control-allow-origin': '*' } });
   });
-  await page.goto(`${base}/analyze/${query}`);
+  const s3Requests = []; // must stay empty: prebuilt=0 (a pre-built index would replace the fixture genome)
+  await page.route('https://s3-west.nrp-nautilus.io/**', (route) => { s3Requests.push(route.request().url()); return route.abort(); });
+  await page.goto(analyzeUrl(query));
   await page.waitForSelector('#step-genome[data-ready="menu"]', { timeout: 30_000 });
   t.after(async () => {
     hooks.kallisto = 'serve';
@@ -88,7 +97,7 @@ async function open(t, { query = '', ncbi, context } = {}) {
     hooks.release = null;
     await context.close();
   });
-  return { page, errors, ncbiRequests, context };
+  return { page, errors, ncbiRequests, s3Requests, context };
 }
 
 async function chooseYeast(page) {
@@ -137,7 +146,7 @@ test('the menu lists the catalog, RefSeq first, and the search filters it', asyn
 });
 
 test('catalog genome: download, transcripts and index reach "index ready" with the CLI counts', async (t) => {
-  const { page, errors, context } = await open(t);
+  const { page, errors, context, s3Requests } = await open(t);
   await chooseYeast(page);
   await waitPhase(page, 'ready');
   assert.equal(await page.textContent('#ready-label'), 'Saccharomyces cerevisiae S288C');
@@ -157,6 +166,8 @@ test('catalog genome: download, transcripts and index reach "index ready" with t
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.indexArgs), ['index', '-i', 'transcripts.idx', 'transcripts.fa']);
   // The fixture sizes differ from the catalog sizes: a soft note in the state, not an error.
   assert.equal((await page.evaluate(() => window.qrnamapApp.state.downloadNotes)).length, 2);
+  assert.deepEqual(s3Requests, [], 'the in-page build: no pre-built index from S3');
+  assert.doesNotMatch(await page.textContent('#ready-time'), /pre-built/);
   assert.deepEqual(errors, []);
   // The last genome is remembered (persist.js) and selected again after a reload; it is not downloaded again by itself.
   await page.waitForSelector('#step-genome[data-saved="catalog"]', { timeout: 10_000 });
@@ -442,7 +453,7 @@ test('real NCBI download of S. cerevisiae S288C (REAL_NCBI=1 only)', { skip: pro
   const context = await browser.newContext();
   const page = await context.newPage();
   t.after(() => context.close());
-  await page.goto(`${base}/analyze/`);
+  await page.goto(analyzeUrl());
   await page.waitForSelector('#step-genome[data-ready="menu"]', { timeout: 30_000 });
   const started = Date.now();
   await chooseYeast(page);
