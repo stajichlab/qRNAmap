@@ -119,13 +119,14 @@ pub fn gene_table_tsv(rows: &[GeneRow]) -> String {
 
 /// Header and rows of the gene alias table `gene_info.tsv`.
 ///
-/// Header: `gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n`.
+/// Header: `gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\tdescription\n`.
 /// Unknown attributes are ignored; a parse error in one alias never fails the transcriptome build
 /// (the alias cell is empty). `dbxref` holds the gene feature's `Dbxref` entries (for example
-/// `GeneID:854598,SGD:S000007260`) so callers can link out to NCBI Gene or SGD.
+/// `GeneID:854598,SGD:S000007260`) so callers can link out to NCBI Gene or SGD. `description` is the
+/// gene's function text ([`Gene::description`]) with tabs and line breaks made spaces.
 pub fn gene_info_tsv(model: &GeneModel, _extra_mito_contigs: &[String]) -> String {
     let mut s = String::from(
-        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n",
+        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\tdescription\n",
     );
     for g in &model.genes {
         let biotype = biotype_of(g);
@@ -153,10 +154,23 @@ pub fn gene_info_tsv(model: &GeneModel, _extra_mito_contigs: &[String]) -> Strin
         let transcripts_str = tx_ids.join(",");
         let proteins_str = proteins.join(",");
         let dbxref_str = g.dbxref.join(",");
+        let description: String = g
+            .description
+            .as_deref()
+            .unwrap_or("")
+            .chars()
+            .map(|c| {
+                if c == '\t' || c == '\n' || c == '\r' {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect();
 
         let _ = writeln!(
             s,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             g.label,
             symbol,
             gene_id,
@@ -167,7 +181,8 @@ pub fn gene_info_tsv(model: &GeneModel, _extra_mito_contigs: &[String]) -> Strin
             class.as_str(),
             g.contig,
             strand,
-            dbxref_str
+            dbxref_str,
+            description
         );
     }
     s

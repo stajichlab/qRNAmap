@@ -453,3 +453,36 @@ chr1\tsrc\texon\t3000\t3500\t.\t-\t.\tID=e4;Parent=t4\n";
     assert_eq!(g3.transcripts.len(), 1);
     assert!(g3.transcripts[0].proteins.is_empty());
 }
+
+#[test]
+fn gene_description_from_gene_attributes_or_mrna_or_cds_product() {
+    let gff = "##gff-version 3\n\
+chr1\tsrc\tgene\t100\t900\t.\t+\t.\tID=g1;locus_tag=A1;description=ABC%20transporter%2C putative\n\
+chr1\tsrc\tmRNA\t100\t900\t.\t+\t.\tID=t1;Parent=g1;product=ignored\n\
+chr1\tsrc\texon\t100\t900\t.\t+\t.\tParent=t1\n\
+chr1\tsrc\tgene\t1000\t1900\t.\t+\t.\tID=g2;locus_tag=A2\n\
+chr1\tsrc\tmRNA\t1000\t1900\t.\t+\t.\tID=t2;Parent=g2;product=catalase B\n\
+chr1\tsrc\texon\t1000\t1900\t.\t+\t.\tParent=t2\n\
+chr1\tsrc\tgene\t2000\t2900\t.\t+\t.\tID=g3;locus_tag=A3;Note=SGD note\n\
+chr1\tsrc\tmRNA\t2000\t2900\t.\t+\t.\tID=t3;Parent=g3\n\
+chr1\tsrc\texon\t2000\t2900\t.\t+\t.\tParent=t3\n\
+chr1\tsrc\tgene\t3000\t3900\t.\t+\t.\tID=g4;locus_tag=A4\n\
+chr1\tsrc\tmRNA\t3000\t3900\t.\t+\t.\tID=t4;Parent=g4\n\
+chr1\tsrc\texon\t3000\t3900\t.\t+\t.\tParent=t4\n\
+chr1\tsrc\tCDS\t3100\t3800\t.\t+\t0\tParent=t4;product=cytochrome c oxidase subunit 1\n\
+chr1\tsrc\tgene\t4000\t4900\t.\t+\t.\tID=g5;locus_tag=A5\n\
+chr1\tsrc\tmRNA\t4000\t4900\t.\t+\t.\tID=t5;Parent=g5\n\
+chr1\tsrc\texon\t4000\t4900\t.\t+\t.\tParent=t5\n";
+    let m = parse(gff).unwrap();
+    let d: Vec<Option<&str>> = m.genes.iter().map(|g| g.description.as_deref()).collect();
+    assert_eq!(
+        d,
+        vec![
+            Some("ABC transporter, putative"),
+            Some("catalase B"),
+            Some("SGD note"),
+            Some("cytochrome c oxidase subunit 1"),
+            None
+        ]
+    );
+}

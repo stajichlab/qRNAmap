@@ -126,7 +126,7 @@ fn transcripts_writes_gene_info_table() {
     );
     let content = read_table(&info).unwrap();
     assert!(content.starts_with(
-        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n"
+        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\tdescription\n"
     ));
 }
 
@@ -428,6 +428,7 @@ fn gene(label: &str) -> Gene {
         gene_id: None,
         dbxref: vec![],
         old_locus_tag: None,
+        description: None,
         transcripts: vec![Transcript {
             id: "t1".into(),
             kind: "mRNA".into(),
