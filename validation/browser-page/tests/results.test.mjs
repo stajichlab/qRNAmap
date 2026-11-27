@@ -42,6 +42,13 @@ after(async () => {
   server.close();
 });
 
+/** The /analyze/ address with `query`, always with `prebuilt=0`: these tests check the in-page build from the NCBI fixtures, and
+ * the catalog test genomes have pre-built indexes on S3, which the page would otherwise fetch over the network. */
+const analyzeUrl = (query = '') => {
+  const params = new URLSearchParams(query);
+  if (!params.has('prebuilt')) params.set('prebuilt', '0');
+  return `${base}/analyze/?${params}`;
+};
 /** A new page with the fixture genome index ready and step 2 open. */
 async function open(t, query = '') {
   const context = await browser.newContext({ acceptDownloads: true });
@@ -51,7 +58,7 @@ async function open(t, query = '') {
   t.after(async () => {
     await context.close();
   });
-  await page.goto(`${base}/analyze/${query}`);
+  await page.goto(analyzeUrl(query));
   await page.waitForSelector('#step-samples[data-ready="table"]', { timeout: 30_000 });
   await page.check('input[name="genome-source"][value="upload"]');
   await page.setInputFiles('#upload-fasta', join(FIX, 'mito.fna.gz'));
