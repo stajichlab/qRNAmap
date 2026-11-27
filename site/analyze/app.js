@@ -58,6 +58,7 @@ window.qrnamapApp = {
   nextId: genomeStep.nextId,
   loadCatalogAccession: genomeStep.loadCatalogAccession,
   getIndexBytes: genomeStep.getIndexBytes,
+  prepareNativeIndex: genomeStep.prepareNativeIndex,
 };
 const samplesStep = createSamplesStep({ $, app: window.qrnamapApp, shell: { markDone: completeStep, resetFrom } });
 window.qrnamapApp.samplesStep = samplesStep;

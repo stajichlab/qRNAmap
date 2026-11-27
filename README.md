@@ -56,6 +56,14 @@ cd apps/desktop && cargo tauri build
 
 That build assembles the site itself, so it needs `pkg-web/` (see above).
 
+In "Native, full depth" mode the app runs the kallisto 0.52 installed on the computer. kallisto
+index files are not portable between builds of the same version: macOS Homebrew kallisto reads
+the page's (kallisto.wasm) index, but the Linux conda build crashes on it. So the app first
+checks that the native kallisto loads the page's index. When it cannot, the native kallisto
+builds its own index from the transcripts (for a pre-built genome the app downloads the genome
+from NCBI again to make them) and keeps it in `$TMPDIR/qrnamap_desktop/native/`, one file per
+genome and kallisto version, so this happens once per genome.
+
 ## Sample sheet
 
 A tab-separated file with a header row.
