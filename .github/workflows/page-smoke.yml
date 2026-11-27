@@ -1,6 +1,7 @@
 # Site smoke test: build dist-site, check its links, and load / and /analyze/ in headless Chromium, Firefox and WebKit.
 # Start by hand with `gh workflow run` works only after this file is on the default branch; until then a push that touches it starts it.
-# Job genome-step: the browser tests of /analyze/ (genome.test.mjs, samples.test.mjs, results.test.mjs, testsets.test.mjs),
+# Job genome-step: the browser tests of /analyze/ (genome.test.mjs, samples.test.mjs, results.test.mjs, testsets.test.mjs)
+# and of /sheet/ (sheet.test.mjs),
 # one job per engine, on the same dist-site. The smoke job also runs the unit tests of the page modules (units.test.mjs, Node only).
 # Separate from page.yml so that a site change does not start the measurement jobs. No secrets.
 name: Site smoke
@@ -113,6 +114,12 @@ jobs:
       - name: Testsets step tests (${{ matrix.engine }})
         if: ${{ !cancelled() }}
         run: node --test validation/browser-page/tests/testsets.test.mjs
+        env:
+          DIST: ${{ github.workspace }}/dist-site
+          ENGINE: ${{ matrix.engine }}
+      - name: Sample sheet builder tests (${{ matrix.engine }})
+        if: ${{ !cancelled() }}
+        run: node --test validation/browser-page/tests/sheet.test.mjs
         env:
           DIST: ${{ github.workspace }}/dist-site
           ENGINE: ${{ matrix.engine }}

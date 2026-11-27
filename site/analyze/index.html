@@ -102,6 +102,7 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
           <p class="small">A tab-separated sheet with the columns <code>sample</code>, <code>fastq1</code>, optional <code>fastq2</code>, and covariate columns
             (a header <code>name:numeric</code> makes a numeric column). The page matches each <code>fastq1</code> and <code>fastq2</code> path to a picked file
             by its file name; the folder part of the path is ignored. A row whose file was not picked is marked, with a file picker.</p>
+          <p class="small">No sheet yet? <a href="../sheet/" target="_blank" rel="noopener">Make one from your FASTQ file names</a> (opens in a new tab).</p>
           <label for="sheet-file">Sample sheet (.tsv or .txt)</label>
           <input id="sheet-file" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain">
           <label for="sheet-fastqs">The FASTQ files the sheet names (you can pick several at once)</label>

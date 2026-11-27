@@ -474,6 +474,44 @@ pub fn validate_sheet_native(sheet_tsv: &str) -> String {
     .to_string()
 }
 
+/// Sample sheet rows from FASTQ file names (see `qrnamap_core::fastq_names`). The request is
+/// `{"names": [path, ...], "numericMates": bool}` (numericMates defaults to true). Returns JSON
+/// `{"ok", "error", "samples": [{name, fromName, fastq1, fastq2, rule, problems, notes}],
+/// "skipped": [{path, reason}]}` and does not throw.
+pub fn group_fastq_names_native(request_json: &str) -> String {
+    use qrnamap_core::fastq_names::{group_fastq_names, GroupOptions};
+    let fail = |error: String| {
+        json!({"ok": false, "error": error, "samples": [], "skipped": []}).to_string()
+    };
+    let request: Value = match serde_json::from_str(request_json) {
+        Ok(v) => v,
+        Err(x) => return fail(format!("bad request: {x}")),
+    };
+    let Some(names) = request["names"].as_array() else {
+        return fail("bad request: names must be an array of strings".into());
+    };
+    let names: Vec<&str> = names.iter().filter_map(Value::as_str).collect();
+    let opts = GroupOptions {
+        numeric_mates: request["numericMates"].as_bool().unwrap_or(true),
+    };
+    let g = group_fastq_names(&names, &opts);
+    json!({
+        "ok": true,
+        "error": null,
+        "samples": g.samples.iter().map(|r| json!({
+            "name": r.name,
+            "fromName": r.from_name,
+            "fastq1": r.fastq1,
+            "fastq2": r.fastq2,
+            "rule": r.rule.as_str(),
+            "problems": r.problems,
+            "notes": r.notes,
+        })).collect::<Vec<_>>(),
+        "skipped": g.skipped.iter().map(|s| json!({"path": s.path, "reason": s.reason})).collect::<Vec<_>>(),
+    })
+    .to_string()
+}
+
 // ---------------------------------------------------------------------------------------------
 // wasm-bindgen exports
 
@@ -523,4 +561,11 @@ pub fn de_command(sheet_name: &str, counts_name: &str, design: &str, contrast: &
 #[wasm_bindgen]
 pub fn validate_sheet(sheet_tsv: &str) -> String {
     validate_sheet_native(sheet_tsv)
+}
+
+/// Sample sheet rows from FASTQ file names. Returns JSON and does not throw. See
+/// `group_fastq_names_native`.
+#[wasm_bindgen]
+pub fn group_fastq_names(request_json: &str) -> String {
+    group_fastq_names_native(request_json)
 }

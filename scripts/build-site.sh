@@ -7,10 +7,11 @@ set -euo pipefail
 test -f pkg-web/qrnamap_wasm.js && test -f pkg-web/qrnamap_wasm_bg.wasm || { echo "pkg-web is missing: run pixi run build-wasm-web first" >&2; exit 1; }
 test -f site/vendor/kallisto/kallisto.wasm || { echo "site/vendor/kallisto is missing" >&2; exit 1; }
 rm -rf dist-site
-mkdir -p dist-site/analyze dist-site/vendor dist-site/pkg-web
+mkdir -p dist-site/analyze dist-site/sheet dist-site/vendor dist-site/pkg-web
 cp site/index.html site/style.css site/theme.js site/testsets.json dist-site/
 if [ -d site/testsets ]; then cp -r site/testsets dist-site/; fi
 cp site/analyze/*.html site/analyze/*.js site/analyze/*.json dist-site/analyze/
+cp site/sheet/*.html site/sheet/*.js dist-site/sheet/
 cp site/gz.js site/persist.js site/reference-panel.js dist-site/
 cp site/vendor/fflate.js site/vendor/fflate.LICENSE dist-site/vendor/
 cp -r site/vendor/kallisto dist-site/vendor/kallisto
