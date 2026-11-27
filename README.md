@@ -82,6 +82,21 @@ WT_1	/bigdata/x/WT_1_L1_R1.fq.gz,/bigdata/x/WT_1_L2_R1.fq.gz	/bigdata/x/WT_1_L1_
 KO_1	/bigdata/x/KO_1_R1.fq.gz	/bigdata/x/KO_1_R2.fq.gz	ko
 ```
 
+### Making a sheet from file names
+
+`qrnamap sheet` writes a sheet from FASTQ file names; the [sample sheet page](https://qrnamap.fungalgenomes.org/sheet/) (`site/sheet/`) does the same in a browser, with a table to add treatment columns, pair or split rows by hand, and download `samples.tsv`. Only the names are read. Both use the rules of `qrnamap-core` `fastq_names`:
+
+1. Illumina names `<sample>_S<n>[_L<lane>]_R1_001` pair by `R1`/`R2`; the `_S<n>` is dropped from the sample name unless two samples would then share a name. Index reads (`_I1_`) and `Undetermined_*` files are left out.
+2. Names ending in `_R1`/`_R2`, `.R1`, `_r1`, `_read1` (optionally after `_L001`) pair by the tag.
+3. Names ending in `_1`/`_2` (SRA, ENA) pair only when both exist; `--no-numeric-mates` (a checkbox on the page) turns this off for replicates numbered `_1`, `_2`.
+4. Anything else is a single-end sample named after the file.
+
+Lanes of a sample become a comma-separated list in lane order. Sample names are made safe (other characters become `_`, an `X` in front of a leading digit). Problems (a mate missing, mates of different lanes) are reported, not guessed.
+
+```bash
+qrnamap sheet /bigdata/lab/reads/run1 --column condition > samples.tsv   # then fill in condition
+```
+
 ## Commands
 
 ```bash

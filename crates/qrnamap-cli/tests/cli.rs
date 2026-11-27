@@ -659,3 +659,58 @@ fn salmon_min_score_fraction_invalid_value_is_error() {
     assert!(!o.status.success());
     assert!(!err.contains("--salmon-min-score-fraction"), "{err}");
 }
+
+#[test]
+fn sheet_command_pairs_mates_from_a_folder_and_names_problems() {
+    let d = tempfile::tempdir().unwrap();
+    for n in [
+        "WT1_S1_L001_R1_001.fastq.gz",
+        "WT1_S1_L001_R2_001.fastq.gz",
+        "SRR9_1.fq.gz",
+        "SRR9_2.fq.gz",
+        "x_R2.fq",
+        "README.txt",
+    ] {
+        std::fs::write(d.path().join(n), b"").unwrap();
+    }
+    let dir = d.path().to_str().unwrap();
+    let (out, err) = ok(&qrnamap(&["sheet", dir, "--column", "condition"]));
+    let p = |n: &str| d.path().join(n).display().to_string();
+    assert_eq!(
+        out,
+        format!(
+            "sample\tfastq1\tfastq2\tcondition\nSRR9\t{}\t{}\t\nWT1\t{}\t{}\t\nx\t\t{}\t\n",
+            p("SRR9_1.fq.gz"),
+            p("SRR9_2.fq.gz"),
+            p("WT1_S1_L001_R1_001.fastq.gz"),
+            p("WT1_S1_L001_R2_001.fastq.gz"),
+            p("x_R2.fq"),
+        )
+    );
+    assert!(err.contains("README.txt: not a FASTQ"), "{err}");
+    assert!(err.contains("problem: sample 'x': only mate 2"), "{err}");
+    assert!(
+        err.contains("3 samples (2 paired-end, 0 single-end, 1 with a problem), 1 files skipped"),
+        "{err}"
+    );
+
+    // --out does not replace a file; --no-numeric-mates keeps _1/_2 apart.
+    let target = d.path().join("samples.tsv");
+    ok(&qrnamap(&[
+        "sheet",
+        &p("SRR9_1.fq.gz"),
+        &p("SRR9_2.fq.gz"),
+        "--no-numeric-mates",
+        "--out",
+        target.to_str().unwrap(),
+    ]));
+    let text = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        text.contains("SRR9_1\t") && text.contains("SRR9_2\t"),
+        "{text}"
+    );
+    let again = qrnamap(&["sheet", dir, "--out", target.to_str().unwrap()]);
+    assert!(!again.status.success());
+    let bad = qrnamap(&["sheet", dir, "--column", "1st"]);
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("--column \"1st\""));
+}

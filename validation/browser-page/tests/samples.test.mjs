@@ -246,6 +246,52 @@ test('sheet upload: CRLF, comments, blank lines, folders and spaces; files match
   assert.deepEqual(errors, []);
 });
 
+test('fill from FASTQ files: mates paired by name, one row per sample; skipped files and lanes reported; counts equal the CLI', async (t) => {
+  const { page, errors } = await open(t);
+  await fillRow(page, 0, { name: 'kept', condition: 'ctl' }); // a row with something in it stays
+  await page.setInputFiles('#fill-fastqs', [
+    ...['s2_R2.fastq', 's1_R1.fastq.gz', 's3.fastq.gz', 's1_R2.fastq.gz', 's2_R1.fastq'].map((n) => fileArg(n, fixture(n))), // paths and buffers cannot mix
+    fileArg('notes.txt', Buffer.from('x')),
+    fileArg('L_L001_R1.fq.gz', Buffer.from('x')), fileArg('L_L002_R1.fq.gz', Buffer.from('x')),
+    fileArg('L_L001_R2.fq.gz', Buffer.from('x')), fileArg('L_L002_R2.fq.gz', Buffer.from('x')),
+  ]);
+  assert.deepEqual(await page.$$eval('#sample-table .sample-name', (es) => es.map((e) => e.value)), ['kept', 's1', 's2', 's3']);
+  assert.match(await page.textContent('#fill-status'), /^3 sample\(s\) added \(2 paired-end, 1 single-end\)/);
+  const notes = await page.textContent('#sheet-error');
+  assert.match(notes, /notes\.txt was left out: not a FASTQ file name/);
+  assert.match(notes, /sample "L" was not added: it has 2 lanes per mate/);
+  assert.match(await row(page, 1).locator('td[data-mate="1"] .mate-name').textContent(), /^s1_R1\.fastq\.gz$/);
+  assert.match(await row(page, 1).locator('td[data-mate="2"] .mate-name').textContent(), /^s1_R2\.fastq\.gz$/);
+  assert.match(await row(page, 3).locator('td[data-mate="2"] .mate-name').textContent(), /none \(single-end\)/);
+
+  // A second fill does not add a sample twice.
+  await page.setInputFiles('#fill-fastqs', ['s1_R1.fastq.gz', 's1_R2.fastq.gz'].map((n) => join(FIX, n)));
+  assert.match(await page.textContent('#sheet-error'), /sample "s1" was not added: the table already has a row with that name/);
+  assert.equal(await page.locator('#sample-table tbody tr').count(), 4);
+
+  await page.click('#sample-table tbody tr:first-child .remove-row');
+  for (const [i, c] of [[0, 'ctl'], [1, 'trt'], [2, 'trt']]) await row(page, i).locator('.cov').first().fill(c);
+  await page.fill('#frag-mean', '200');
+  await page.fill('#frag-sd', '20');
+  const samples = await run(page);
+  assertCounts(samples[0], 's1');
+  assertCounts(samples[1], 's2');
+  assertCounts(samples[2], 's3');
+  assert.deepEqual(samples.map((s) => s.name), ['s1', 's2', 's3']);
+  assert.deepEqual(errors, []);
+});
+
+test('fill from FASTQ files: _1/_2 mates can be turned off', async (t) => {
+  const { page } = await open(t);
+  const names = ['SRR9_1.fastq.gz', 'SRR9_2.fastq.gz'];
+  await page.setInputFiles('#fill-fastqs', names.map((n) => fileArg(n, fixture('s1_R1.fastq.gz'))));
+  assert.deepEqual(await page.$$eval('#sample-table .sample-name', (es) => es.map((e) => e.value)), ['SRR9']);
+  await page.click('#sample-table tbody tr:first-child .remove-row');
+  await page.uncheck('#fill-numeric-mates');
+  await page.setInputFiles('#fill-fastqs', names.map((n) => fileArg(n, fixture('s1_R1.fastq.gz'))));
+  assert.deepEqual(await page.$$eval('#sample-table .sample-name', (es) => es.map((e) => e.value)), ['SRR9_1', 'SRR9_2']);
+});
+
 test('sheet upload: a row with no matching file is flagged and gets a picker; picking the file clears the flag', async (t) => {
   const { page } = await open(t);
   await page.setInputFiles('#sheet-file', fileArg('samples.tsv', Buffer.from(SHEET)));

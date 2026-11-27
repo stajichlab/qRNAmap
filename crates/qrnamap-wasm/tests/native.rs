@@ -246,3 +246,19 @@ fn qc_nan_correlation_becomes_null() {
     assert!(c[0][1].is_number());
     assert!(c[0][0].is_number());
 }
+
+#[test]
+fn group_fastq_names_returns_rows_and_skips() {
+    let v = json(&group_fastq_names_native(
+        r#"{"names": ["a_R2.fq.gz", "a_R1.fq.gz", "notes.txt"], "numericMates": false}"#,
+    ));
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["samples"][0]["name"], "a");
+    assert_eq!(v["samples"][0]["fastq1"][0], "a_R1.fq.gz");
+    assert_eq!(v["samples"][0]["fastq2"][0], "a_R2.fq.gz");
+    assert_eq!(v["samples"][0]["rule"], "read-tag");
+    assert_eq!(v["skipped"][0]["path"], "notes.txt");
+    let bad = json(&group_fastq_names_native("{}"));
+    assert_eq!(bad["ok"], false);
+    assert!(bad["error"].as_str().unwrap().contains("names"));
+}
