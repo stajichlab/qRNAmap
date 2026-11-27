@@ -1,7 +1,8 @@
 // Step 3: results view, downloads and plots.
 import { assemble_matrix, qc, de_command, validate_sheet } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
-import { geneExternalLinks } from './gene-links.js?v=__BUILD__';
+import { geneExternalLinks, genePopupHtml } from './gene-links.js?v=__BUILD__';
+import { computeDifferentialExpression } from './de-stats.js?v=__BUILD__';
 
 const STORE_KEY = 'results';
 
@@ -9,22 +10,39 @@ const STORE_KEY = 'results';
 const escSvg = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Parse gene_info.tsv into a map of gene -> { tokens, symbol, geneId, dbxref }. */
+/**
+ * Parse gene_info.tsv into a map of gene -> { tokens, symbol, geneId, oldLocusTag, transcripts, proteins, biotype, contig,
+ * strand, dbxref, description }. Columns are found by header name, so older tables (without dbxref or description) still load.
+ */
 export function parseAliasIndex(geneInfoTsv) {
   const map = new Map();
   if (!geneInfoTsv) return map;
   const lines = geneInfoTsv.trim().split('\n');
   if (lines.length <= 1) return map;
-  // gene_info.tsv may come from an older build without the dbxref column.
-  const dbxrefCol = lines[0].split('\t').indexOf('dbxref');
+  const head = lines[0].split('\t');
+  const col = (name) => head.indexOf(name);
+  const at = (cols, name) => (col(name) >= 0 ? cols[col(name)] || '' : '');
   for (const line of lines.slice(1)) {
     const cols = line.split('\t');
     if (!cols.length) continue;
     const gene = cols[0];
-    // gene, symbol, gene_id, old_locus_tag, transcripts, proteins
-    const tokens = cols.slice(0, 6).filter(Boolean).join(' ').toLowerCase();
-    const dbxref = dbxrefCol >= 0 && cols[dbxrefCol] ? cols[dbxrefCol].split(',').filter(Boolean) : [];
-    map.set(gene, { tokens, symbol: cols[1] || '', geneId: cols[2] || '', dbxref });
+    const description = at(cols, 'description');
+    // gene, symbol, gene_id, old_locus_tag, transcripts, proteins, and the function text
+    const tokens = [...cols.slice(0, 6), description].filter(Boolean).join(' ').toLowerCase();
+    const dbxrefCell = at(cols, 'dbxref');
+    map.set(gene, {
+      tokens,
+      symbol: cols[1] || '',
+      geneId: cols[2] || '',
+      oldLocusTag: at(cols, 'old_locus_tag'),
+      transcripts: at(cols, 'transcripts'),
+      proteins: at(cols, 'proteins'),
+      biotype: at(cols, 'biotype'),
+      contig: at(cols, 'contig'),
+      strand: at(cols, 'strand'),
+      dbxref: dbxrefCell ? dbxrefCell.split(',').filter(Boolean) : [],
+      description,
+    });
   }
   return map;
 }
@@ -96,8 +114,12 @@ const HEATMAP_RD_BU = [
 
 export function renderHeatmapSvg(samples, correlation, previewLabel) {
   const n = samples.length;
-  const padLeft = 85;
-  const padTop = 60;
+  // Column labels sit above the matrix rotated -45 degrees so long sample names do not run into each
+  // other; the margins grow with the longest name (about 7 px per character at font-size 12).
+  const maxChars = Math.max(1, ...samples.map((s) => String(s).length));
+  const labelPx = maxChars * 7;
+  const padLeft = Math.max(85, labelPx + 14);
+  const padTop = 48 + Math.ceil(labelPx * Math.SQRT1_2) + 12;
   const cellSize = Math.max(35, Math.min(60, Math.floor(300 / n)));
   const matrixW = n * cellSize;
   const matrixH = n * cellSize;
@@ -148,7 +170,7 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
   const legendX = padLeft + matrixW + 28;
   const legendY = padTop;
   const legendH = Math.min(matrixH, 200);
-  const width = legendX + legendW + 65;
+  const width = Math.max(legendX + legendW + 65, padLeft + matrixW + Math.ceil(labelPx * Math.SQRT1_2) + 10);
   const height = padTop + matrixH + 45;
 
   let rects = '';
@@ -156,9 +178,11 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
 
   for (let i = 0; i < n; i++) {
     // Row label
-    labels += `<text x="${padLeft - 8}" y="${padTop + i * cellSize + cellSize / 2 + 4}" text-anchor="end" font-size="12" fill="currentColor">${samples[i]}</text>`;
-    // Col label
-    labels += `<text x="${padLeft + i * cellSize + cellSize / 2}" y="${padTop - 8}" text-anchor="middle" font-size="12" fill="currentColor">${samples[i]}</text>`;
+    labels += `<text x="${padLeft - 8}" y="${padTop + i * cellSize + cellSize / 2 + 4}" text-anchor="end" font-size="12" fill="currentColor">${escSvg(samples[i])}</text>`;
+    // Col label, rotated -45 degrees about its anchor at the top of the column
+    const cx = padLeft + i * cellSize + cellSize / 2;
+    const cy = padTop - 6;
+    labels += `<text x="${cx}" y="${cy}" transform="rotate(-45 ${cx} ${cy})" text-anchor="start" font-size="12" fill="currentColor">${escSvg(samples[i])}</text>`;
 
     for (let j = 0; j < n; j++) {
       const isDiag = i === j;
@@ -169,7 +193,7 @@ export function renderHeatmapSvg(samples, correlation, previewLabel) {
       const y = padTop + i * cellSize;
 
       rects += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="${fill}" stroke="var(--line, #ccc)">` +
-        `<title>${samples[i]} vs ${samples[j]}: ${r.toFixed(4)}${isDiag ? ' (self)' : ''}</title></rect>`;
+        `<title>${escSvg(samples[i])} vs ${escSvg(samples[j])}: ${r.toFixed(4)}${isDiag ? ' (self)' : ''}</title></rect>`;
       rects += `<text x="${x + cellSize / 2}" y="${y + cellSize / 2 + 4}" text-anchor="middle" font-size="11" font-weight="${isDiag ? '600' : '500'}" fill="${text}">${r.toFixed(3)}</text>`;
     }
   }
@@ -302,165 +326,7 @@ export function renderPcaSvg(pcaData, previewLabel, sampleGroups = new Map()) {
     `</svg>`;
 }
 
-function normalCdfComplement(z) {
-  // Abramowitz and Stegun formula 7.1.26 approximation
-  if (z >= 8) return 0;
-  const t = 1.0 / (1.0 + 0.2316419 * z);
-  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + 1.330274429 * t))));
-  const pdf = (1.0 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * z * z);
-  return pdf * poly;
-}
-
-/** Compute two-group differential expression statistics for count matrix. */
-export function computeDifferentialExpression(matrixTsv, samples, contrast) {
-  const lines = matrixTsv.trim().split('\n');
-  if (lines.length <= 1) return [];
-  const header = lines[0].split('\t');
-  const sampleCols = header.slice(1);
-
-  const factor = contrast?.factor || 'condition';
-  const trtLevel = contrast?.level;
-  const refLevel = contrast?.reference;
-
-  const sampleMap = new Map();
-  for (const s of samples) {
-    sampleMap.set(s.name, String(s.covariates?.[factor] ?? '').trim());
-  }
-
-  const trtIdxs = [];
-  const refIdxs = [];
-  for (let j = 0; j < sampleCols.length; j++) {
-    const sName = sampleCols[j];
-    const grp = sampleMap.get(sName);
-    if (grp === trtLevel) trtIdxs.push(j);
-    else if (grp === refLevel) refIdxs.push(j);
-  }
-
-  if (!trtIdxs.length || !refIdxs.length) return [];
-
-  const genes = [];
-  const rawMatrix = [];
-  for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split('\t');
-    genes.push(parts[0]);
-    rawMatrix.push(parts.slice(1).map(Number));
-  }
-  const nGenes = genes.length;
-  const nSamples = sampleCols.length;
-
-  // Size factors (DESeq2 median of ratios)
-  const sizeFactors = new Array(nSamples).fill(1);
-  const logGeoMeans = new Float64Array(nGenes);
-  let validGeoGenes = 0;
-
-  for (let i = 0; i < nGenes; i++) {
-    let sumLog = 0;
-    let allPos = true;
-    const row = rawMatrix[i];
-    for (let j = 0; j < nSamples; j++) {
-      if (row[j] <= 0) { allPos = false; break; }
-      sumLog += Math.log(row[j]);
-    }
-    if (allPos) {
-      logGeoMeans[i] = sumLog / nSamples;
-      validGeoGenes++;
-    } else {
-      logGeoMeans[i] = -Infinity;
-    }
-  }
-
-  if (validGeoGenes >= 10) {
-    for (let j = 0; j < nSamples; j++) {
-      const ratios = [];
-      for (let i = 0; i < nGenes; i++) {
-        if (logGeoMeans[i] !== -Infinity && rawMatrix[i][j] > 0) {
-          ratios.push(rawMatrix[i][j] / Math.exp(logGeoMeans[i]));
-        }
-      }
-      ratios.sort((a, b) => a - b);
-      if (ratios.length) {
-        const mid = Math.floor(ratios.length / 2);
-        sizeFactors[j] = ratios.length % 2 === 1 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
-      }
-    }
-  } else {
-    const totals = new Float64Array(nSamples);
-    for (let i = 0; i < nGenes; i++) {
-      for (let j = 0; j < nSamples; j++) totals[j] += rawMatrix[i][j];
-    }
-    const meanTot = totals.reduce((a, b) => a + b, 0) / nSamples;
-    for (let j = 0; j < nSamples; j++) sizeFactors[j] = (totals[j] || 1) / (meanTot || 1);
-  }
-
-  const results = [];
-  const nTrt = trtIdxs.length;
-  const nRef = refIdxs.length;
-
-  for (let i = 0; i < nGenes; i++) {
-    const row = rawMatrix[i];
-    let sumTrt = 0;
-    let sumRef = 0;
-    const trtVals = new Float64Array(nTrt);
-    const refVals = new Float64Array(nRef);
-
-    for (let k = 0; k < nTrt; k++) {
-      const j = trtIdxs[k];
-      const norm = row[j] / (sizeFactors[j] || 1);
-      trtVals[k] = norm;
-      sumTrt += norm;
-    }
-    for (let k = 0; k < nRef; k++) {
-      const j = refIdxs[k];
-      const norm = row[j] / (sizeFactors[j] || 1);
-      refVals[k] = norm;
-      sumRef += norm;
-    }
-
-    const meanTrt = sumTrt / nTrt;
-    const meanRef = sumRef / nRef;
-    const baseMean = (meanTrt + meanRef) / 2;
-
-    const lfc = Math.log2(meanTrt + 0.5) - Math.log2(meanRef + 0.5);
-
-    let varTrt = 0;
-    for (let k = 0; k < nTrt; k++) varTrt += (trtVals[k] - meanTrt) ** 2;
-    varTrt = nTrt > 1 ? varTrt / (nTrt - 1) : 0;
-
-    let varRef = 0;
-    for (let k = 0; k < nRef; k++) varRef += (refVals[k] - meanRef) ** 2;
-    varRef = nRef > 1 ? varRef / (nRef - 1) : 0;
-
-    const se = Math.sqrt(varTrt / nTrt + varRef / nRef + 0.05);
-    const stat = lfc / (se || 1);
-    const z = Math.abs(stat);
-    const pval = baseMean === 0 ? 1.0 : Math.min(1.0, 2.0 * normalCdfComplement(z));
-
-    results.push({
-      gene: genes[i],
-      baseMean,
-      log2FoldChange: lfc,
-      stat,
-      pvalue: pval,
-      padj: 1.0,
-    });
-  }
-
-  // Benjamini-Hochberg adjustment
-  const indexed = results.map((r, i) => ({ idx: i, pvalue: r.pvalue }));
-  indexed.sort((a, b) => a.pvalue - b.pvalue);
-  const m = indexed.length;
-  let cumMin = 1.0;
-
-  for (let k = m - 1; k >= 0; k--) {
-    const rawP = indexed[k].pvalue;
-    const rank = k + 1;
-    const adj = Math.min(1.0, (rawP * m) / rank);
-    cumMin = Math.min(cumMin, adj);
-    results[indexed[k].idx].padj = cumMin;
-  }
-
-  return results;
-}
+export { computeDifferentialExpression } from './de-stats.js?v=__BUILD__';
 
 /** Render SVG Volcano plot. */
 export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.0, padjCutoff = 0.05 } = {}) {
@@ -527,7 +393,7 @@ export function renderVolcanoSvg(deRows, aliasIndex = new Map(), { fcCutoff = 1.
     const cx = scaleX(lfc);
     const cy = scaleY(nlp);
 
-    const isSig = p < padjCutoff;
+    const isSig = p <= padjCutoff;
     const isUp = isSig && lfc >= fcCutoff;
     const isDown = isSig && lfc <= -fcCutoff;
 
@@ -710,7 +576,9 @@ export function createResultsStep({ $, app, shell }) {
     return app.state?.preview?.n || app.state?.samples?.find((s) => s.status === 'done')?.previewN || 0;
   }
 
+  /** counts.full.tsv when every sample counted all its reads (streamed or native), else counts.preview[-N].tsv. */
   function countsFileName() {
+    if (app.state?.preview?.full) return 'counts.full.tsv';
     const n = getPreviewN();
     return n ? `counts.preview-${n}.tsv` : 'counts.preview.tsv';
   }
@@ -821,24 +689,40 @@ export function createResultsStep({ $, app, shell }) {
   }
 
   // Render count table
-  function renderCountTable(sampleNames, preview) {
-    const table = $('results-count-table');
-    const labelEl = $('count-table-label');
-    if (labelEl) labelEl.textContent = preview;
+  // Count table view state: page (0-based), rows per page, gene-info column on/off. Remembered per viewer when storage works.
+  const COUNT_PREFS = 'qrnamap.countTable';
+  let countPage = 0;
+  let countPageSize = 25;
+  let countShowInfo = true;
+  try {
+    const p = JSON.parse(localStorage.getItem(COUNT_PREFS) || '{}');
+    if ([25, 50, 100, 250].includes(p.pageSize)) countPageSize = p.pageSize;
+    if (typeof p.showInfo === 'boolean') countShowInfo = p.showInfo;
+    if (p.tall) $('count-table-wrap')?.classList.add('tall');
+  } catch { /* storage unavailable: defaults */ }
+  if ($('count-page-size')) $('count-page-size').value = String(countPageSize);
+  if ($('count-show-info')) $('count-show-info').checked = countShowInfo;
+  const tallNow = () => Boolean($('count-table-wrap')?.classList.contains('tall'));
+  function syncHeightButton() {
+    const b = $('count-height');
+    if (!b) return;
+    b.textContent = tallNow() ? 'Shorter table' : 'Taller table';
+    b.setAttribute('aria-pressed', String(tallNow()));
+  }
+  syncHeightButton();
+  function saveCountPrefs() {
+    try {
+      localStorage.setItem(COUNT_PREFS, JSON.stringify({ pageSize: countPageSize, showInfo: countShowInfo, tall: tallNow() }));
+    } catch { /* not saved */ }
+  }
 
+  /** Genes matching the search box, sorted by the chosen column. */
+  function filteredSortedRows() {
     const query = $('count-search')?.value.trim().toLowerCase() || '';
-
-    let visibleRows = matrixRows;
-    if (query) {
-      visibleRows = matrixRows.filter((r) => {
-        const info = aliasIndex.get(r.gene);
-        const tokens = info?.tokens || r.gene.toLowerCase();
-        return tokens.includes(query);
-      });
-    }
-
-    // Sort
-    visibleRows.sort((a, b) => {
+    const rows = query
+      ? matrixRows.filter((r) => (aliasIndex.get(r.gene)?.tokens || r.gene.toLowerCase()).includes(query))
+      : matrixRows.slice();
+    rows.sort((a, b) => {
       let va = sortCol === 0 ? a.gene : a.counts[sortCol - 1] ?? 0;
       let vb = sortCol === 0 ? b.gene : b.counts[sortCol - 1] ?? 0;
       if (sortCol > 0) {
@@ -849,36 +733,63 @@ export function createResultsStep({ $, app, shell }) {
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
+    return rows;
+  }
+
+  function renderCountTable(sampleNames, preview) {
+    const table = $('results-count-table');
+    const labelEl = $('count-table-label');
+    if (labelEl) labelEl.textContent = preview;
+
+    const rows = filteredSortedRows();
+    const nPages = Math.max(1, Math.ceil(rows.length / countPageSize));
+    countPage = Math.min(Math.max(0, countPage), nPages - 1);
+    const start = countPage * countPageSize;
+    const pageRows = rows.slice(start, start + countPageSize);
+    const nCols = sampleNames.length + 1 + (countShowInfo ? 1 : 0);
 
     let head = '<thead><tr>';
     head += `<th data-col="0" data-sort="${sortCol === 0 ? sortDir : ''}">Gene</th>`;
+    if (countShowInfo) head += '<th class="info-head">Gene info</th>';
     sampleNames.forEach((s, idx) => {
       const c = idx + 1;
-      head += `<th data-col="${c}" data-sort="${sortCol === c ? sortDir : ''}">${s}</th>`;
+      head += `<th data-col="${c}" data-sort="${sortCol === c ? sortDir : ''}">${escSvg(s)}</th>`;
     });
     head += '</tr></thead>';
 
-    // Limit initial display rows to 300 for UI responsiveness
-    const limit = Math.min(visibleRows.length, 300);
     let body = '<tbody>';
-    for (let i = 0; i < limit; i++) {
-      const r = visibleRows[i];
-      body += `<tr><td>${r.gene}</td>`;
-      for (const val of r.counts) {
-        body += `<td>${fmt(val)}</td>`;
+    for (const r of pageRows) {
+      const info = aliasIndex.get(r.gene);
+      body += `<tr><td><button type="button" class="gene-link" data-gene="${escSvg(r.gene)}" title="Function and links">${escSvg(r.gene)}</button></td>`;
+      if (countShowInfo) {
+        const sym = info?.symbol && info.symbol !== r.gene ? `<b>${escSvg(info.symbol)}</b> ` : '';
+        const desc = info?.description || '';
+        body += `<td class="gene-info"><span class="clamp" title="${escSvg(desc)}">${sym}${escSvg(desc)}</span></td>`;
       }
+      for (const val of r.counts) body += `<td class="num">${fmt(val)}</td>`;
       body += '</tr>';
     }
-    if (visibleRows.length === 0) {
-      body += `<tr><td colspan="${sampleNames.length + 1}" class="small">No matching genes found.</td></tr>`;
-    } else if (visibleRows.length > limit) {
-      body += `<tr><td colspan="${sampleNames.length + 1}" class="small">Showing first ${limit} of ${visibleRows.length} genes. Use search above to find specific genes.</td></tr>`;
-    }
+    if (rows.length === 0) body += `<tr><td colspan="${nCols}" class="small">No matching genes found.</td></tr>`;
     body += '</tbody>';
-
     table.innerHTML = head + body;
 
-    table.querySelectorAll('th').forEach((th) => {
+    const of = $('count-page-of');
+    if (of) {
+      of.textContent = rows.length
+        ? `of ${fmt(nPages)} (genes ${fmt(start + 1)}–${fmt(start + pageRows.length)} of ${fmt(rows.length)})`
+        : 'of 1 (no genes)';
+    }
+    const pageInput = $('count-page');
+    if (pageInput) {
+      pageInput.value = String(countPage + 1);
+      pageInput.max = String(nPages);
+    }
+    for (const [id, off] of [['count-first', countPage === 0], ['count-prev', countPage === 0],
+      ['count-next', countPage >= nPages - 1], ['count-last', countPage >= nPages - 1]]) {
+      if ($(id)) $(id).disabled = off;
+    }
+
+    table.querySelectorAll('th[data-col]').forEach((th) => {
       th.addEventListener('click', () => {
         const col = Number(th.dataset.col);
         if (sortCol === col) {
@@ -887,15 +798,67 @@ export function createResultsStep({ $, app, shell }) {
           sortCol = col;
           sortDir = 'asc';
         }
+        countPage = 0;
         renderCountTable(sampleNames, preview);
       });
     });
   }
 
-  $('count-search')?.addEventListener('input', () => {
-    if (currentResults) {
-      renderCountTable(currentResults.sampleNames, previewLabelText());
+  const rerenderCounts = () => {
+    if (currentResults) renderCountTable(currentResults.sampleNames, previewLabelText());
+  };
+  const goPage = (p) => {
+    countPage = p;
+    rerenderCounts();
+  };
+
+  $('count-search')?.addEventListener('input', () => goPage(0));
+  $('count-first')?.addEventListener('click', () => goPage(0));
+  $('count-prev')?.addEventListener('click', () => goPage(countPage - 1));
+  $('count-next')?.addEventListener('click', () => goPage(countPage + 1));
+  $('count-last')?.addEventListener('click', () => goPage(Number.MAX_SAFE_INTEGER));
+  $('count-page')?.addEventListener('change', (e) => {
+    const n = parseInt(e.target.value, 10);
+    goPage(Number.isFinite(n) ? n - 1 : countPage);
+  });
+  $('count-page-size')?.addEventListener('change', (e) => {
+    const first = countPage * countPageSize; // keep the first visible gene on screen
+    countPageSize = Number(e.target.value) || 25;
+    saveCountPrefs();
+    goPage(Math.floor(first / countPageSize));
+  });
+  $('count-show-info')?.addEventListener('change', (e) => {
+    countShowInfo = e.target.checked;
+    saveCountPrefs();
+    rerenderCounts();
+  });
+  $('count-height')?.addEventListener('click', () => {
+    const wrap = $('count-table-wrap');
+    wrap?.classList.toggle('tall');
+    if (wrap) wrap.style.height = ''; // drop a height set with the resize handle
+    syncHeightButton();
+    saveCountPrefs();
+  });
+
+  // Gene popup: function, IDs and link-outs (same links as the volcano), next to the clicked gene.
+  $('results-count-table')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button.gene-link');
+    const pop = $('gene-popup');
+    if (!btn || !pop) return;
+    pop.innerHTML = genePopupHtml(btn.dataset.gene, aliasIndex.get(btn.dataset.gene));
+    if (typeof pop.showPopover === 'function') {
+      if (pop.matches(':popover-open')) pop.hidePopover();
+      pop.showPopover();
+    } else {
+      pop.hidden = false; // browsers without the popover API
     }
+    const r = btn.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const left = Math.max(16, Math.min(r.left, window.innerWidth - w - 16));
+    const top = r.bottom + 6 + h > window.innerHeight ? Math.max(16, r.top - h - 6) : r.bottom + 6;
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
   });
 
   // Render QC plots
@@ -939,12 +902,12 @@ export function createResultsStep({ $, app, shell }) {
 
     container.innerHTML = renderVolcanoSvg(currentDeResults, aliasIndex, { fcCutoff, padjCutoff });
 
-    const nUp = currentDeResults.filter((r) => r.padj < padjCutoff && r.log2FoldChange >= fcCutoff).length;
-    const nDown = currentDeResults.filter((r) => r.padj < padjCutoff && r.log2FoldChange <= -fcCutoff).length;
+    const nUp = currentDeResults.filter((r) => r.padj <= padjCutoff && r.log2FoldChange >= fcCutoff).length;
+    const nDown = currentDeResults.filter((r) => r.padj <= padjCutoff && r.log2FoldChange <= -fcCutoff).length;
     const nTested = currentDeResults.length;
 
     if (summaryEl) {
-      summaryEl.textContent = `Significant (|log2 FC| \u2265 ${fcCutoff.toFixed(1)}, padj < ${padjCutoff}): ${nUp} upregulated, ${nDown} downregulated, ${nTested - nUp - nDown} unchanged out of ${nTested.toLocaleString()} genes.`;
+      summaryEl.textContent = `Significant (|log2 FC| \u2265 ${fcCutoff.toFixed(1)}, padj \u2264 ${padjCutoff}): ${nUp} upregulated, ${nDown} downregulated, ${nTested - nUp - nDown} unchanged out of ${nTested.toLocaleString()} genes.`;
     }
   }
 
@@ -998,8 +961,8 @@ export function createResultsStep({ $, app, shell }) {
       const alias = aliasIndex.get(r.gene);
       const sym = alias?.symbol || '';
       let sig = 'no';
-      if (r.padj < padjCutoff && r.log2FoldChange >= fcCutoff) sig = 'up';
-      else if (r.padj < padjCutoff && r.log2FoldChange <= -fcCutoff) sig = 'down';
+      if (r.padj <= padjCutoff && r.log2FoldChange >= fcCutoff) sig = 'up';
+      else if (r.padj <= padjCutoff && r.log2FoldChange <= -fcCutoff) sig = 'down';
 
       lines.push([
         r.gene,
@@ -1043,7 +1006,8 @@ export function createResultsStep({ $, app, shell }) {
     const matrixTsv = assembled.tsv;
     const sampleNames = doneSamples.map((s) => s.name);
 
-    // Parse rows for count table
+    // Parse rows for count table (new results start on page 1)
+    countPage = 0;
     const lines = matrixTsv.trim().split('\n');
     matrixRows = lines.slice(1).map((line) => {
       const parts = line.split('\t');

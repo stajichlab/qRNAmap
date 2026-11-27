@@ -205,7 +205,7 @@ fn transcriptome_builds_and_reports_bad_input() {
         .starts_with(">tx1\nACGTACGTACGTACGTACGT\n"));
     assert_eq!(t.tx2gene, "tx1\tg1\n");
     assert!(t.gene_info_tsv.starts_with(
-        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\n"
+        "gene\tsymbol\tgene_id\told_locus_tag\ttranscripts\tproteins\tbiotype\tclass\tcontig\tstrand\tdbxref\tdescription\n"
     ));
     // FASTA names that do not match the GFF3.
     let e = build_transcriptome_native(">other\nACGT\n".as_bytes(), GFF).unwrap_err();

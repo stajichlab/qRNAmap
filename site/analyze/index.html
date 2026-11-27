@@ -190,9 +190,27 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
       <div id="count-table-section">
         <h3>Gene counts</h3>
         <p id="count-table-label" class="small"></p>
-        <p><label for="count-search">Search gene or alias (symbol, GeneID, transcript, protein):</label>
-          <input id="count-search" type="search" placeholder="Search locus, symbol, GeneID, protein..."></p>
-        <table id="results-count-table"></table>
+        <p><label for="count-search">Search gene, alias or function (symbol, GeneID, transcript, protein, description):</label>
+          <input id="count-search" type="search" placeholder="Search locus, symbol, GeneID, function..."></p>
+        <div id="count-controls" class="field-row">
+          <label><input id="count-show-info" type="checkbox" checked> Gene info column</label>
+          <label for="count-page-size">Rows per page</label>
+          <select id="count-page-size">
+            <option value="25" selected>25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option>
+          </select>
+          <button id="count-height" class="button" type="button" aria-pressed="false">Taller table</button>
+        </div>
+        <div id="count-table-wrap"><table id="results-count-table"></table></div>
+        <nav id="count-pager" class="field-row" aria-label="Gene count pages">
+          <button id="count-first" class="button" type="button" aria-label="First page">&laquo;</button>
+          <button id="count-prev" class="button" type="button">&lsaquo; Previous</button>
+          <label for="count-page">Page</label>
+          <input id="count-page" type="number" min="1" value="1" size="5" inputmode="numeric">
+          <span id="count-page-of" class="small"></span>
+          <button id="count-next" class="button" type="button">Next &rsaquo;</button>
+          <button id="count-last" class="button" type="button" aria-label="Last page">&raquo;</button>
+        </nav>
+        <div id="gene-popup" popover></div>
       </div>
 
       <div id="qc-section">

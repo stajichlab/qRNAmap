@@ -17,7 +17,7 @@ const fmt = (n) => Number(n).toLocaleString('en-US');
 export const previewLabel = (n) => `preview of the first ${fmt(n)} pairs`;
 
 /**
- * The preview of the counted samples: `{ n, label }`. `n` is the N that every counted sample used, or null when the samples used
+ * The preview of the counted samples: `{ n, label, full? }`; `full` is true when every sample counted all its reads. `n` is the N that every counted sample used, or null when the samples used
  * different N (then the label gives the range, and each sample has its own `previewN`). Empty label when no sample is counted.
  */
 export function previewOf(samples) {
@@ -25,7 +25,7 @@ export function previewOf(samples) {
   if (!done.length) return { n: null, label: '' };
   // Every read counted: streamed in the page (allReads) or by native kallisto from disk (desktop app).
   if (done.every((s) => s.allReads || s.native)) {
-    return { n: null, label: done.every((s) => s.native) ? 'all reads (native kallisto, from disk)' : 'all reads' };
+    return { n: null, full: true, label: done.every((s) => s.native) ? 'all reads (native kallisto, from disk)' : 'all reads' };
   }
   const used = [...new Set(done.filter((s) => !s.allReads && !s.native).map((s) => s.previewN))].sort((a, b) => a - b);
   if (!used.length) return { n: null, label: '' };

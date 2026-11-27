@@ -11,12 +11,16 @@ This document describes the two parallel development tracks and agent roles esta
 
 ---
 
+Paths below use environment variables, set for your own machine:
+`QRNAMAP_REPO` (the clone of this repository), `QRNAMAP_DESKTOP_WORKTREE` (a worktree of `desktop-native-exec`, if you keep one)
+and `QRNAMAP_SAMPLE_SHEET` (a local sample sheet for trying the desktop app).
+
 ## 1. Overview of the Two Tracks
 
 | Attribute | Track 1: Wasm Ring-Buffer Streaming | Track 2: Desktop Native Execution |
 |---|---|---|
 | **Branch** | `stream-quant` | `desktop-native-exec` |
-| **Working Directory** | `/Users/jstajich/projects/qRNAmap` (repo root) | `/Users/jstajich/.local/share/opencode/worktree/4f6acb/desktop-native-exec` |
+| **Working Directory** | `$QRNAMAP_REPO` (repo root) | `$QRNAMAP_DESKTOP_WORKTREE` (a git worktree of `desktop-native-exec`) |
 | **Target Environment** | Web browsers (Chrome, Firefox, Safari) & WebAssembly | Tauri Desktop application (macOS, Linux, Windows) |
 | **Execution Engine** | `kallisto.wasm` via Emscripten in a Web Worker | System native `kallisto` 64-bit binary via Tauri IPC |
 | **Read Depth** | Preview or configurable depth with constant small memory footprint | Full depth (100% of all reads directly from disk) |
@@ -44,7 +48,7 @@ Provide a WebAssembly-compatible quantification pipeline where FASTQ files are d
 
 ### How to Run & Test Track 1
 ```bash
-cd /Users/jstajich/projects/qRNAmap
+cd "$QRNAMAP_REPO"
 # Run all unit tests
 node --test validation/browser-page/tests/units.test.mjs
 # Run cargo workspace tests
@@ -73,11 +77,11 @@ Allow the desktop app to bypass WebAssembly memory limits and single-thread cons
   - When running in Tauri, displays execution mode options:
     - **Native Execution (Full depth)**: Default in desktop. Bypasses subsampling; all reads from disk are quantified (no 200,000 read limit).
     - **Browser Preview**: Subsamples into memory; limit relaxed up to 100,000,000 pairs.
-  - Automatically loads and verifies sample paths from local sheets (e.g., `/Users/jstajich/projects/Dhingra/samples.txt`).
+  - Automatically loads and verifies sample paths from local sheets (e.g., `$QRNAMAP_SAMPLE_SHEET`, a tab-separated sheet whose FASTQ paths are relative to its folder).
 
 ### How to Run & Test Track 2
 ```bash
-cd /Users/jstajich/.local/share/opencode/worktree/4f6acb/desktop-native-exec
+cd "$QRNAMAP_DESKTOP_WORKTREE"
 # Run desktop tests (includes real-data quant test)
 cd apps/desktop && cargo test
 # Launch desktop app in debug mode
