@@ -97,6 +97,16 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
           </div>
           <p id="native-sheet-status" class="small"></p>
         </div>
+        <div id="fill-box" class="note">
+          <p><strong>Fill the table from your FASTQ files.</strong> Pick all of them at once: mates are paired by their file names
+            (<code>_R1</code>/<code>_R2</code>, Illumina <code>_S1_L001_R1_001</code>, <code>_1</code>/<code>_2</code>; the rules of the <a href="../sheet/" target="_blank" rel="noopener">sample sheet page</a>),
+            and one row is added per sample. Then fill in the condition column.</p>
+          <p class="field-row">
+            <label class="file-button">Fill from FASTQ files…<input id="fill-fastqs" type="file" multiple accept=".fastq,.fq,.gz,.fastq.gz,.fq.gz,application/gzip,application/x-gzip,text/plain,*/*"></label>
+            <label class="small"><input type="checkbox" id="fill-numeric-mates" checked> <code>_1</code> / <code>_2</code> at the end of a name are mates (turn off when they number replicates)</label>
+          </p>
+          <p id="fill-status" class="small" role="status" aria-live="polite"></p>
+        </div>
         <details id="sheet-box">
           <summary>Or load a sample sheet (the command-line format)</summary>
           <p class="small">A tab-separated sheet with the columns <code>sample</code>, <code>fastq1</code>, optional <code>fastq2</code>, and covariate columns
