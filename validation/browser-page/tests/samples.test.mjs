@@ -647,8 +647,11 @@ test('all reads (streamed): three samples (gzip, plain, single-end) give the gen
   assert.deepEqual(samples[0].args, ['quant', '-i', 'transcripts.idx', '-o', 'kq', '--plaintext', '-t', '1', 'r1.fastq.gz', 'r2.fastq.gz']);
   assert.deepEqual(samples[1].args, ['quant', '-i', 'transcripts.idx', '-o', 'kq', '--plaintext', '-t', '1', 'r1.fastq', 'r2.fastq']);
   assert.match(await row(page, 0).locator('.status').textContent(), /^300 pairs processed, .* All pairs \(300\), streamed from the files\.$/);
-  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: null, label: 'all reads' });
+  assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: null, full: true, label: 'all reads' });
   assert.match(await page.textContent('#preview-label'), /all reads of each sample/);
+  // A full-depth count table is not named a preview
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#dl-counts')]);
+  assert.equal(dl.suggestedFilename(), 'counts.full.tsv');
   assert.deepEqual(errors, []);
 });
 

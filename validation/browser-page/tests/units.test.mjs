@@ -7,7 +7,7 @@ import { checkAbundance } from '../../../site/analyze/abundance-check.js';
 import { baseName, pageRules, filesByName, sheetText } from '../../../site/analyze/sheet.js';
 import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRecords } from '../../../site/analyze/fastq.js';
 import { StreamRingBuffer } from '../../../site/analyze/stream-ring.js';
-import { geneExternalLinks } from '../../../site/analyze/gene-links.js';
+import { geneExternalLinks, genePopupHtml } from '../../../site/analyze/gene-links.js';
 import * as builder from '../../../site/sheet/builder.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
@@ -238,6 +238,70 @@ test('mountBlobFile: a File-backed file in the real kallisto.mjs FS has the blob
   assert.equal(m.FS.read(s, buf, 0, 10), 0);
   m.FS.close(s);
   assert.throws(() => m.FS.writeFile('/work/r1.fastq.gz', 'x'));
+});
+
+// In-page differential expression (site/analyze/de-stats.js).
+import { computeDifferentialExpression, tTwoSided, bhAdjust } from '../../../site/analyze/de-stats.js';
+
+/** A matrix of nGenes genes, 3 control + 3 treated samples, with gene 0..nUp-1 up fourfold in treated. */
+function deMatrix({ nGenes = 400, nUp = 20, depth = 1, seed = 7 } = {}) {
+  let s = seed;
+  const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const names = ['c1', 'c2', 'c3', 't1', 't2', 't3'];
+  const lines = ['gene\t' + names.join('\t')];
+  for (let g = 0; g < nGenes; g++) {
+    const mu = depth * (50 + 2000 * rnd());
+    const vals = names.map((n) => {
+      const fold = n.startsWith('t') && g < nUp ? 4 : 1;
+      return Math.round(mu * fold * Math.exp(0.15 * (rnd() + rnd() + rnd() - 1.5))); // ~15% biological noise
+    });
+    lines.push(`g${g}\t${vals.join('\t')}`);
+  }
+  const samples = names.map((name) => ({ name, covariates: { condition: name[0] === 't' ? 'trt' : 'ctl' } }));
+  return { tsv: lines.join('\n'), samples, contrast: { factor: 'condition', level: 'trt', reference: 'ctl' } };
+}
+
+test('tTwoSided and bhAdjust match reference values', () => {
+  assert.ok(Math.abs(tTwoSided(2.776445, 4) - 0.05) < 1e-4); // qt(0.975, 4)
+  assert.ok(Math.abs(tTwoSided(1.959964, 1e6) - 0.05) < 1e-4);
+  assert.equal(tTwoSided(0, 5), 1);
+  assert.deepEqual(bhAdjust([0.01, 0.04, 0.03, 0.5]).map((x) => +x.toFixed(4)), [0.04, 0.0533, 0.0533, 0.5]); // p.adjust(..., "BH")
+});
+
+test('computeDifferentialExpression: a fourfold change is found at any depth (the SE is on the log2 scale)', () => {
+  for (const depth of [1, 100, 10000]) { // 10000x is a deep run: the old raw-count SE found nothing here
+    const { tsv, samples, contrast } = deMatrix({ depth });
+    const res = computeDifferentialExpression(tsv, samples, contrast);
+    const up = res.slice(0, 20);
+    assert.ok(up.every((r) => r.padj < 0.05 && Math.abs(r.log2FoldChange - 2) < 0.4), `depth ${depth}: all 20 up genes significant`);
+    const falsePos = res.slice(20).filter((r) => r.padj < 0.05).length;
+    assert.ok(falsePos <= 5, `depth ${depth}: ${falsePos} false positives of 380`);
+  }
+});
+
+test('computeDifferentialExpression: no replicates means no test (p = 1); missing groups give no rows', () => {
+  const tsv = 'gene\ta\tb\n' + Array.from({ length: 20 }, (_, i) => `g${i}\t${10 + i}\t${40 + i}`).join('\n');
+  const samples = [{ name: 'a', covariates: { condition: 'ctl' } }, { name: 'b', covariates: { condition: 'trt' } }];
+  const res = computeDifferentialExpression(tsv, samples, { factor: 'condition', level: 'trt', reference: 'ctl' });
+  assert.equal(res.length, 20);
+  assert.ok(res.every((r) => r.pvalue === 1 && r.padj === 1));
+  assert.deepEqual(computeDifferentialExpression(tsv, samples, { factor: 'condition', level: 'x', reference: 'ctl' }), []);
+});
+
+test('genePopupHtml: function text, IDs and the volcano link-outs, all escaped', () => {
+  const html = genePopupHtml('AFUA_2G00200', {
+    symbol: 'catA<x>', geneId: '3510001', description: 'catalase A & "B"', dbxref: ['FungiDB:AFUA_2G00200'], contig: 'NC_1', strand: '+',
+  });
+  assert.match(html, /<h4>AFUA_2G00200 <span class="small">\(catA&lt;x&gt;\)<\/span><\/h4>/);
+  assert.match(html, /<p>catalase A &amp; &quot;B&quot;<\/p>/);
+  assert.match(html, /<dt>NCBI GeneID<\/dt><dd>3510001<\/dd>/);
+  assert.match(html, /<dt>Location<\/dt><dd>NC_1 \(\+\)<\/dd>/);
+  const hrefs = [...html.matchAll(/href="([^"]+)" target="_blank" rel="noopener noreferrer"/g)].map((m) => m[1]);
+  assert.deepEqual(hrefs, geneExternalLinks('AFUA_2G00200', { geneId: '3510001', dbxref: ['FungiDB:AFUA_2G00200'] }).map((l) => l.url));
+  const bare = genePopupHtml('<g>', undefined);
+  assert.match(bare, /<h4>&lt;g&gt;<\/h4>/);
+  assert.match(bare, /No function text/);
+  assert.match(bare, /No database link/);
 });
 
 // ------------------------------------------------------------------ sample sheet builder (site/sheet/builder.js)

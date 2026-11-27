@@ -1,9 +1,19 @@
 [workspace]
 name = "qrnamap"
 channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64", "osx-arm64"]
+
+# Environments: `default` (Linux, the HPCC and CI) has the whole toolchain plus R/DESeq2.
+# `de` (Linux and macOS arm64) has only R/DESeq2, for validation/de/ on a laptop:
+#   pixi run -e de Rscript validation/de/deseq2_reference.R ...
+[environments]
+default = { features = ["tools", "de"], no-default-feature = true }
+de = { features = ["de"], no-default-feature = true }
+
+[feature.tools]
 platforms = ["linux-64"]
 
-[dependencies]
+[feature.tools.dependencies]
 # Rust toolchain and the WASM target. The std package version must equal the rust version.
 rust = ">=1.96,<2"
 rust-std-wasm32-unknown-unknown = ">=1.96,<2"
@@ -19,12 +29,14 @@ gffread = "*"
 zstd = "*"
 python = ">=3.11"
 pytest = "*"
+
+[feature.de.dependencies]
 r-base = "*"
 bioconductor-deseq2 = "==1.50.2"
 bioconductor-apeglm = "*"
 r-ashr = "*"
 
-[tasks]
+[feature.tools.tasks]
 # QRNAMAP_REQUIRE_TOOLS=1 makes tool-dependent tests fail instead of skip.
 test = { cmd = "cargo test --workspace", env = { QRNAMAP_REQUIRE_TOOLS = "1" } }
 # The three pure crates must build for WASM.
