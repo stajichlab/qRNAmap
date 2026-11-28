@@ -105,8 +105,9 @@ run <- c(
   model_matrix_columns = paste(colnames(mm), collapse = ","),
   genes = nrow(dds), genes_all_zero = sum(!nz),
   trend = trend,
-  trend_asympDisp = if (is.null(co)) NA else fmt(co[["asympDisp"]]),
-  trend_extraPois = if (is.null(co)) NA else fmt(co[["extraPois"]]),
+  trend_coefficient_names = if (is.null(co)) NA else paste(names(co), collapse = ","),
+  trend_asymptDisp = if (is.null(co)) NA else fmt(unname(co[1])), # dispersion = asymptDisp + extraPois / mean
+  trend_extraPois = if (is.null(co)) NA else fmt(unname(co[2])),
   varLogDispEsts = fmt(attr(df, "varLogDispEsts")),
   dispPriorVar = fmt(attr(df, "dispPriorVar")),
   dispPriorVar_path = if (m - p <= 3 && m > p) "simulation" else if (m > p) "trigamma" else "none",
