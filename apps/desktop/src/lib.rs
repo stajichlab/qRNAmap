@@ -69,6 +69,63 @@ pub struct NativeIndexCheck {
     pub detail: String,
 }
 
+/// Whether R with DESeq2 is on this computer (for "Run DESeq2 (R) on this computer").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Deseq2Check {
+    pub available: bool,
+    pub rscript: Option<String>,
+    pub version: Option<String>,
+    pub detail: String,
+}
+
+/// Run DESeq2 (through R, as `qrnamap de` does) on the page's gene count matrix and sample sheet.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LocalDeRequest {
+    pub counts_tsv: String,
+    pub samples_tsv: String,
+    pub design: String,
+    pub contrast: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalDeResponse {
+    /// `de.results.csv` as DESeq2 wrote it (gene, baseMean, log2FoldChange, lfcSE, stat, pvalue, padj; NA for missing).
+    pub results_csv: String,
+    pub deseq2_version: String,
+    pub rscript: String,
+    /// The folder with every output (results, normalized counts, VST, versions) and the inputs, kept for the user.
+    pub out_dir: String,
+}
+
+/// Write the page's counts and sheet to `dir` and run DESeq2 there with `rscript` (`qrnamap de`'s code). The outputs stay
+/// in `dir`.
+pub fn run_local_deseq2(req: &LocalDeRequest, rscript: &Path, dir: &Path) -> Result<LocalDeResponse, String> {
+    fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    let counts = dir.join("counts.tsv");
+    let samples = dir.join("samples.tsv");
+    fs::write(&counts, &req.counts_tsv).map_err(|e| format!("cannot write {}: {e}", counts.display()))?;
+    fs::write(&samples, &req.samples_tsv).map_err(|e| format!("cannot write {}: {e}", samples.display()))?;
+    let args = qrnamap_cli::de::DeArgs {
+        counts,
+        samples,
+        design: req.design.clone(),
+        contrast: req.contrast.clone(),
+        shrink: None,
+        out: dir.join("de"),
+        tmpdir: Some(dir.join("tmp")),
+        rscript: Some(rscript.to_path_buf()),
+    };
+    let out = qrnamap_cli::de::run_de(&args).map_err(|e| e.to_string())?;
+    let results = dir.join("de.results.csv");
+    let results_csv = fs::read_to_string(&results).map_err(|e| format!("cannot read {}: {e}", results.display()))?;
+    Ok(LocalDeResponse {
+        results_csv,
+        deseq2_version: out.deseq2_version,
+        rscript: rscript.to_string_lossy().to_string(),
+        out_dir: dir.to_string_lossy().to_string(),
+    })
+}
+
 /// Request to run native quantification on one sample.
 #[derive(Debug, Clone, Deserialize)]
 pub struct NativeQuantRequest {
@@ -568,6 +625,24 @@ pub mod commands {
         Ok(PrepareIndexResponse { index_path: target.to_string_lossy().to_string(), index_size: size })
     }
 
+    /// Is R with DESeq2 on this computer? Tries each Rscript found (`qrnamap_cli::de::find_deseq2`).
+    #[tauri::command(async)]
+    pub fn check_deseq2() -> Deseq2Check {
+        match qrnamap_cli::de::find_deseq2() {
+            Ok((r, v)) => Deseq2Check { available: true, rscript: Some(r.to_string_lossy().to_string()), version: Some(v), detail: String::new() },
+            Err(detail) => Deseq2Check { available: false, rscript: None, version: None, detail },
+        }
+    }
+
+    /// Run DESeq2 through R on the page's counts and sheet. The outputs go to a new folder under the app's scratch folder.
+    #[tauri::command(async)]
+    pub fn run_deseq2_local(req: LocalDeRequest) -> Result<LocalDeResponse, String> {
+        let (rscript, _) = qrnamap_cli::de::find_deseq2().map_err(|e| format!("R with DESeq2 is not available: {e}"))?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let dir = scratch_dir()?.join(format!("deseq2-{stamp}"));
+        run_local_deseq2(&req, &rscript, &dir)
+    }
+
     /// Stop the native kallisto quant that is running now, if any. The waiting `run_native_quant` then returns an error
     /// that starts with "Cancelled".
     #[tauri::command]
@@ -1022,6 +1097,8 @@ pub fn run() {
             commands::check_native_index,
             commands::cached_native_index,
             commands::build_native_index,
+            commands::check_deseq2,
+            commands::run_deseq2_local,
             commands::cancel_native_quant,
             commands::pick_directory_dialog,
             commands::resolve_path,
@@ -1278,6 +1355,42 @@ mod tests {
         let junk = dir.path().join("junk.idx");
         fs::write(&junk, vec![7u8; 4096]).unwrap();
         assert!(index_loads(&kallisto, &junk, &dir.path().join("w")).is_err());
+    }
+
+    /// With R and DESeq2 on this computer (set QRNAMAP_RSCRIPT, e.g. to the repo's pixi `de` environment): DESeq2 runs on a
+    /// small simulated count matrix and the results CSV has a row per gene. Skipped without R and DESeq2.
+    #[test]
+    fn local_deseq2_runs_on_page_style_inputs() {
+        let Ok((rscript, version)) = qrnamap_cli::de::find_deseq2() else { return };
+        // Counts with real-looking spread (a fixed LCG, so the matrix is the same every run): mean 20 to 920, a gamma-like
+        // multiplier per sample (DESeq2 refuses data whose dispersions are all near the minimum), 1 gene in 10 up 4-fold.
+        let mut state: u64 = 42;
+        let mut unif = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        let mut counts = String::from("gene\ta1\ta2\ta3\tb1\tb2\tb3\n");
+        for g in 0..300u64 {
+            let base = (20 + (g * 37) % 900) as f64;
+            let fold = if g % 10 == 0 { 4.0 } else { 1.0 };
+            let row: Vec<String> = (0..6u64)
+                .map(|j| {
+                    let mult = (0..4).map(|_| unif()).sum::<f64>() / 2.0 + 0.2 * unif(); // about 0.2 to 2.2
+                    let mean = if j < 3 { base } else { base * fold };
+                    ((mean * mult).round() as u64).to_string()
+                })
+                .collect();
+            counts.push_str(&format!("gene{g}\t{}\n", row.join("\t")));
+        }
+        let samples = "sample\tfastq1\tfastq2\tcondition\na1\ta1.fq\t\tctl\na2\ta2.fq\t\tctl\na3\ta3.fq\t\tctl\nb1\tb1.fq\t\ttrt\nb2\tb2.fq\t\ttrt\nb3\tb3.fq\t\ttrt\n";
+        let dir = tempfile::tempdir().unwrap();
+        let req = LocalDeRequest { counts_tsv: counts, samples_tsv: samples.to_string(), design: "~ condition".into(), contrast: "condition,trt,ctl".into() };
+        let r = run_local_deseq2(&req, &rscript, &dir.path().join("de")).expect("DESeq2 ran");
+        assert_eq!(r.deseq2_version, version);
+        let lines: Vec<&str> = r.results_csv.lines().collect();
+        assert_eq!(lines.len(), 301, "header and one row per gene");
+        assert!(lines[0].contains("log2FoldChange") && lines[0].contains("padj"), "{}", lines[0]);
+        assert!(Path::new(&r.out_dir).join("de.normalized.csv").is_file());
     }
 
     #[test]

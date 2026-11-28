@@ -780,6 +780,7 @@ fn finish(
             shrink: args.shrink,
             out: out.join(DE_PREFIX),
             tmpdir: args.tmpdir.clone(),
+            rscript: None,
         };
         let r = run_de(&de).map_err(RunError::De)?;
         res.deseq2_version = Some(r.deseq2_version);

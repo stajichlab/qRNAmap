@@ -1,6 +1,7 @@
 # Site smoke test: build dist-site, check its links, and load / and /analyze/ in headless Chromium, Firefox and WebKit.
 # Start by hand with `gh workflow run` works only after this file is on the default branch; until then a push that touches it starts it.
-# Job genome-step: the browser tests of /analyze/ (genome.test.mjs, samples.test.mjs, results.test.mjs, testsets.test.mjs)
+# Job genome-step: the browser tests of /analyze/ (genome.test.mjs, samples.test.mjs, results.test.mjs, testsets.test.mjs,
+# native-index.test.mjs, de-local.test.mjs)
 # and of /sheet/ (sheet.test.mjs),
 # one job per engine, on the same dist-site. The smoke job also runs the unit tests of the page modules (units.test.mjs, Node only).
 # Separate from page.yml so that a site change does not start the measurement jobs. No secrets.
@@ -67,6 +68,21 @@ jobs:
         run: npx playwright install chromium firefox
       - name: Browser smoke test
         run: node validation/browser-page/smoke/smoke.mjs "$PWD/dist-site" chromium,firefox
+      # The page's downloads through the real `qrnamap de` with R DESeq2 (the pixi environment has both).
+      - name: Build the qrnamap CLI
+        if: ${{ !cancelled() }}
+        run: pixi run cargo build --release -p qrnamap-cli
+      - name: Page downloads through qrnamap de with DESeq2 (chromium)
+        if: ${{ !cancelled() }}
+        run: |
+          npm ci --no-audit --no-fund --prefix validation/browser-page/tests
+          (cd validation/browser-page/tests && npx playwright install chromium)
+          export QRNAMAP_RSCRIPT="$(pixi run bash -c 'command -v Rscript' | tail -1)"
+          echo "Rscript: $QRNAMAP_RSCRIPT"
+          node --test --test-name-pattern="downloads run" validation/browser-page/tests/de-local.test.mjs
+        env:
+          DIST: ${{ github.workspace }}/dist-site
+          ENGINE: chromium
 
   genome-step:
     needs: smoke
@@ -120,6 +136,12 @@ jobs:
       - name: Sample sheet builder tests (${{ matrix.engine }})
         if: ${{ !cancelled() }}
         run: node --test validation/browser-page/tests/sheet.test.mjs
+        env:
+          DIST: ${{ github.workspace }}/dist-site
+          ENGINE: ${{ matrix.engine }}
+      - name: DESeq2 on this computer, desktop button (${{ matrix.engine }})
+        if: ${{ !cancelled() }}
+        run: node --test validation/browser-page/tests/de-local.test.mjs
         env:
           DIST: ${{ github.workspace }}/dist-site
           ENGINE: ${{ matrix.engine }}

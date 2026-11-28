@@ -9,6 +9,7 @@ import { firstRecords, checkFastq, firstNameStem, firstReadLength, streamFastqRe
 import { StreamRingBuffer } from '../../../site/analyze/stream-ring.js';
 import { geneExternalLinks, genePopupHtml } from '../../../site/analyze/gene-links.js';
 import * as builder from '../../../site/sheet/builder.js';
+import { parseDeseq2Csv } from '../../../site/analyze/de-csv.js';
 
 const GOOD = 'target_id\tlength\teff_length\test_counts\ttpm\n' +
   'tx1\t1491\t1327.5\t9\t31.1145\n' +
@@ -361,4 +362,21 @@ test('sheet builder: a saved draft is read back, and junk is refused', () => {
   assert.ok(builder.newColumn('z').key > 901, 'new keys do not reuse saved ones');
   assert.equal(builder.fromSaved({ rows: 'x' }), null);
   assert.equal(builder.fromSaved(null), null);
+});
+
+test('parseDeseq2Csv reads DESeq2 write.csv output: quoted names, NA as NaN, columns found by name', () => {
+  const csv = '"gene","baseMean","log2FoldChange","lfcSE","stat","pvalue","padj"\n' +
+    '"gene-A",120.5,2.1,0.3,7,2.5e-12,1e-10\n' +
+    '"gene,B",3.2,-0.4,1.1,-0.36,0.72,NA\n' +
+    '"gene-C",0,NA,NA,NA,NA,NA\r\n';
+  const rows = parseDeseq2Csv(csv);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows[0], { gene: 'gene-A', baseMean: 120.5, log2FoldChange: 2.1, lfcSE: 0.3, stat: 7, pvalue: 2.5e-12, padj: 1e-10 });
+  assert.equal(rows[1].gene, 'gene,B');
+  assert.ok(Number.isNaN(rows[1].padj));
+  assert.equal(rows[1].padj <= 0.05, false, 'an NA padj never passes a cutoff');
+  assert.ok(Number.isNaN(rows[2].log2FoldChange));
+  // The shrunk file and other column orders work too; a file without padj is refused.
+  assert.equal(parseDeseq2Csv('"padj","gene","baseMean","log2FoldChange","lfcSE","stat","pvalue"\n0.01,"g",1,1,1,1,0.001\n')[0].padj, 0.01);
+  assert.throws(() => parseDeseq2Csv('"gene","baseMean"\n"g",1\n'), /no column log2FoldChange/);
 });
