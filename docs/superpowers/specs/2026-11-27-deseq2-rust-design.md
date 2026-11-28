@@ -161,8 +161,9 @@ grid-search genes, `optim` rows, Cook's-flagged genes, filtered genes; notes).
 
 ## Open questions
 
-1. How often does the parametric trend fail on fungal data? Measure on the HPCC by running DESeq2 on PopSeq datasets and
-   counting "local regression fit was automatically substituted". If often, port `locfit`'s method (a later design).
+1. How often does the parametric trend fail on fungal data? (PopSeq is DNA resequencing, so not usable here.) Phase 1
+   (2026-11-27): it fitted on all 21 real-data runs (yeast, pasilla, *A. fumigatus*; `validation/de/README.md`). Check
+   again on more fungal RNA-seq; if it fails often, port `locfit`'s method (a later design).
 2. Exact R `lbfgsb`: port it later if the fallback rows turn out to change calls.
 
 Settled: the m − p ≤ 3 prior is deterministic (`set.seed(2)`); counts are rounded once per gene half away from zero in

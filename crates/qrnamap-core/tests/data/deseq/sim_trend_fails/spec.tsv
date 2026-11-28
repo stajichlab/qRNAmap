@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,trt,ctl
+ref	ctl
+purpose	simulated: dispersion rises with the mean, the parametric trend fails (the port must stop)

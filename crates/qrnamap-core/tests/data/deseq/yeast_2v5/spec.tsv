@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,snf2,wt
+ref	wt
+purpose	unbalanced 2 vs 5, m - p = 5

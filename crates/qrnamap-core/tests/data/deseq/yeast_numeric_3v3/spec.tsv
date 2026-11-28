@@ -1,0 +1,4 @@
+design	~ score + condition
+contrast	condition,snf2,wt
+ref	wt
+purpose	3 vs 3 plus a synthetic numeric covariate (every sample its own Cook's cell)
