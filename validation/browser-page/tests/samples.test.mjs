@@ -205,7 +205,7 @@ test('manual entry: three samples (gzip, plain, single-end) give the gene counts
   assert.match(await row(page, 0).locator('.status').textContent(), new RegExp(`^300 pairs processed, ${expected.s1.n_pseudoaligned} pseudoaligned \\(${(100 * expected.s1.n_pseudoaligned / 300).toFixed(1)}%\\)\\. All pairs \\(300\\)\\. Reads of 50 bases: N = 200,000\\.$`));
   assert.match(await row(page, 2).locator('.status').textContent(), /^300 reads processed, .* All pairs \(300\)\. Reads of 50 bases: N = 200,000\.$/);
   assert.match(await page.textContent('#preview-label'), /preview of the first 200,000 pairs of each sample/);
-  assert.match(await page.textContent('#construction-notice'), /Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner \(small fixture genome and reads\); memory on full-size reads is not measured yet; results view is not built yet\./);
+  assert.match(await page.textContent('#beta-notice'), /Beta release\. Results, file formats and limits may change between versions/);
   assert.deepEqual(samples.map((s) => s.warning), ['', '', '']);
   assert.deepEqual(await page.evaluate(() => window.qrnamapApp.state.preview), { n: 200000, label: 'preview of the first 200,000 pairs' });
   assert.deepEqual(await page.evaluate(() => window.__samplesDone), [['done', 'done', 'done']]);

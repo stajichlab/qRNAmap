@@ -141,7 +141,7 @@ test('the menu lists the catalog, RefSeq first, and the search filters it', asyn
   await page.fill('#genome-filter', 'cerevisiae');
   const options = await page.$$eval('#genome-menu option', (os) => os.map((o) => o.textContent));
   assert.deepEqual(options, ['Saccharomyces cerevisiae S288C | GCF_000146045.2 | 12.1 Mb | 6,477 genes']);
-  assert.match(await page.textContent('#construction-notice'), /Under construction\. Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner \(small fixture genome and reads\); memory on full-size reads is not measured yet; results view is not built yet\./);
+  assert.match(await page.textContent('#beta-notice'), /Beta release\. Results, file formats and limits may change between versions/);
   assert.deepEqual(errors, []);
 });
 

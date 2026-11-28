@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qRNAmap: analyze reads</title>
-<meta name="description" content="Under construction. The genome step and the quantification of a read preview work in the qRNAmap browser tool; the results view is not built yet.">
+<meta name="description" content="qRNAmap beta: build a kallisto index, count RNA-seq reads per gene and screen for differential expression in your browser.">
 <script>
 try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
 </script>
@@ -21,9 +21,9 @@ try { var t = localStorage.getItem('qrnamap-theme'); if (t === 'light' || t === 
     </nav>
   </div>
 </div>
-<p class="lead"><a href="../">qRNAmap</a> web page, version 1 (under construction).</p>
+<p class="lead"><a href="../">qRNAmap</a> web page (beta).</p>
 
-<p class="warn" id="construction-notice" role="note"><strong>Under construction.</strong> Genome step and quantification tested in headless Chromium, Firefox and WebKit on a CI runner (small fixture genome and reads); memory on full-size reads is not measured yet; results view is not built yet. Step 1 builds the kallisto index of a genome in this browser. Step 2 counts a preview of the reads of each sample. Step 3 stays locked.</p>
+<p class="warn" id="beta-notice" role="note"><strong>Beta release.</strong> Results, file formats and limits may change between versions, and parts are tested only on small data. The differential-expression view is a quick screen: check results you publish with DESeq2 (command-line tool, or the desktop app with R). Report problems on <a href="https://github.com/stajichlab/qRNAmap/issues">GitHub issues</a>.</p>
 
 <section class="step" id="step-genome" data-step="genome" data-state="active" aria-labelledby="h-genome">
   <h2 id="h-genome">1. Genome</h2>
