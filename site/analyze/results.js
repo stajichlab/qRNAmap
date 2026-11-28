@@ -3,6 +3,8 @@ import { assemble_matrix, qc, de_command, validate_sheet } from '../pkg-web/qrna
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
 import { geneExternalLinks, genePopupHtml } from './gene-links.js?v=__BUILD__';
 import { computeDifferentialExpression } from './de-stats.js?v=__BUILD__';
+import { isTauri, checkDeseq2, runDeseq2Local } from './tauri-bridge.js?v=__BUILD__';
+import { parseDeseq2Csv } from './de-csv.js?v=__BUILD__';
 
 const STORE_KEY = 'results';
 
@@ -891,6 +893,72 @@ export function createResultsStep({ $, app, shell }) {
 
   let currentDeResults = [];
   let currentContrast = null;
+  // Desktop app: DESeq2 run through R on this computer, next to the page's quick screen.
+  let screenDeResults = [];
+  let deseq2Results = null; // rows, or null before a run
+  let deseq2Label = '';
+  let deseq2Check = null; // a promise of check_deseq2, asked once
+
+  /** The comparison label, with the method that made the rows on screen. */
+  function deLabel() {
+    if (!currentContrast) return '';
+    const what = `Comparison: "${currentContrast.level}" vs "${currentContrast.reference}" (~ ${currentContrast.factor})`;
+    const method = document.querySelector('input[name="de-method"]:checked')?.value === 'deseq2' && deseq2Results
+      ? deseq2Label : 'quick screen (moderated t-test on log2 counts; not DESeq2)';
+    return `${what}. Method: ${method}.`;
+  }
+
+  function showDeMethod() {
+    const useR = document.querySelector('input[name="de-method"]:checked')?.value === 'deseq2' && deseq2Results;
+    currentDeResults = useR ? deseq2Results : screenDeResults;
+    const labelEl = $('de-comparison-label');
+    if (labelEl) labelEl.textContent = deLabel();
+    updateVolcanoPlot();
+  }
+
+  /** Desktop app only: show the "Run DESeq2 (R)" box and say whether R with DESeq2 was found. */
+  function setupDeseq2Box() {
+    const box = $('de-r-box');
+    if (!box || !isTauri() || !currentContrast) { if (box) box.hidden = true; return; }
+    box.hidden = false;
+    $('de-method-choice').hidden = !deseq2Results;
+    const button = $('de-run-r');
+    const status = $('de-r-status');
+    deseq2Check = deseq2Check || checkDeseq2().catch((e) => ({ available: false, detail: e?.message || String(e) }));
+    deseq2Check.then((c) => {
+      if (deseq2Results) return;
+      button.disabled = !c.available;
+      status.textContent = c.available
+        ? `R with DESeq2 ${c.version} found (${c.rscript}). It runs the same DESeq2 analysis as the command-line tool on these counts.`
+        : `R with DESeq2 was not found: ${c.detail}. Install R and DESeq2 (for example the repository's pixi environment "de"), or set QRNAMAP_RSCRIPT to an Rscript that has DESeq2, then restart the app.`;
+    });
+  }
+
+  $('de-run-r')?.addEventListener('click', async () => {
+    if (!currentContrast) return;
+    const button = $('de-run-r');
+    const status = $('de-r-status');
+    button.disabled = true;
+    const preview = !app.state?.preview?.full;
+    status.textContent = 'Running DESeq2 in R…';
+    try {
+      const contrast = `${currentContrast.factor},${currentContrast.level},${currentContrast.reference}`;
+      const r = await runDeseq2Local({ countsTsv: getCountsTsv(), samplesTsv: getSamplesTsv(), design: `~ ${currentContrast.factor}`, contrast });
+      deseq2Results = parseDeseq2Csv(r.results_csv);
+      deseq2Label = `DESeq2 ${r.deseq2_version} (R on this computer)${preview ? ', on preview counts' : ''}`;
+      const called = deseq2Results.filter((x) => x.padj < 0.05).length;
+      status.textContent = `DESeq2 ${r.deseq2_version}: ${called.toLocaleString()} genes at padj < 0.05 of ${deseq2Results.length.toLocaleString()}. ` +
+        `All outputs (results, normalized counts, VST) are in ${r.out_dir}.${preview ? ' These are preview counts (the first reads of each sample), not final results.' : ''}`;
+      $('de-method-choice').hidden = false;
+      document.querySelector('input[name="de-method"][value="deseq2"]').checked = true;
+      showDeMethod();
+    } catch (error) {
+      status.textContent = `DESeq2 did not run: ${error?.message || error}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  for (const radio of document.querySelectorAll('input[name="de-method"]')) radio.addEventListener('change', showDeMethod);
 
   function updateVolcanoPlot() {
     const container = $('volcano-container');
@@ -925,6 +993,8 @@ export function createResultsStep({ $, app, shell }) {
       container.innerHTML = '<p class="qc-message">Add covariate groups (e.g. condition or genotype) to compare samples.</p>';
       if (summaryEl) summaryEl.textContent = '';
       currentDeResults = [];
+      currentContrast = null;
+      if ($('de-r-box')) $('de-r-box').hidden = true;
       return;
     }
 
@@ -934,6 +1004,8 @@ export function createResultsStep({ $, app, shell }) {
       container.innerHTML = '<p class="qc-message">Differential expression comparison requires samples from at least two groups.</p>';
       if (summaryEl) summaryEl.textContent = '';
       currentDeResults = [];
+      currentContrast = null;
+      if ($('de-r-box')) $('de-r-box').hidden = true;
       return;
     }
 
@@ -942,8 +1014,14 @@ export function createResultsStep({ $, app, shell }) {
       labelEl.textContent = `Comparison: "${currentContrast.level}" vs "${currentContrast.reference}" (~ ${currentContrast.factor})`;
     }
 
-    currentDeResults = computeDifferentialExpression(matrixTsv, doneSamples, currentContrast);
-    updateVolcanoPlot();
+    screenDeResults = computeDifferentialExpression(matrixTsv, doneSamples, currentContrast);
+    // New counts: a DESeq2 run of earlier counts no longer applies.
+    deseq2Results = null;
+    const screenRadio = document.querySelector('input[name="de-method"][value="screen"]');
+    if (screenRadio) screenRadio.checked = true;
+    if ($('de-r-status')) $('de-r-status').textContent = '';
+    setupDeseq2Box();
+    showDeMethod();
   }
 
   $('volcano-fc-cutoff')?.addEventListener('input', () => updateVolcanoPlot());
@@ -964,14 +1042,16 @@ export function createResultsStep({ $, app, shell }) {
       if (r.padj <= padjCutoff && r.log2FoldChange >= fcCutoff) sig = 'up';
       else if (r.padj <= padjCutoff && r.log2FoldChange <= -fcCutoff) sig = 'down';
 
+      const fixed = (v, d) => (Number.isFinite(v) ? v.toFixed(d) : 'NA');
+      const expo = (v) => (Number.isFinite(v) ? v.toExponential(4) : 'NA');
       lines.push([
         r.gene,
         sym,
-        r.baseMean.toFixed(2),
-        r.log2FoldChange.toFixed(4),
-        r.stat.toFixed(4),
-        r.pvalue.toExponential(4),
-        r.padj.toExponential(4),
+        fixed(r.baseMean, 2),
+        fixed(r.log2FoldChange, 4),
+        fixed(r.stat, 4),
+        expo(r.pvalue),
+        expo(r.padj),
         sig,
       ].join('\t'));
     }
@@ -1081,6 +1161,10 @@ export function createResultsStep({ $, app, shell }) {
     $('volcano-container').innerHTML = '';
     $('volcano-summary').textContent = '';
     currentDeResults = [];
+    screenDeResults = [];
+    deseq2Results = null;
+    currentContrast = null;
+    if ($('de-r-box')) $('de-r-box').hidden = true;
     writeStore({ [STORE_KEY]: null }).catch(() => {});
   });
 

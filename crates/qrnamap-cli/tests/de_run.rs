@@ -152,6 +152,7 @@ impl Case {
             shrink: None,
             out: self.dir.path().join("out").join("de"),
             tmpdir: Some(self.dir.path().join("tmp")),
+            rscript: None,
         }
     }
 }
