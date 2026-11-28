@@ -2,6 +2,10 @@
 """Cut preview reads for testsets exactly matching the browser's 4-line boundary cut rule.
 
 Usage: pixi run python validation/browser-page/make_preview_reads.py <out_dir>
+
+The <run>_<mate>.fastq.gz files it writes are published as GitHub release testsets-v1 (flat, with checksums.sha256)
+and mirrored to s3://stajichlab/qRNAmap/testsets-v1/ with scripts/mirror-indexes-to-s3.sh testsets-v1. New reads
+get a new tag (testsets-v2) and a matching TESTSET_READS_URL in site/analyze/testsets.js.
 """
 import hashlib
 import json

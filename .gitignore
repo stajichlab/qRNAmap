@@ -12,3 +12,6 @@ apps/desktop/gen/schemas/
 
 # one-off measurements and runs (purgeable)
 bench/
+
+# Test-set reads: GitHub release testsets-v1 and its S3 mirror, not the repository
+site/testsets/

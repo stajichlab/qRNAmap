@@ -64,6 +64,9 @@ async function open(t, query = '') {
 
 // ------------------------------------------------------------------ tests
 
+
+// The test-set reads: the S3 mirror of release testsets-v1 (site/analyze/testsets.js), and ENA when that fails.
+const isTestsetReadUrl = (url) => url.hostname === 'ftp.sra.ebi.ac.uk' || url.pathname.includes('/qRNAmap/testsets-v1/');
 test('testsets.json exists and defines yeast-ampb and cneo-lkh1 with 3+3 samples and ENA metadata', () => {
   const data = JSON.parse(readFileSync(join(root, 'testsets.json'), 'utf8'));
   assert.equal(data.length, 2);
@@ -100,8 +103,8 @@ test('Load test set button fills genome, fills sample table with 6 rows, fetches
     }
   });
 
-  // Intercept ENA read downloads with fixture reads
-  await page.route('**/{ftp.sra.ebi.ac.uk,testsets/reads}/**', (route) => {
+  // Intercept the S3 mirror of the test-set reads and ENA with fixture reads
+  await page.route(isTestsetReadUrl, (route) => {
     const url = route.request().url();
     if (url.includes('_1.fastq.gz') || url.includes('_1.fastq')) {
       route.fulfill({ status: 200, contentType: 'application/gzip', headers: { 'access-control-allow-origin': '*' }, body: fixture('s1_R1.fastq.gz') });
@@ -144,8 +147,8 @@ test('ENA failure (HTTP 404 or network error) gives clear message in testset-err
     }
   });
 
-  // Route ENA and local testset reads with 404
-  await page.route('**/{ftp.sra.ebi.ac.uk,testsets/reads}/**', (route) => {
+  // Route ENA and the S3 test-set reads with 404
+  await page.route(isTestsetReadUrl, (route) => {
     route.fulfill({ status: 404, statusText: 'Not Found', body: 'Not found' });
   });
 
