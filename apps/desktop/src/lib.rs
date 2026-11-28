@@ -62,6 +62,13 @@ pub struct PrepareIndexResponse {
     pub index_size: u64,
 }
 
+/// Whether the native kallisto can load an index, and why not.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeIndexCheck {
+    pub ok: bool,
+    pub detail: String,
+}
+
 /// Request to run native quantification on one sample.
 #[derive(Debug, Clone, Deserialize)]
 pub struct NativeQuantRequest {
@@ -229,6 +236,99 @@ pub fn write_index_bytes(target: &Path, bytes: &[u8], gz: bool) -> Result<(), St
     Ok(())
 }
 
+/// Can this `kallisto` load `index`?
+///
+/// kallisto index files are not portable between builds of the same version (0.52.0): an index built by kallisto.wasm
+/// (the page, and the pre-built indexes on S3) loads in macOS Homebrew kallisto but crashes the Linux conda build
+/// (`std::bad_array_new_length`), and a Linux conda index is "Corrupted index; unitig not found" for the other two
+/// (docs/browser/page-v1-measurements.md). So the desktop app checks before it uses one: a quant of one made-up read.
+/// The index loaded when kallisto prints its "[quant] processed" line; the exit status alone does not tell, because a read
+/// that does not pseudoalign ends with exit 1 too. `work` gets the read and the (unused) output.
+pub fn index_loads(kallisto: &Path, index: &Path, work: &Path) -> Result<(), String> {
+    fs::create_dir_all(work).map_err(|e| format!("cannot create {}: {e}", work.display()))?;
+    let read = work.join("one-read.fastq");
+    let seq = "ACGT".repeat(15);
+    fs::write(&read, format!("@check\n{seq}\n+\n{}\n", "I".repeat(seq.len())))
+        .map_err(|e| format!("cannot write {}: {e}", read.display()))?;
+    let output = Command::new(kallisto)
+        .args(["quant", "-t", "1", "--single", "-l", "200", "-s", "20", "-i"])
+        .arg(index)
+        .arg("-o")
+        .arg(work.join("out"))
+        .arg(&read)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("failed to start kallisto: {e}"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("[quant] processed") {
+        return Ok(());
+    }
+    // After a failed load kallisto may print its usage text: quote the error line, not the last line.
+    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let last = lines
+        .iter()
+        .rev()
+        .find(|l| l.contains("Error") || l.contains("what():") || l.contains("Corrupted"))
+        .or(lines.last())
+        .copied()
+        .unwrap_or("");
+    let how = match output.status.code() {
+        Some(code) => format!("exit {code}"),
+        None => "stopped by a signal".to_string(),
+    };
+    Err(format!("{} cannot read this index ({how}{}{last})", kallisto.display(), if last.is_empty() { "" } else { ": " }))
+}
+
+/// Where the desktop app keeps the native index of a genome: one file per genome key and kallisto version, so an index is
+/// built once per machine. The key is the genome accession (or "upload"), cut to safe characters.
+pub fn native_index_path(dir: &Path, key: &str, kallisto_version: &str) -> PathBuf {
+    let safe = |s: &str| -> String {
+        let t: String = s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+        t.trim_matches(|c| c == '.' || c == '_').chars().take(80).collect()
+    };
+    let version = kallisto_version.rsplit(' ').next().unwrap_or(kallisto_version);
+    let key = match safe(key) { k if k.is_empty() => "genome".to_string(), k => k };
+    dir.join(format!("{key}.kallisto-{}.idx", safe(version)))
+}
+
+/// Build a native index of `fasta` at `target` with `kallisto index`, then check that it loads. The index is written to a
+/// temporary name and renamed at the end, so a stopped build never leaves a file that looks finished.
+pub fn build_native_index_file(kallisto: &Path, fasta: &Path, target: &Path, threads: usize) -> Result<u64, String> {
+    let partial = target.with_extension("idx.partial");
+    let output = Command::new(kallisto)
+        .arg("index")
+        .arg("-t")
+        .arg(threads.max(1).to_string())
+        .arg("-i")
+        .arg(&partial)
+        .arg(fasta)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("failed to start kallisto index: {e}"))?;
+    if !output.status.success() || !partial.is_file() {
+        let _ = fs::remove_file(&partial);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
+        return Err(format!("kallisto index failed: {}", tail[tail.len().saturating_sub(3)..].join(" ")));
+    }
+    fs::rename(&partial, target).map_err(|e| format!("cannot rename {}: {e}", partial.display()))?;
+    let work = target.with_extension("check");
+    let checked = index_loads(kallisto, target, &work);
+    let _ = fs::remove_dir_all(&work);
+    if let Err(e) = checked {
+        let _ = fs::remove_file(target);
+        return Err(format!("the index built by this kallisto does not load in it: {e}"));
+    }
+    Ok(fs::metadata(target).map(|m| m.len()).unwrap_or(0))
+}
+
+/// The folder of the desktop app's scratch files (the page's index, native indexes, checks).
+pub fn scratch_dir() -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join("qrnamap_desktop");
+    fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
 /// Run `cmd` to the end, keeping its `Child` in `RUNNING_QUANT` so `cancel_native_quant` can kill it.
 /// stdout and stderr are read on their own threads (a full pipe would otherwise stall kallisto).
 /// Returns Err("Cancelled ...") when the process was killed through `cancel_native_quant`.
@@ -356,6 +456,67 @@ pub mod commands {
         write_index_bytes(&target_idx, bytes, gz)?;
         let size = fs::metadata(&target_idx).map(|m| m.len()).unwrap_or(0);
         Ok(PrepareIndexResponse { index_path: target_idx.to_string_lossy().to_string(), index_size: size })
+    }
+
+    /// Check that the native kallisto can load the index at `index_path` (see `index_loads`).
+    #[tauri::command(async)]
+    pub fn check_native_index(index_path: String) -> NativeIndexCheck {
+        let Some(kallisto) = find_kallisto() else {
+            return NativeIndexCheck { ok: false, detail: "no kallisto binary was found".to_string() };
+        };
+        let work = match scratch_dir() { Ok(d) => d.join("check"), Err(e) => return NativeIndexCheck { ok: false, detail: e } };
+        let result = index_loads(&kallisto, &resolve_path_str(&index_path, None), &work);
+        let _ = fs::remove_dir_all(&work);
+        match result {
+            Ok(()) => NativeIndexCheck { ok: true, detail: String::new() },
+            Err(detail) => NativeIndexCheck { ok: false, detail },
+        }
+    }
+
+    /// The native index this machine built before for genome `key` with the current kallisto, if it is there and loads.
+    #[tauri::command(async)]
+    pub fn cached_native_index(key: String) -> Option<PrepareIndexResponse> {
+        let kallisto = find_kallisto()?;
+        let version = get_kallisto_version(&kallisto).ok()?;
+        let path = native_index_path(&scratch_dir().ok()?.join("native"), &key, &version);
+        if !path.is_file() {
+            return None;
+        }
+        let work = path.with_extension("check");
+        let ok = index_loads(&kallisto, &path, &work).is_ok();
+        let _ = fs::remove_dir_all(&work);
+        if !ok {
+            let _ = fs::remove_file(&path);
+            return None;
+        }
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        Some(PrepareIndexResponse { index_path: path.to_string_lossy().to_string(), index_size: size })
+    }
+
+    /// Build a native kallisto index from the transcript FASTA in the raw IPC body (a Uint8Array; header
+    /// `x-qrnamap-key` names the genome, so the index is kept for the next time). Used when the native kallisto cannot read
+    /// the page's kallisto.wasm index.
+    #[tauri::command(async)]
+    pub fn build_native_index(request: tauri::ipc::Request<'_>) -> Result<PrepareIndexResponse, String> {
+        let tauri::ipc::InvokeBody::Raw(fasta) = request.body() else {
+            return Err("build_native_index needs the transcript FASTA as a raw (Uint8Array) body".to_string());
+        };
+        if !fasta.starts_with(b">") {
+            return Err("build_native_index: the body is not a FASTA file".to_string());
+        }
+        let key = request.headers().get("x-qrnamap-key").and_then(|v| v.to_str().ok()).unwrap_or("upload").to_string();
+        let kallisto = find_kallisto().ok_or_else(|| "no kallisto binary was found".to_string())?;
+        let version = get_kallisto_version(&kallisto)?;
+        let dir = scratch_dir()?.join("native");
+        fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        let target = native_index_path(&dir, &key, &version);
+        let fasta_path = target.with_extension("transcripts.fa");
+        fs::write(&fasta_path, fasta).map_err(|e| format!("cannot write {}: {e}", fasta_path.display()))?;
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(8);
+        let built = build_native_index_file(&kallisto, &fasta_path, &target, threads);
+        let _ = fs::remove_file(&fasta_path);
+        let size = built?;
+        Ok(PrepareIndexResponse { index_path: target.to_string_lossy().to_string(), index_size: size })
     }
 
     /// Stop the native kallisto quant that is running now, if any. The waiting `run_native_quant` then returns an error
@@ -805,6 +966,9 @@ pub fn run() {
             commands::pick_file_dialog,
             commands::pick_files_dialog,
             commands::write_native_index,
+            commands::check_native_index,
+            commands::cached_native_index,
+            commands::build_native_index,
             commands::cancel_native_quant,
             commands::pick_directory_dialog,
             commands::resolve_path,
@@ -943,6 +1107,100 @@ mod tests {
             assert!(res.samples[0].fastq1_exists[0], "first sample fastq1 file should exist on disk");
             assert!(res.samples[0].fastq2_exists[0], "first sample fastq2 file should exist on disk");
         }
+    }
+
+    /// A stand-in kallisto (a shell script): `index` writes the -i file, `quant` prints what `quant_stderr` says and exits
+    /// with `quant_exit` (a negative value aborts with SIGABRT, like the conda build on a kallisto.wasm index).
+    #[cfg(unix)]
+    fn fake_kallisto(dir: &Path, quant_stderr: &str, quant_exit: i32, index_ok: bool) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = dir.join("kallisto");
+        let quant_end = if quant_exit < 0 { "kill -ABRT $$".to_string() } else { format!("exit {quant_exit}") };
+        let index_body = if index_ok {
+            "while [ $# -gt 0 ]; do if [ \"$1\" = -i ]; then shift; printf idx > \"$1\"; fi; shift; done; exit 0"
+        } else {
+            "echo '[build] reading transcripts' >&2; echo 'Error: bad FASTA' >&2; exit 1"
+        };
+        fs::write(&bin, format!("#!/bin/sh\ncase \"$1\" in\n  index) {index_body} ;;\n  quant) printf '%b\\n' '{quant_stderr}' >&2; {quant_end} ;;\nesac\n")).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn index_loads_reads_the_processed_line_not_the_exit_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let idx = dir.path().join("t.idx");
+        fs::write(&idx, b"idx").unwrap();
+        // A readable index: one made-up read, zero pseudoaligned, exit 1. Still a pass.
+        let ok = fake_kallisto(dir.path(), "[quant] processed 1 reads, 0 reads pseudoaligned", 1, true);
+        index_loads(&ok, &idx, &dir.path().join("w1")).expect("the processed line means the index loaded");
+
+        let sub = dir.path().join("b");
+        fs::create_dir_all(&sub).unwrap();
+        let crash = fake_kallisto(&sub, "terminate called after throwing an instance of std::bad_array_new_length", -1, true);
+        let e = index_loads(&crash, &idx, &dir.path().join("w2")).unwrap_err();
+        assert!(e.contains("cannot read this index") && e.contains("bad_array_new_length"), "{e}");
+
+        let sub = dir.path().join("c");
+        fs::create_dir_all(&sub).unwrap();
+        let corrupt = fake_kallisto(&sub, "Error: Corrupted index; unitig not found: ACGT\n  --verbose   Print out progress information every 1M proccessed reads", 1, true);
+        let e = index_loads(&corrupt, &idx, &dir.path().join("w3")).unwrap_err();
+        assert!(e.contains("exit 1") && e.contains("Corrupted index") && !e.contains("proccessed"), "{e}");
+    }
+
+    #[test]
+    fn native_index_path_is_per_genome_and_kallisto_version() {
+        let d = Path::new("/x");
+        assert_eq!(native_index_path(d, "GCF_000146045.2", "kallisto, version 0.52.0"), d.join("GCF_000146045.2.kallisto-0.52.0.idx"));
+        assert_eq!(native_index_path(d, "../../etc/passwd", "0.52.0"), d.join("etc_passwd.kallisto-0.52.0.idx"));
+        assert_eq!(native_index_path(d, "", "0.51.1"), d.join("genome.kallisto-0.51.1.idx"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_native_index_file_renames_only_a_finished_checked_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let fa = dir.path().join("t.fa");
+        fs::write(&fa, ">t\nACGT\n").unwrap();
+        let good = fake_kallisto(dir.path(), "[quant] processed 1 reads", 1, true);
+        let target = dir.path().join("g.kallisto-0.52.0.idx");
+        build_native_index_file(&good, &fa, &target, 2).expect("built and checked");
+        assert!(target.is_file());
+        assert!(!target.with_extension("idx.partial").exists());
+
+        // kallisto index fails: no file is left, and the error has kallisto's last lines.
+        let sub = dir.path().join("bad");
+        fs::create_dir_all(&sub).unwrap();
+        let bad = fake_kallisto(&sub, "[quant] processed 1 reads", 1, false);
+        let t2 = dir.path().join("h.idx");
+        let e = build_native_index_file(&bad, &fa, &t2, 1).unwrap_err();
+        assert!(e.contains("bad FASTA"), "{e}");
+        assert!(!t2.exists() && !t2.with_extension("idx.partial").exists());
+
+        // Built, but it does not load in the same kallisto: removed.
+        let sub = dir.path().join("noload");
+        fs::create_dir_all(&sub).unwrap();
+        let noload = fake_kallisto(&sub, "Error: Corrupted index", 1, true);
+        let t3 = dir.path().join("i.idx");
+        assert!(build_native_index_file(&noload, &fa, &t3, 1).is_err());
+        assert!(!t3.exists());
+    }
+
+    /// With a real kallisto on this machine: an index it builds passes the check, and a file that is not an index fails it.
+    #[test]
+    fn real_kallisto_checks_its_own_index_and_refuses_junk() {
+        let Some(kallisto) = find_kallisto() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let fa = dir.path().join("t.fa");
+        let tx1 = "ACGTTGCAAGCTTGACCGTAGGCTAACGTTAGCCATGGTACCGATCGATTGCAAGGCTAGCTAGGCATCGATCGGATCCTAGCTAAGCTTGCA";
+        let tx2 = "TTGACCAGTCGGATCATGCAGTCCAGTACGATCAGGCTTAGCATGCAGGTCAAGTCGATCGGCTAGCAGTCAGCTAGGCAATCGACTGACTGA";
+        fs::write(&fa, format!(">tx1\n{tx1}\n>tx2\n{tx2}\n")).unwrap();
+        let target = dir.path().join("real.idx");
+        build_native_index_file(&kallisto, &fa, &target, 1).expect("kallisto builds an index it can load");
+        let junk = dir.path().join("junk.idx");
+        fs::write(&junk, vec![7u8; 4096]).unwrap();
+        assert!(index_loads(&kallisto, &junk, &dir.path().join("w")).is_err());
     }
 
     #[test]

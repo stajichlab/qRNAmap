@@ -4,7 +4,7 @@
 import init, { catalog } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { checkUrl, mb } from '../reference-panel.js?v=__BUILD__';
 import { readStore, writeStore } from '../persist.js?v=__BUILD__';
-import { isTauri, writeNativeIndex } from './tauri-bridge.js?v=__BUILD__';
+import { isTauri, checkNative, writeNativeIndex, checkNativeIndex, cachedNativeIndex, buildNativeIndex } from './tauri-bridge.js?v=__BUILD__';
 
 /**
  * The largest genome that finished download, transcript building and kallisto index in Chromium, Firefox and WebKit in the
@@ -52,7 +52,7 @@ function limitText(entry) {
 }
 
 /** The state that the later steps read. `indexReady` is true only while the worker holds the index of `genome`. */
-export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [], nativeIndexPath: null };
+export const state = { phase: 'choose', genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [], nativeIndexPath: null, nativeIndexNote: '', nativeIndexError: '' };
 
 let worker = null;
 let pending = null; // { id, resolve, reject, onProgress }
@@ -82,7 +82,7 @@ function startWorker() {
   worker.onmessage = ({ data }) => {
     if (!pending || data.id !== pending.id) return; // an answer to a run that was cancelled
     if (data.type === 'progress') pending.onProgress(data);
-    else if (data.type === 'genome-ready') { const p = pending; pending = null; p.resolve(data); }
+    else if (data.type === 'genome-ready' || data.type === 'transcripts-ready') { const p = pending; pending = null; p.resolve(data); }
     else if (data.type === 'error') { const p = pending; pending = null; p.reject(Object.assign(new Error(data.message), { kind: data.kind })); }
   };
   const crashed = (text) => {
@@ -145,7 +145,7 @@ export async function createGenomeStep({ $, shell }) {
   const changed = () => document.dispatchEvent(new CustomEvent('qrnamap:genome', { detail: { ...state } }));
 
   function clearGenome() {
-    Object.assign(state, { genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [] });
+    Object.assign(state, { genome: null, nTranscripts: 0, nGenes: 0, indexReady: false, tx2gene: '', genesTsv: '', geneInfoTsv: '', indexArgs: null, downloadNotes: [], nativeIndexPath: null, nativeIndexNote: '', nativeIndexError: '' });
     $('genome-ready').hidden = true;
     shell.resetFrom('genome');
   }
@@ -347,7 +347,7 @@ export async function createGenomeStep({ $, shell }) {
       const saved = entry ? { source: 'catalog', accession, label } : { source: 'upload', fasta: fasta.name, gff: gff.name };
       const request = isPrebuilt
         ? prebuiltPayload
-        : { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry), prepWorker: new URLSearchParams(location.search).get('prep_worker') !== '0' };
+        : { type: 'genome', fasta, gff, label, accession, limitBases: LIMIT_BASES, limitText: limitText(entry), prepWorker: new URLSearchParams(location.search).get('prep_worker') !== '0', keepTranscripts: isTauri() };
       fasta = null; // the page keeps no reference to the genome bytes while the worker runs
       gff = null;
       const answer = runInWorker(request, (p) => {
@@ -365,20 +365,10 @@ export async function createGenomeStep({ $, shell }) {
       });
 
       if (isTauri()) {
-        try {
-          if (prebuiltPayload?.idxGz) {
-            const prep = await writeNativeIndex(prebuiltPayload.idxGz, { gzip: true });
-            state.nativeIndexPath = prep.index_path;
-          } else {
-            const idxBytes = await getIndexBytes();
-            if (idxBytes) {
-              const prep = await writeNativeIndex(idxBytes);
-              state.nativeIndexPath = prep.index_path;
-            }
-          }
-        } catch (e) {
-          console.warn('Native index preparation note:', e);
-        }
+        await prepareNativeIndex({ idxGz: prebuiltPayload?.idxGz, signal, say: (text) => { if (mine === run) status(text); }, isCurrent: () => mine === run });
+        if (mine !== run) return;
+        if (state.nativeIndexError) note(`The native kallisto cannot be used for this genome (${state.nativeIndexError}).`);
+        else if (state.nativeIndexNote) note(`Native kallisto: ${state.nativeIndexNote}.`);
       }
 
       setPhase('ready');
@@ -401,6 +391,71 @@ export async function createGenomeStep({ $, shell }) {
     } finally {
       if (mine === run) controller = null;
     }
+  }
+
+  /**
+   * Desktop app: put an index on disk that the native kallisto can load, and set state.nativeIndexPath (or
+   * state.nativeIndexError). First the page's own kallisto.wasm index (`idxGz` for a pre-built one, else the worker's). Index
+   * files are not portable between kallisto builds of the same version: macOS Homebrew kallisto reads a kallisto.wasm index,
+   * the Linux conda build crashes on it (docs/browser/page-v1-measurements.md). So the native kallisto loads it first; when it
+   * cannot, a native index kept from an earlier run is used, else the native kallisto builds one from the transcripts (kept by
+   * the worker, or built again from the NCBI files of a pre-built genome). `say` shows progress; `isCurrent` false stops it.
+   * Returns the index path or null.
+   */
+  async function prepareNativeIndex({ idxGz = null, signal = new AbortController().signal, say = () => {}, isCurrent = () => true } = {}) {
+    Object.assign(state, { nativeIndexPath: null, nativeIndexNote: '', nativeIndexError: '' });
+    const caps = await checkNative();
+    if (!caps?.available) return null;
+    const accession = state.genome?.source === 'catalog' ? state.genome.accession : null;
+    const use = (path, how = '') => {
+      if (!isCurrent()) return null;
+      Object.assign(state, { nativeIndexPath: path, nativeIndexNote: how });
+      return path;
+    };
+    try {
+      say('Checking that the native kallisto can read the index…');
+      const bytes = idxGz || await getIndexBytes();
+      let why = 'the page has no index';
+      if (bytes) {
+        const written = await writeNativeIndex(bytes, { gzip: Boolean(idxGz) });
+        const check = await checkNativeIndex(written.index_path);
+        if (check.ok) return use(written.index_path);
+        why = check.detail;
+      }
+      if (!isCurrent()) return null;
+      console.warn('Native kallisto cannot read the page index:', why);
+      const cached = accession ? await cachedNativeIndex(accession) : null;
+      if (cached) return use(cached.index_path, 'it cannot read the page\'s index, so it uses the native index it built for this genome before');
+      if (!isCurrent()) return null;
+      say('The native kallisto cannot read the page\'s index (index files differ between kallisto builds). Getting the transcripts to build a native one…');
+      let transcripts = await transcriptsForNative(accession, signal, say);
+      if (!isCurrent()) return null;
+      say(`Building a native kallisto index of ${fmt(state.nTranscripts)} transcripts (once per genome on this computer)…`);
+      const built = await buildNativeIndex(transcripts, accession || 'upload');
+      transcripts = null;
+      return use(built.index_path, 'it cannot read the page\'s index, so it built its own index of this genome');
+    } catch (error) {
+      if (isCurrent()) state.nativeIndexError = error?.message || String(error);
+      console.warn('Native index preparation:', error);
+      return null;
+    }
+  }
+
+  /** The transcript FASTA of the current genome: kept by the worker, or built again from the NCBI files of catalog genome `accession`. */
+  async function transcriptsForNative(accession, signal, say) {
+    const entry = accession ? entries.find((e) => e.accession === accession) : null;
+    try {
+      return (await runInWorker({ type: 'transcripts' }, () => {})).transcripts;
+    } catch (error) {
+      if (!entry) throw error;
+    }
+    const files = [];
+    for (const [slot, name] of [[entry.fasta, 'the genome FASTA'], [entry.gff, 'the GFF3']]) {
+      files.push(await fetchFile(slot, name, signal, (got, total) => say(`Downloading ${name} from NCBI for the native index: ${mb(got)}${total ? ` of ${mb(total)}` : ''}`)));
+    }
+    const [fasta, gff] = files;
+    const answer = await runInWorker({ type: 'transcripts', fasta, gff, limitBases: Infinity, limitText: '', prepWorker: true }, (p) => say(p.text));
+    return answer.transcripts;
   }
 
   /** Stop the download or the worker at once and return to "choose genome", with nothing kept. */
@@ -450,5 +505,5 @@ export async function createGenomeStep({ $, shell }) {
 
   setPhase('choose');
   section.dataset.ready = 'menu'; // the tests wait for this
-  return { state, getWorker, cancel, nextId, loadCatalogAccession, getIndexBytes };
+  return { state, getWorker, cancel, nextId, loadCatalogAccession, getIndexBytes, prepareNativeIndex };
 }

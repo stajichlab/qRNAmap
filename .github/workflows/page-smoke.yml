@@ -123,3 +123,9 @@ jobs:
         env:
           DIST: ${{ github.workspace }}/dist-site
           ENGINE: ${{ matrix.engine }}
+      - name: Desktop native index tests (${{ matrix.engine }})
+        if: ${{ !cancelled() }}
+        run: node --test validation/browser-page/tests/native-index.test.mjs
+        env:
+          DIST: ${{ github.workspace }}/dist-site
+          ENGINE: ${{ matrix.engine }}

@@ -72,6 +72,27 @@ export async function writeNativeIndex(bytes, { gzip = false } = {}) {
   return window.__TAURI_INTERNALS__.invoke('write_native_index', body, options);
 }
 
+/** Can the native kallisto load the index at `indexPath`? Returns { ok, detail }. */
+export async function checkNativeIndex(indexPath) {
+  return tauriInvoke('check_native_index', { indexPath });
+}
+
+/** The native index this machine built before for genome `key` (an accession) with the current kallisto, or null. */
+export async function cachedNativeIndex(key) {
+  return tauriInvoke('cached_native_index', { key });
+}
+
+/**
+ * Build a native kallisto index from the transcript FASTA bytes (the raw IPC body), kept under genome `key`. Used when the
+ * native kallisto cannot read the page's kallisto.wasm index (index files are not portable between kallisto builds).
+ */
+export async function buildNativeIndex(fastaBytes, key) {
+  const body = fastaBytes instanceof Uint8Array ? fastaBytes : new Uint8Array(fastaBytes);
+  const options = { headers: { 'x-qrnamap-key': key || 'upload' } };
+  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke('build_native_index', body, options);
+  return window.__TAURI_INTERNALS__.invoke('build_native_index', body, options);
+}
+
 /** Stop the native kallisto run that is going now. */
 export async function cancelNativeQuant() {
   if (!isTauri()) return false;
