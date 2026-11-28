@@ -62,6 +62,8 @@ async function buildGenome(message) {
   const runner = new ToolRunner({ moduleUrl: KALLISTO, workerUrl: RUNTIME_WORKER, waitForExit: false });
   let run;
   const started = performance.now();
+  // The desktop app keeps the transcripts: its native kallisto may not read this kallisto.wasm index and then builds its own.
+  const kept = message.keepTranscripts ? built.transcripts : null;
   try {
     run = await runner.run(args, { files: [{ path: 'transcripts.fa', data: built.transcripts }], outputs: ['transcripts.idx'] });
   } catch (error) {
@@ -76,8 +78,8 @@ async function buildGenome(message) {
     throw new StepError(memoryLike(stderr) ? 'memory' : 'kallisto', `kallisto index failed (exit ${run.exitCode}${run.missingOutputs.length ? ', no index file' : ''}). ${tail}`);
   }
   const index = run.files.find((f) => f.path === '/work/transcripts.idx').data;
-  // The worker keeps only the index. tx2gene and the gene table go to the page, which keeps them.
-  genome = { label, accession, index };
+  // The worker keeps only the index (and, in the desktop app, the transcripts). tx2gene and the gene table go to the page, which keeps them.
+  genome = { label, accession, index, transcripts: kept };
   post({ type: 'genome-ready', id, label, accession, nTranscripts: built.nTranscripts, nGenes: built.nGenes, bases: built.bases,
     indexBytes: index.length, indexSeconds: (performance.now() - started) / 1000, indexArgs: args, tx2gene: built.tx2gene, genesTsv: built.genesTsv, geneInfoTsv: built.geneInfoTsv });
 }
@@ -463,5 +465,20 @@ self.onmessage = async ({ data }) => {
     post({ type: 'status', id: data.id, genome: genome && { label: genome.label, accession: genome.accession, indexBytes: genome.index.length } });
   } else if (data?.type === 'get-index') {
     post({ type: 'index-data', id: data.id, index: genome?.index || null });
+  } else if (data?.type === 'transcripts') {
+    // The transcript FASTA for the desktop app's native index: the kept one, or built from `fasta` and `gff` (a pre-built genome).
+    try {
+      if (genome?.transcripts) {
+        post({ type: 'transcripts-ready', id: data.id, transcripts: genome.transcripts });
+      } else if (data.fasta && data.gff) {
+        const progress = (phase, text, done = 0, total = 0) => post({ type: 'progress', id: data.id, phase, text, done, total });
+        const built = data.prepWorker === false ? await prepareTranscripts(data, progress) : await prepareInWorker(data, progress);
+        self.postMessage({ type: 'transcripts-ready', id: data.id, transcripts: built.transcripts }, [built.transcripts.buffer]);
+      } else {
+        throw new StepError('no-index', 'The transcripts of this genome are not in the page worker. Choose the genome again.');
+      }
+    } catch (error) {
+      post({ type: 'error', id: data.id, kind: error instanceof StepError ? error.kind : 'internal', message: error?.message || String(error) });
+    }
   }
 };

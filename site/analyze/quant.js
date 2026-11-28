@@ -6,7 +6,7 @@
 // and its index stay, so a new run needs no new index.
 import { gene_counts } from '../pkg-web/qrnamap_wasm.js?v=__BUILD__';
 import { HARD_LIMIT } from './preview-limit.js?v=__BUILD__';
-import { isTauri, runNativeQuant, writeNativeIndex, cancelNativeQuant } from './tauri-bridge.js?v=__BUILD__';
+import { isTauri, runNativeQuant, cancelNativeQuant } from './tauri-bridge.js?v=__BUILD__';
 
 /** The largest value of the page field "Read pairs per sample". The N of each sample also depends on its read length (preview-limit.js). */
 export const MAX_PAIRS = HARD_LIMIT;
@@ -99,12 +99,9 @@ export function createQuant(app, { onChange = () => {}, onProgress = () => {} } 
     if (isDesktopNative) {
       if (!state.nativeIndexPath) {
         onProgress({ text: 'Preparing native kallisto index on disk...' });
-        const idxBytes = await app.getIndexBytes?.();
-        if (idxBytes) {
-          const prep = await writeNativeIndex(idxBytes);
-          state.nativeIndexPath = prep.index_path;
-        } else {
-          throw new Error('Native kallisto index is not available. Please build the genome index in step 1 first.');
+        const path = await app.prepareNativeIndex?.({ say: (text) => onProgress({ text }) });
+        if (!path) {
+          throw new Error(`The native kallisto has no index it can read${state.nativeIndexError ? ` (${state.nativeIndexError})` : ''}. Build the genome index in step 1 again, or choose "In the page".`);
         }
       }
     }
