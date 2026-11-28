@@ -11,6 +11,25 @@ A bulk RNA-seq quantification tool for fungi, available as a Rust command-line t
 
 No sequencing reads or user data leave the browser. The tool loads fungal genomes from NCBI, builds a kallisto index in WebAssembly, quantifies a preview ($N = 75,000$ to $200,000$ pairs), provides an alias-searchable count table, SVG PCA and correlation heatmaps, and downloads count matrices and CLI commands for cluster runs.
 
+### DESeq2 on the page's counts
+
+The page's differential expression is a quick screen, not DESeq2. For DESeq2 on the same counts, download `counts.tsv`,
+`samples.tsv` and `de-command.txt` from the results step and run the command where `qrnamap` and R with DESeq2 are
+installed (for example `pixi run -e de` on macOS or Linux):
+
+```bash
+qrnamap de --counts counts.full.tsv --samples samples.tsv --design '~ condition' --contrast condition,trt,ctl --out de
+```
+
+Edit `--design` and `--contrast` first if the page's choice (the `condition` column, second value against the first) is
+not the comparison you want. Counts named `counts.preview-N.tsv` hold only the first N reads of each sample.
+`qrnamap de` runs `Rscript` from PATH, or the one named by `QRNAMAP_RSCRIPT`.
+
+The desktop app has a "Run DESeq2 (R) on this computer" button in the results step. It looks for an `Rscript` that loads
+DESeq2 (`QRNAMAP_RSCRIPT`, PATH, Homebrew, CRAN's R.framework, `/usr/bin`, pixi and conda folders), runs the same analysis as
+`qrnamap de`, shows the results in the volcano plot next to the quick screen, and keeps every output file in its scratch
+folder.
+
 ## Install and build (CLI)
 
 The tools (kallisto, Salmon, HISAT2, featureCounts, gffread, R with DESeq2, Rust) come from the pixi

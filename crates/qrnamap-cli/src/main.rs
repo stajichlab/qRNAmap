@@ -1016,6 +1016,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 shrink,
                 out,
                 tmpdir,
+                rscript: None,
             };
             let r = qrnamap_cli::de::run_de(&args).map_err(|x| x.to_string())?;
             println!("DESeq2 {}", r.deseq2_version);

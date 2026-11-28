@@ -93,6 +93,19 @@ export async function buildNativeIndex(fastaBytes, key) {
   return window.__TAURI_INTERNALS__.invoke('build_native_index', body, options);
 }
 
+/** Desktop app: is R with DESeq2 on this computer? Returns { available, rscript, version, detail }. */
+export async function checkDeseq2() {
+  return tauriInvoke('check_deseq2');
+}
+
+/**
+ * Desktop app: run DESeq2 through R (the code of `qrnamap de`) on the page's counts and sheet. Returns
+ * { results_csv, deseq2_version, rscript, out_dir }.
+ */
+export async function runDeseq2Local({ countsTsv, samplesTsv, design, contrast }) {
+  return tauriInvoke('run_deseq2_local', { req: { counts_tsv: countsTsv, samples_tsv: samplesTsv, design, contrast } });
+}
+
 /** Stop the native kallisto run that is going now. */
 export async function cancelNativeQuant() {
   if (!isTauri()) return false;
