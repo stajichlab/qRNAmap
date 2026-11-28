@@ -1259,12 +1259,29 @@ mod tests {
         assert_eq!(abs, PathBuf::from("/absolute/path"));
     }
 
+    /// The Dhingra data set (A. fumigatus Af293, azole RNA-seq) for the tests that use real data: the folder named by
+    /// QRNAMAP_DHINGRA_DIR, else ~/projects/Dhingra. It holds samples.txt, results/transcripts.fa.zst,
+    /// results/tx2gene.tsv.zst and input/LCS9590_Af293_Azole_2_Clean_Data{1,2}.fq.gz. These tests skip when it is absent.
+    fn dhingra_dir() -> Option<PathBuf> {
+        let dir = std::env::var_os("QRNAMAP_DHINGRA_DIR")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("projects/Dhingra")))?;
+        if dir.is_dir() {
+            Some(dir)
+        } else {
+            eprintln!("SKIP: no Dhingra data at {} (set QRNAMAP_DHINGRA_DIR)", dir.display());
+            None
+        }
+    }
+
     #[test]
     fn test_read_local_sample_sheet() {
-        let sheet_path = "/Users/jstajich/projects/Dhingra/samples.txt";
-        if Path::new(sheet_path).is_file() {
+        let Some(base) = dhingra_dir() else { return };
+        let sheet = base.join("samples.txt");
+        let sheet_path = sheet.to_string_lossy().to_string();
+        if sheet.is_file() {
             let res = commands::read_local_sample_sheet(ReadSheetRequest {
-                path: sheet_path.to_string(),
+                path: sheet_path,
                 base_dir: None,
             }).expect("should parse samples.txt");
 
@@ -1480,12 +1497,14 @@ mod tests {
             return;
         }
 
-        let dhingra_transcripts = Path::new("/Users/jstajich/projects/Dhingra/results/transcripts.fa.zst");
-        let dhingra_tx2gene = Path::new("/Users/jstajich/projects/Dhingra/results/tx2gene.tsv.zst");
-        let r1 = Path::new("/Users/jstajich/projects/Dhingra/input/LCS9590_Af293_Azole_2_Clean_Data1.fq.gz");
-        let r2 = Path::new("/Users/jstajich/projects/Dhingra/input/LCS9590_Af293_Azole_2_Clean_Data2.fq.gz");
+        let Some(base) = dhingra_dir() else { return };
+        let dhingra_transcripts = &base.join("results/transcripts.fa.zst");
+        let dhingra_tx2gene = &base.join("results/tx2gene.tsv.zst");
+        let r1 = &base.join("input/LCS9590_Af293_Azole_2_Clean_Data1.fq.gz");
+        let r2 = &base.join("input/LCS9590_Af293_Azole_2_Clean_Data2.fq.gz");
 
-        if !dhingra_transcripts.is_file() || !dhingra_tx2gene.is_file() || !r1.is_file() || !r2.is_file() {
+        if let Some(missing) = [dhingra_transcripts, dhingra_tx2gene, r1, r2].into_iter().find(|p| !p.is_file()) {
+            eprintln!("SKIP: {} is missing", missing.display());
             return;
         }
 
