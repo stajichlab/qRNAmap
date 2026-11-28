@@ -1,0 +1,4 @@
+design	~ strain + condition
+contrast	condition,Azole,GMM
+ref	GMM
+purpose	A. fumigatus with strain (AF293, CEA10), m - p = 4

@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,g2,g1
+ref	g1
+purpose	WT vs WT: a null comparison (expect max numRej <= 10, no filtering)

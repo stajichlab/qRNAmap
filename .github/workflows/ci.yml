@@ -22,3 +22,5 @@ jobs:
         run: |
           bash scripts/check-vendor.sh "$PWD/site/vendor/kallisto"
           bash scripts/test-check-vendor.sh
+      - name: DESeq2 reference scripts (dumper, prior table)
+        run: RSCRIPT="$(pixi run bash -c 'command -v Rscript' | tail -1)" bash validation/de/test_deseq2_dump.sh

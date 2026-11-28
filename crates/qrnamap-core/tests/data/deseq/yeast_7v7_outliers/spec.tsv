@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,snf2,wt
+ref	wt
+purpose	7 vs 7 with planted outliers (count x20) in YBL071W-A,YDR374W-A,YGL166W,YGL181W,YNR032W: Cook's replacement and refit

@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,treated,untreated
+ref	untreated
+purpose	pasilla, 3 treated vs 4 untreated
