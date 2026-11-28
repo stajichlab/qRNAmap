@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Mirror the pre-built kallisto indexes of a GitHub release (made by .github/workflows/build-indexes.yml) to the lab S3
-# bucket, where the web page and the desktop app can fetch them. GitHub release downloads cannot be fetched from a web
+# bucket, where the web page and the desktop app can fetch them. It copies every .gz asset of a release, so it also
+# mirrors the test-set reads: mirror-indexes-to-s3.sh testsets-v1 (see validation/browser-page/testsets/README.md).
+# GitHub release downloads cannot be fetched from a web
 # page: github.com answers with a redirect that has no Access-Control-Allow-Origin header. The S3 bucket has a CORS rule.
 #
 # Usage: [SRC_DIR=dir] mirror-indexes-to-s3.sh [TAG] [S3_PREFIX]

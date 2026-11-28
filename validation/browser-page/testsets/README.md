@@ -17,7 +17,21 @@ The page offers two public test sets (Task 8 of `docs/superpowers/plans/2026-11-
    - Reads: 150 bp paired-end, cut at N = 75,000 pairs
    - Contrast: `genotype,lkh1_delta,wild_type`
 
+## Reads
+
+The cut reads (`<run>_1.fastq.gz`, `<run>_2.fastq.gz`, written by `validation/browser-page/make_preview_reads.py`) are not in
+the repository. They are the assets of the GitHub release `testsets-v1` (a draft; with `checksums.sha256`), mirrored to the lab
+S3 bucket, where the page fetches them: `https://s3-west.nrp-nautilus.io/stajichlab/qRNAmap/testsets-v1/<file>`. A GitHub release
+download has no CORS header, so a page cannot read it. Copy the release to S3 (on the HPCC, with `~/.s3cfg`):
+
+```bash
+scripts/mirror-indexes-to-s3.sh testsets-v1          # DRY_RUN=1 to check first
+```
+
+`?testset_base=URL` on `/analyze/` replaces the S3 folder. New reads get a new tag (`testsets-v2`) and a new default in
+`site/analyze/testsets.js`, so a cached old file never meets a new page.
+
 ## Fetch method
 
-The browser streams the FASTQ files over HTTPS from ENA (`https://ftp.sra.ebi.ac.uk/vol1/fastq/...`), decompresses them as a stream with `gz.js` (fflate `VerifyingGunzip`), cuts at N records per mate, checks that record counts match and read names match, and gives plain FASTQ to kallisto in the worker.
+When the S3 copy cannot be read, the browser streams the FASTQ files over HTTPS from ENA (`https://ftp.sra.ebi.ac.uk/vol1/fastq/...`), decompresses them as a stream with `gz.js` (fflate `VerifyingGunzip`), cuts at N records per mate, checks that record counts match and read names match, and gives plain FASTQ to kallisto in the worker.
 In tests, the network requests are served by the local static server to avoid reliance on external ENA availability.

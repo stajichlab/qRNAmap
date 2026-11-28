@@ -1,3 +1,2 @@
 site/vendor/** -text
 validation/browser-page/fixtures/** -text
-site/testsets/reads/** -text
