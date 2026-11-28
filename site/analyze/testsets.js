@@ -2,6 +2,12 @@
 import { VerifyingGunzip } from '../gz.js?v=__BUILD__';
 import { firstNameStem } from './fastq.js?v=__BUILD__';
 
+// The cut test-set reads (<run>_1.fastq.gz, <run>_2.fastq.gz) are GitHub release testsets-v1, mirrored to the lab S3 bucket
+// with scripts/mirror-indexes-to-s3.sh testsets-v1. They are not in the repository or the site, so a clone and the desktop
+// app stay small. A release download URL has no CORS header, so the page reads the S3 copy; when that fails it streams the
+// run from ENA. `?testset_base=URL` replaces the S3 folder (other mirrors, a local copy).
+const TESTSET_READS_URL = (new URLSearchParams(location.search).get('testset_base') || 'https://s3-west.nrp-nautilus.io/stajichlab/qRNAmap/testsets-v1').replace(/\/+$/, '');
+
 /** Stream a gzipped or plain FASTQ URL, count newlines up to maxRecords * 4, and return the cut plain bytes. */
 export async function streamCutFastq(url, maxRecords, signal) {
   const targetNewlines = maxRecords * 4;
@@ -211,9 +217,8 @@ export function createTestsets({ $, app, shell }) {
         });
         setStatus(`Fetching reads for sample ${i + 1} of ${ts.samples.length} (${s.sample}, ${s.run})...`);
 
-        const localBase = `../testsets/reads/${ts.id}`;
-        const local1 = `${localBase}/${s.run}_1.fastq.gz`;
-        const local2 = `${localBase}/${s.run}_2.fastq.gz`;
+        const local1 = `${TESTSET_READS_URL}/${s.run}_1.fastq.gz`;
+        const local2 = `${TESTSET_READS_URL}/${s.run}_2.fastq.gz`;
 
         // Check for test mock override function
         const url1 = window.__testSetUrl ? window.__testSetUrl(s.run, 1) : s.fastq1_url;
