@@ -1,0 +1,4 @@
+design	~ type + condition
+contrast	condition,treated,untreated
+ref	untreated
+purpose	pasilla with library type (single, paired), m - p = 4

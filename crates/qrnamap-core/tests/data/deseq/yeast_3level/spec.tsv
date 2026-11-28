@@ -1,0 +1,4 @@
+design	~ group
+contrast	group,c,b
+ref	a
+purpose	3-level factor (a, b: WT; c: snf2), contrast between the two non-reference levels

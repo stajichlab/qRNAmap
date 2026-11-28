@@ -1,0 +1,4 @@
+design	~ batch + condition
+contrast	condition,snf2,wt
+ref	wt
+purpose	3 vs 3 plus a synthetic two-level batch, m - p = 3 (simulated prior)

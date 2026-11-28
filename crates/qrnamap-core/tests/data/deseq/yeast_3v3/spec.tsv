@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,snf2,wt
+ref	wt
+purpose	3 vs 3, m - p = 4 (trigamma prior)

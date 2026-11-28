@@ -12,7 +12,31 @@ it, and later a Rust port, with R DESeq2 (version pinned in `pixi.toml`) on the 
 
 COLDATA is a TSV with a `sample` column (the count matrix's column names) and one column per covariate.
 
+## Reference data for the Rust port (phase 1)
+
+- `make_deseq2_fixtures.sh WORK_DIR` (HPCC, in a job): fetches the data, builds the inputs (`build_deseq2_fixtures.R`),
+  runs DESeq2 on the full data, adds the genes those runs flagged to the fixtures (`add_flagged_genes.R`), runs DESeq2 on
+  every fixture with all intermediates saved (`deseq2_dump.R`), makes the m − p ≤ 3 prior table
+  (`deseq2_prior_table.R`) and checks it against DESeq2 (`check_prior_table.R`). Writes
+  `crates/qrnamap-core/tests/data/deseq/` (format and data sources in its README) and
+  `crates/qrnamap-core/src/deseq/prior_hist.tsv`.
+- `test_deseq2_dump.sh`: fixture test of the dumper, the prior table and its check on simulated counts (needs R).
+- `data/afum_azole_gmm.*`: the *A. fumigatus* counts from the page (2026-11-26), the only input not downloadable.
+
 ## Results
+
+### 2026-11-27: phase 1 reference runs (DESeq2 1.50.2, R 4.5.3, HPCC job 32520679)
+Per-run cases in `deseq2_fixtures_summary.tsv` (16 fixtures, 6 full-data runs: yeast Schurch 3 vs 3 and all 42 vs 44
+good replicates, pasilla, *A. fumigatus* with and without strain).
+- The prior table reproduces DESeq2's `dispPriorVar` exactly on all six fixtures with m − p ≤ 3 (four at the 0.25 floor,
+  0.36036… and 0.26426… above it).
+- The parametric dispersion trend fitted on all 21 real-data runs; only the simulation built to fail it switched to the
+  local fit.
+- Cases covered by the fixtures: GLM optim fallback rows (*A. fumigatus* 7 and 2, pasilla 5), Cook's-flagged genes (18
+  and 1), Cook's replacement (5 planted outliers in 7 vs 7), no filtering (null WT vs WT, 1 vs 2, 1 vs 3), dispersion
+  grid genes in every fixture and dispersion outliers in most, all-zero genes, genes zero in one or both contrasted levels.
+- Full-data *A. fumigatus* runs give the same calls as on 2026-11-26 (1,261 for `~ condition`, 1,390 with strain).
+
 
 ### 2026-11-26: *A. fumigatus*, full-depth streamed counts, 7 samples
 Samples: AF293 Azole ×2, AF293 GMM ×3, CEA10 Azole ×2 (no CEA10 GMM). Azole vs GMM; DESeq2 1.50.2 (pixi `de`, osx-arm64).

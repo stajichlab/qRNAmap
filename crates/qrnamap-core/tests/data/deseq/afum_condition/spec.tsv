@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,Azole,GMM
+ref	GMM
+purpose	A. fumigatus Azole vs GMM, kallisto counts from the page

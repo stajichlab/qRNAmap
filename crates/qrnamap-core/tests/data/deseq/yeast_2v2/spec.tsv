@@ -1,0 +1,4 @@
+design	~ condition
+contrast	condition,snf2,wt
+ref	wt
+purpose	2 vs 2, m - p = 2 (simulated prior)

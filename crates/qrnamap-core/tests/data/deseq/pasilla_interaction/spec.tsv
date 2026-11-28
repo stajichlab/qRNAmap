@@ -1,0 +1,4 @@
+design	~ type * condition
+contrast	condition,treated,untreated
+ref	untreated
+purpose	interaction design: the contrast is the effect at the reference type (paired), m - p = 3
