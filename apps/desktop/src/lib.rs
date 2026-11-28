@@ -169,10 +169,6 @@ pub fn find_kallisto() -> Option<PathBuf> {
             format!("{home}/.cargo/bin/kallisto"),
             format!("{home}/.pixi/bin/kallisto"),
             format!("{home}/.local/bin/kallisto"),
-            format!("{home}/miniforge3/bin/kallisto"),
-            format!("{home}/miniconda3/bin/kallisto"),
-            format!("{home}/anaconda3/bin/kallisto"),
-            format!("{home}/projects/funannotate/.pixi/envs/default/bin/kallisto"),
         ];
         for path in &user_paths {
             let p = PathBuf::from(path);
@@ -182,7 +178,39 @@ pub fn find_kallisto() -> Option<PathBuf> {
         }
     }
 
-    None
+    conda_kallisto_candidates(&home).into_iter().find(|p| p.is_file())
+}
+
+/// kallisto in conda, mamba and micromamba installs: each root's `bin/` and then its environments (`envs/*/bin/`, by
+/// name). An app started from a desktop launcher (Linux) or the Dock (macOS) does not get the shell's PATH, so an
+/// environment that the user activates in a terminal is not on it.
+pub fn conda_kallisto_candidates(home: &str) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for var in ["CONDA_PREFIX", "MAMBA_ROOT_PREFIX", "CONDA_ROOT"] {
+        if let Ok(v) = std::env::var(var) {
+            if !v.is_empty() {
+                roots.push(PathBuf::from(v));
+            }
+        }
+    }
+    if !home.is_empty() {
+        for dir in ["micromamba", "miniforge3", "mambaforge", "miniconda3", "anaconda3", ".local/share/mamba", ".conda"] {
+            roots.push(Path::new(home).join(dir));
+        }
+    }
+    roots.push(PathBuf::from("/opt/conda"));
+    roots.push(PathBuf::from("/opt/miniforge3"));
+
+    let mut out = Vec::new();
+    for root in roots {
+        out.push(root.join("bin").join("kallisto"));
+        if let Ok(entries) = fs::read_dir(root.join("envs")) {
+            let mut envs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            envs.sort();
+            out.extend(envs.into_iter().map(|env| env.join("bin").join("kallisto")));
+        }
+    }
+    out
 }
 
 /// Get kallisto version text.
@@ -279,6 +307,19 @@ pub fn index_loads(kallisto: &Path, index: &Path, work: &Path) -> Result<(), Str
     Err(format!("{} cannot read this index ({how}{}{last})", kallisto.display(), if last.is_empty() { "" } else { ": " }))
 }
 
+/// A fresh working folder for one `kallisto index` run, next to the index it writes. kallisto 0.50+ makes its temporary
+/// folder `tmp` in the working directory, and fails with "could not create directory tmp" when that directory is not
+/// writable (an app started from a Linux desktop launcher often runs in `/`) or when another build is using `tmp`.
+/// The index and FASTA paths given to kallisto must be absolute. The folder is removed when the value is dropped.
+pub fn index_work_dir(target: &Path) -> Result<tempfile::TempDir, String> {
+    let parent = target.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+    tempfile::Builder::new()
+        .prefix(".kallisto-index-")
+        .tempdir_in(parent)
+        .map_err(|e| format!("cannot make a working folder in {}: {e}", parent.display()))
+}
+
 /// Where the desktop app keeps the native index of a genome: one file per genome key and kallisto version, so an index is
 /// built once per machine. The key is the genome accession (or "upload"), cut to safe characters.
 pub fn native_index_path(dir: &Path, key: &str, kallisto_version: &str) -> PathBuf {
@@ -295,7 +336,9 @@ pub fn native_index_path(dir: &Path, key: &str, kallisto_version: &str) -> PathB
 /// temporary name and renamed at the end, so a stopped build never leaves a file that looks finished.
 pub fn build_native_index_file(kallisto: &Path, fasta: &Path, target: &Path, threads: usize) -> Result<u64, String> {
     let partial = target.with_extension("idx.partial");
+    let cwd = index_work_dir(target)?;
     let output = Command::new(kallisto)
+        .current_dir(cwd.path())
         .arg("index")
         .arg("-t")
         .arg(threads.max(1).to_string())
@@ -413,9 +456,15 @@ pub mod commands {
         let native = kallisto_version.as_deref().and_then(major_minor);
         let index_compatible = available && native.is_some() && native == page;
         let warning = if !available {
-            Some("No kallisto binary was found (looked in QRNAMAP_KALLISTO, PATH, Homebrew, conda and pixi folders). \
-                  Install kallisto 0.52 (for example `brew install kallisto`) or set QRNAMAP_KALLISTO to its path."
-                .to_string())
+            Some(format!(
+                "No kallisto binary was found (looked in QRNAMAP_KALLISTO, PATH, Homebrew, and conda, mamba, micromamba \
+                 and pixi folders). Install kallisto 0.52 ({}) or set QRNAMAP_KALLISTO to its path.",
+                if cfg!(target_os = "macos") {
+                    "for example `brew install kallisto`"
+                } else {
+                    "for example `micromamba create -n kallisto -c conda-forge -c bioconda kallisto=0.52`"
+                }
+            ))
         } else if !index_compatible {
             Some(format!(
                 "The native kallisto ({}) is not version {PAGE_KALLISTO_VERSION}, so it cannot read the index this app builds. \
@@ -588,7 +637,11 @@ pub mod commands {
                 p
             };
 
+            let target_idx = std::path::absolute(&target_idx).unwrap_or(target_idx);
+            let fasta_file = std::path::absolute(&fasta_file).unwrap_or(fasta_file);
+            let cwd = index_work_dir(&target_idx)?;
             let output = Command::new(&kallisto)
+                .current_dir(cwd.path())
                 .arg("index")
                 .arg("-i")
                 .arg(&target_idx)
@@ -1009,7 +1062,9 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    /// Tests that start kallisto share RUNNING_QUANT (one native run at a time), so they take this lock.
+    /// Tests that start kallisto share RUNNING_QUANT (one native run at a time), so they take this lock. Tests that write a
+    /// script and run it take it too: on Linux, exec of a file fails with "Text file busy" (ETXTBSY) while a child that
+    /// another test thread is forking still holds the file open for writing.
     static NATIVE_RUN_LOCK: Mutex<()> = Mutex::new(());
     fn native_run_lock() -> std::sync::MutexGuard<'static, ()> {
         NATIVE_RUN_LOCK.lock().unwrap_or_else(|e| e.into_inner())
@@ -1075,7 +1130,26 @@ mod tests {
     }
 
     #[test]
+    fn conda_candidates_cover_root_bins_and_named_envs() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        for env in ["zeta", "kallisto"] {
+            fs::create_dir_all(h.join("micromamba/envs").join(env).join("bin")).unwrap();
+        }
+        fs::create_dir_all(h.join("miniforge3/envs/rnaseq/bin")).unwrap();
+        let c = conda_kallisto_candidates(&h.to_string_lossy());
+        let pos = |rel: &str| c.iter().position(|p| p == &h.join(rel)).unwrap_or_else(|| panic!("{rel} missing from {c:?}"));
+        // each root's bin first, then its environments sorted by name; roots in the documented order
+        assert!(pos("micromamba/bin/kallisto") < pos("micromamba/envs/kallisto/bin/kallisto"));
+        assert!(pos("micromamba/envs/kallisto/bin/kallisto") < pos("micromamba/envs/zeta/bin/kallisto"));
+        assert!(pos("micromamba/envs/zeta/bin/kallisto") < pos("miniforge3/bin/kallisto"));
+        assert!(pos("miniforge3/bin/kallisto") < pos("miniforge3/envs/rnaseq/bin/kallisto"));
+        assert!(c.contains(&PathBuf::from("/opt/conda/bin/kallisto")));
+    }
+
+    #[test]
     fn test_check_capabilities() {
+        let _lock = native_run_lock();
         let caps = commands::check_native_capabilities();
         assert!(caps.available);
         assert!(caps.kallisto_path.is_some());
@@ -1129,6 +1203,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn index_loads_reads_the_processed_line_not_the_exit_status() {
+        let _lock = native_run_lock();
         let dir = tempfile::tempdir().unwrap();
         let idx = dir.path().join("t.idx");
         fs::write(&idx, b"idx").unwrap();
@@ -1160,6 +1235,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn build_native_index_file_renames_only_a_finished_checked_index() {
+        let _lock = native_run_lock();
         let dir = tempfile::tempdir().unwrap();
         let fa = dir.path().join("t.fa");
         fs::write(&fa, ">t\nACGT\n").unwrap();
@@ -1190,6 +1266,7 @@ mod tests {
     /// With a real kallisto on this machine: an index it builds passes the check, and a file that is not an index fails it.
     #[test]
     fn real_kallisto_checks_its_own_index_and_refuses_junk() {
+        let _lock = native_run_lock();
         let Some(kallisto) = find_kallisto() else { return };
         let dir = tempfile::tempdir().unwrap();
         let fa = dir.path().join("t.fa");
