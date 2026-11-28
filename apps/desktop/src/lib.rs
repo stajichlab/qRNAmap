@@ -169,10 +169,6 @@ pub fn find_kallisto() -> Option<PathBuf> {
             format!("{home}/.cargo/bin/kallisto"),
             format!("{home}/.pixi/bin/kallisto"),
             format!("{home}/.local/bin/kallisto"),
-            format!("{home}/miniforge3/bin/kallisto"),
-            format!("{home}/miniconda3/bin/kallisto"),
-            format!("{home}/anaconda3/bin/kallisto"),
-            format!("{home}/projects/funannotate/.pixi/envs/default/bin/kallisto"),
         ];
         for path in &user_paths {
             let p = PathBuf::from(path);
@@ -182,7 +178,39 @@ pub fn find_kallisto() -> Option<PathBuf> {
         }
     }
 
-    None
+    conda_kallisto_candidates(&home).into_iter().find(|p| p.is_file())
+}
+
+/// kallisto in conda, mamba and micromamba installs: each root's `bin/` and then its environments (`envs/*/bin/`, by
+/// name). An app started from a desktop launcher (Linux) or the Dock (macOS) does not get the shell's PATH, so an
+/// environment that the user activates in a terminal is not on it.
+pub fn conda_kallisto_candidates(home: &str) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for var in ["CONDA_PREFIX", "MAMBA_ROOT_PREFIX", "CONDA_ROOT"] {
+        if let Ok(v) = std::env::var(var) {
+            if !v.is_empty() {
+                roots.push(PathBuf::from(v));
+            }
+        }
+    }
+    if !home.is_empty() {
+        for dir in ["micromamba", "miniforge3", "mambaforge", "miniconda3", "anaconda3", ".local/share/mamba", ".conda"] {
+            roots.push(Path::new(home).join(dir));
+        }
+    }
+    roots.push(PathBuf::from("/opt/conda"));
+    roots.push(PathBuf::from("/opt/miniforge3"));
+
+    let mut out = Vec::new();
+    for root in roots {
+        out.push(root.join("bin").join("kallisto"));
+        if let Ok(entries) = fs::read_dir(root.join("envs")) {
+            let mut envs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            envs.sort();
+            out.extend(envs.into_iter().map(|env| env.join("bin").join("kallisto")));
+        }
+    }
+    out
 }
 
 /// Get kallisto version text.
@@ -428,9 +456,15 @@ pub mod commands {
         let native = kallisto_version.as_deref().and_then(major_minor);
         let index_compatible = available && native.is_some() && native == page;
         let warning = if !available {
-            Some("No kallisto binary was found (looked in QRNAMAP_KALLISTO, PATH, Homebrew, conda and pixi folders). \
-                  Install kallisto 0.52 (for example `brew install kallisto`) or set QRNAMAP_KALLISTO to its path."
-                .to_string())
+            Some(format!(
+                "No kallisto binary was found (looked in QRNAMAP_KALLISTO, PATH, Homebrew, and conda, mamba, micromamba \
+                 and pixi folders). Install kallisto 0.52 ({}) or set QRNAMAP_KALLISTO to its path.",
+                if cfg!(target_os = "macos") {
+                    "for example `brew install kallisto`"
+                } else {
+                    "for example `micromamba create -n kallisto -c conda-forge -c bioconda kallisto=0.52`"
+                }
+            ))
         } else if !index_compatible {
             Some(format!(
                 "The native kallisto ({}) is not version {PAGE_KALLISTO_VERSION}, so it cannot read the index this app builds. \
@@ -1093,6 +1127,24 @@ mod tests {
         assert!(path.is_file(), "kallisto path must be an existing file");
         let version = get_kallisto_version(&path).expect("should get version");
         assert!(version.to_lowercase().contains("kallisto"), "version string should contain 'kallisto'");
+    }
+
+    #[test]
+    fn conda_candidates_cover_root_bins_and_named_envs() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        for env in ["zeta", "kallisto"] {
+            fs::create_dir_all(h.join("micromamba/envs").join(env).join("bin")).unwrap();
+        }
+        fs::create_dir_all(h.join("miniforge3/envs/rnaseq/bin")).unwrap();
+        let c = conda_kallisto_candidates(&h.to_string_lossy());
+        let pos = |rel: &str| c.iter().position(|p| p == &h.join(rel)).unwrap_or_else(|| panic!("{rel} missing from {c:?}"));
+        // each root's bin first, then its environments sorted by name; roots in the documented order
+        assert!(pos("micromamba/bin/kallisto") < pos("micromamba/envs/kallisto/bin/kallisto"));
+        assert!(pos("micromamba/envs/kallisto/bin/kallisto") < pos("micromamba/envs/zeta/bin/kallisto"));
+        assert!(pos("micromamba/envs/zeta/bin/kallisto") < pos("miniforge3/bin/kallisto"));
+        assert!(pos("miniforge3/bin/kallisto") < pos("miniforge3/envs/rnaseq/bin/kallisto"));
+        assert!(c.contains(&PathBuf::from("/opt/conda/bin/kallisto")));
     }
 
     #[test]
