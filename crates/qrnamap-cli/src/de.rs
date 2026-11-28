@@ -126,6 +126,79 @@ pub struct DeArgs {
     /// Output prefix. The files are `<prefix>.results.csv` and so on.
     pub out: PathBuf,
     pub tmpdir: Option<PathBuf>,
+    /// The `Rscript` to run. `None`: `$QRNAMAP_RSCRIPT`, else `Rscript` on PATH.
+    pub rscript: Option<PathBuf>,
+}
+
+/// The `Rscript` that `run_de` runs when `DeArgs::rscript` is `None`: `$QRNAMAP_RSCRIPT`, else `Rscript` (PATH).
+pub fn default_rscript() -> PathBuf {
+    std::env::var_os("QRNAMAP_RSCRIPT").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("Rscript"))
+}
+
+/// Every `Rscript` to try, in order: `$QRNAMAP_RSCRIPT` (alone, when set), PATH, then the usual install folders
+/// (Homebrew, CRAN's R.framework, /usr, pixi and conda). For the desktop app, whose PATH is minimal when it starts from
+/// the Finder. Only existing files, no duplicates.
+pub fn rscript_candidates() -> Vec<PathBuf> {
+    if let Some(p) = std::env::var_os("QRNAMAP_RSCRIPT").filter(|v| !v.is_empty()) {
+        let p = PathBuf::from(p);
+        return if p.is_file() { vec![p] } else { Vec::new() };
+    }
+    let mut all: Vec<PathBuf> = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        all.extend(std::env::split_paths(&path).map(|d| d.join("Rscript")));
+    }
+    all.extend(
+        [
+            "/opt/homebrew/bin/Rscript",
+            "/usr/local/bin/Rscript",
+            "/Library/Frameworks/R.framework/Resources/bin/Rscript",
+            "/usr/bin/Rscript",
+            "/opt/conda/bin/Rscript",
+        ]
+        .iter()
+        .map(PathBuf::from),
+    );
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        for rel in [".pixi/bin/Rscript", "miniforge3/bin/Rscript", "miniconda3/bin/Rscript", "anaconda3/bin/Rscript"] {
+            all.push(home.join(rel));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    all.into_iter().filter(|p| p.is_file() && seen.insert(p.clone())).collect()
+}
+
+/// The first `Rscript` of `rscript_candidates` that loads DESeq2, with the DESeq2 version. On failure, one line per
+/// candidate tried (or a note that none was found).
+pub fn find_deseq2() -> Result<(PathBuf, String), String> {
+    let candidates = rscript_candidates();
+    if candidates.is_empty() {
+        return Err("no Rscript was found (looked in QRNAMAP_RSCRIPT, PATH, Homebrew, R.framework, /usr, pixi and conda folders)".to_string());
+    }
+    let mut why = Vec::new();
+    for r in candidates {
+        match deseq2_version(&r) {
+            Ok(v) => return Ok((r, v)),
+            Err(e) => why.push(e),
+        }
+    }
+    Err(why.join("; "))
+}
+
+/// The DESeq2 version this `Rscript` loads, or why it cannot (R missing, DESeq2 not installed).
+pub fn deseq2_version(rscript: &Path) -> Result<String, String> {
+    let out = Command::new(rscript)
+        .args(["--vanilla", "-e", "cat(as.character(packageVersion('DESeq2')))"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("cannot start {}: {e}", rscript.display()))?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if out.status.success() && !text.is_empty() {
+        Ok(text)
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err.lines().map(str::trim).filter(|l| !l.is_empty()).next_back().unwrap_or("no output").to_string();
+        Err(format!("{} cannot load DESeq2 ({last})", rscript.display()))
+    }
 }
 
 /// What a successful run reports.
@@ -171,7 +244,7 @@ impl fmt::Display for DeRunError {
             DeRunError::Pipeline(e) => write!(f, "{e}"),
             DeRunError::De(e) => write!(f, "{e}"),
             DeRunError::Io { path, source } => write!(f, "{}: {source}", path.display()),
-            DeRunError::Spawn(e) => write!(f, "cannot start 'Rscript': {e} (is R on PATH?)"),
+            DeRunError::Spawn(e) => write!(f, "cannot start 'Rscript': {e} (is R on PATH? QRNAMAP_RSCRIPT names another Rscript)"),
             DeRunError::MissingPackage(p) => write!(
                 f,
                 "the R package '{p}' is not installed; install it yourself and run again. Unshrunk results, if any, were kept"
@@ -343,7 +416,8 @@ pub fn run_de(args: &DeArgs) -> Result<DeOutput, DeRunError> {
             source,
         })?;
     }
-    let out = Command::new("Rscript")
+    let rscript = args.rscript.clone().unwrap_or_else(default_rscript);
+    let out = Command::new(&rscript)
         .arg("--vanilla")
         .arg(&script_path)
         .arg(&counts_path)
