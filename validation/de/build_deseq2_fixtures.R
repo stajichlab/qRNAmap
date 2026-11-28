@@ -12,7 +12,9 @@
 # OUT_DIR/fixtures/<name>/ and OUT_DIR/full/<name>/ get counts.tsv, coldata.tsv and spec.tsv (design, contrast, ref,
 # what the case is for). Fixtures are a seeded subset of genes (300 drawn at random, plus all-zero genes, genes zero in
 # one contrasted group, and genes zero in both contrasted levels when present), so DESeq2 runs on exactly the fixture.
-# Sample choices and synthetic covariates are seeded; everything here is deterministic.
+# Sample choices and synthetic covariates are seeded; everything here is deterministic. make_deseq2_fixtures.sh then adds
+# to each fixture the genes its full-data run sent to the GLM optim fallback or flagged by Cook's distance
+# (add_flagged_genes.R), since a random subset rarely holds them.
 a <- commandArgs(trailingOnly = TRUE)
 if (length(a) != 2) stop("usage: build_deseq2_fixtures.R RAW_DIR OUT_DIR")
 raw <- a[1]; outdir <- a[2]
@@ -56,7 +58,7 @@ write_case <- function(dir, counts, coldata, design, contrast, ref, purpose) {
 
 # The fixture's genes: 300 at random (seed), plus up to 3 all-zero genes, up to 5 genes zero in exactly one of the two
 # contrasted groups, and up to 3 genes zero in both contrasted levels but not overall; in the matrix's gene order.
-subset_genes <- function(counts, coldata, contrast, seed) {
+subset_genes <- function(counts, coldata, contrast, seed, extra = character()) {
   set.seed(seed)
   m <- as.matrix(counts[, -1])
   f <- strsplit(contrast, ",")[[1]]
@@ -64,15 +66,16 @@ subset_genes <- function(counts, coldata, contrast, seed) {
   z1 <- rowSums(m[, g1, drop = FALSE]) == 0; z2 <- rowSums(m[, g2, drop = FALSE]) == 0
   all0 <- rowSums(m) == 0
   pick <- function(w, k) { w <- which(w); if (length(w) <= k) w else sample(w, k) }
-  idx <- c(sample(nrow(m), 300), pick(all0, 3), pick(xor(z1, z2) & !all0, 5), pick(z1 & z2 & !all0, 3))
+  idx <- c(sample(nrow(m), 300), pick(all0, 3), pick(xor(z1, z2) & !all0, 5), pick(z1 & z2 & !all0, 3),
+           match(extra, counts$gene))
   counts[sort(unique(idx)), ]
 }
 
 cases <- list()
-add <- function(name, counts, coldata, design, contrast, ref, purpose, seed, full = FALSE) {
+add <- function(name, counts, coldata, design, contrast, ref, purpose, seed, full = FALSE, extra = character()) {
   cases[[length(cases) + 1]] <<- name
   counts <- counts[, c("gene", coldata$sample)]
-  write_case(file.path(outdir, "fixtures", name), subset_genes(counts, coldata, contrast, seed), coldata, design,
+  write_case(file.path(outdir, "fixtures", name), subset_genes(counts, coldata, contrast, seed, extra), coldata, design,
              contrast, ref, purpose)
   if (full) write_case(file.path(outdir, "full", name), counts, coldata, design, contrast, ref, purpose)
 }
@@ -109,7 +112,7 @@ og <- sample(which(rowMeans(as.matrix(o[, -1])) >= 50), 5)
 for (k in seq_along(og)) o[og[k], 1 + k] <- o[og[k], 1 + k] * 20L
 add("yeast_7v7_outliers", o, ycd(ywt[1:7], ysn[1:7]), "~ condition", "condition,snf2,wt", "wt",
     paste0("7 vs 7 with planted outliers (count x20) in ", paste(o$gene[og], collapse = ","),
-           ": Cook's replacement and refit"), 20)
+           ": Cook's replacement and refit"), 20, extra = o$gene[og])
 write_case(file.path(outdir, "full", "yeast_all"), yc[, c("gene", ywt, ysn)], ycd(ywt, ysn), "~ condition",
            "condition,snf2,wt", "wt", sprintf("all good replicates, %d vs %d", length(ywt), length(ysn)))
 
@@ -124,5 +127,17 @@ add("afum_condition", ac, acd[, c("sample", "condition")], "~ condition", "condi
     "A. fumigatus Azole vs GMM, kallisto counts from the page", 41, full = TRUE)
 add("afum_strain_condition", ac, acd, "~ strain + condition", "condition,Azole,GMM", "GMM",
     "A. fumigatus with strain (AF293, CEA10), m - p = 4", 42, full = TRUE)
+
+# Simulated (seed 5): dispersion rising with the mean (1e-3 * mean^0.6), so the parametric trend a0 + a1 / mean gets
+# a1 <= 0 and fails; DESeq2 substitutes its local fit, the port must stop.
+set.seed(5)
+mu <- exp(runif(400, 2, 9))
+sm <- c(paste0("c", 1:3), paste0("t", 1:3))
+sc <- sapply(1:6, function(j) rnbinom(400, mu = mu, size = 1 / (1e-3 * mu^0.6)))
+colnames(sc) <- sm
+cases[[length(cases) + 1]] <- "sim_trend_fails"
+write_case(file.path(outdir, "fixtures", "sim_trend_fails"), data.frame(gene = sprintf("s%03d", 1:400), sc),
+           data.frame(sample = sm, condition = rep(c("ctl", "trt"), each = 3)), "~ condition", "condition,trt,ctl", "ctl",
+           "simulated: dispersion rises with the mean, the parametric trend fails (the port must stop)")
 
 cat(sprintf("%d fixtures in %s/fixtures; full inputs in %s/full\n", length(cases), outdir, outdir))

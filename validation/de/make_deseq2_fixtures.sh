@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Phase 1 of the DESeq2 port (docs/superpowers/specs/2026-11-27-deseq2-rust-design.md): fetch the three datasets, build
-# the fixture inputs, run R DESeq2 with every intermediate saved (deseq2_dump.R), make the m - p <= 3 prior table and
+# the fixture inputs, run R DESeq2 on the full data, add the genes it flagged to the fixtures, run DESeq2 with every intermediate saved (deseq2_dump.R), make the m - p <= 3 prior table and
 # check it against DESeq2, then copy fixtures and table into the crate. Runs on the HPCC (in a job).
 #   bash validation/de/make_deseq2_fixtures.sh WORK_DIR
 # WORK_DIR (one-off, purgeable): raw/ downloads, inputs/, dumps/fixtures/ and dumps/full/ (full-data reference runs,
@@ -40,9 +40,13 @@ dump() { # INPUT_DIR OUT_DIR
   val() { awk -F'\t' -v k="$1" '$1 == k { print $2 }' "$spec"; }
   "${R[@]}" "$HERE/deseq2_dump.R" "$1/counts.tsv" "$1/coldata.tsv" "$(val design)" "$(val contrast)" "$(val ref)" "$2"
 }
-for d in "$WORK"/inputs/fixtures/* "$WORK"/inputs/full/*; do
-  kind=$(basename "$(dirname "$d")")
-  dump "$d" "$WORK/dumps/$kind/$(basename "$d")"
+for d in "$WORK"/inputs/full/*; do dump "$d" "$WORK/dumps/full/$(basename "$d")"; done
+for d in "$WORK"/inputs/fixtures/*; do
+  n=$(basename "$d")
+  if [[ -d "$WORK/dumps/full/$n" ]]; then
+    "${R[@]}" "$HERE/add_flagged_genes.R" "$WORK/dumps/full/$n" "$WORK/inputs/full/$n/counts.tsv" "$d/counts.tsv"
+  fi
+  dump "$d" "$WORK/dumps/fixtures/$n"
 done
 
 "${R[@]}" "$HERE/deseq2_prior_table.R" "$WORK/prior_hist.tsv"
