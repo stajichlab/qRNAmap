@@ -129,7 +129,8 @@ test('the page downloads run through `qrnamap de` (DESeq2 with QRNAMAP_RSCRIPT, 
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, flag('--counts')), counts);
   writeFileSync(join(dir, flag('--samples')), samples);
-  const env = { ...process.env, QRNAMAP_RSCRIPT: RSCRIPT || join(dir, 'no-such-dir', 'Rscript') };
+  // TMPDIR: qrnamap de needs a temporary folder ($SCRATCH or $TMPDIR), and CI runners set neither.
+  const env = { ...process.env, TMPDIR: process.env.TMPDIR || dir, QRNAMAP_RSCRIPT: RSCRIPT || join(dir, 'no-such-dir', 'Rscript') };
   const run = spawnSync(QRNAMAP, words.slice(1), { cwd: dir, env, encoding: 'utf8' });
 
   if (RSCRIPT) {
