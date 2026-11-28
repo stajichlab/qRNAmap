@@ -1070,6 +1070,19 @@ mod tests {
         NATIVE_RUN_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The kallisto of this machine for the tests that run it. None skips the test (with a note), unless
+    /// QRNAMAP_REQUIRE_TOOLS=1 (CI), where a missing kallisto is a failure (ruling R5, as crates/qrnamap-core/tests).
+    fn kallisto_for_test() -> Option<PathBuf> {
+        let k = find_kallisto();
+        if k.is_none() {
+            if std::env::var("QRNAMAP_REQUIRE_TOOLS").map(|v| v == "1").unwrap_or(false) {
+                panic!("kallisto was not found and QRNAMAP_REQUIRE_TOOLS=1 (set QRNAMAP_KALLISTO or put it on PATH)");
+            }
+            eprintln!("SKIP: kallisto not found (set QRNAMAP_REQUIRE_TOOLS=1 to make this a failure)");
+        }
+        k
+    }
+
     #[test]
     fn test_major_minor() {
         assert_eq!(major_minor("kallisto, version 0.52.0"), Some((0, 52)));
@@ -1121,9 +1134,7 @@ mod tests {
 
     #[test]
     fn test_find_kallisto() {
-        let k = find_kallisto();
-        assert!(k.is_some(), "kallisto should be found on this machine");
-        let path = k.unwrap();
+        let Some(path) = kallisto_for_test() else { return };
         assert!(path.is_file(), "kallisto path must be an existing file");
         let version = get_kallisto_version(&path).expect("should get version");
         assert!(version.to_lowercase().contains("kallisto"), "version string should contain 'kallisto'");
@@ -1151,9 +1162,15 @@ mod tests {
     fn test_check_capabilities() {
         let _lock = native_run_lock();
         let caps = commands::check_native_capabilities();
+        assert!(caps.num_cpus >= 1);
+        if kallisto_for_test().is_none() {
+            // Without kallisto the app says so and offers the page's own kallisto.wasm.
+            assert!(!caps.available && caps.kallisto_path.is_none());
+            assert!(caps.warning.as_deref().unwrap_or("").contains("QRNAMAP_KALLISTO"), "{:?}", caps.warning);
+            return;
+        }
         assert!(caps.available);
         assert!(caps.kallisto_path.is_some());
-        assert!(caps.num_cpus >= 1);
     }
 
     #[test]
@@ -1267,7 +1284,7 @@ mod tests {
     #[test]
     fn real_kallisto_checks_its_own_index_and_refuses_junk() {
         let _lock = native_run_lock();
-        let Some(kallisto) = find_kallisto() else { return };
+        let Some(kallisto) = kallisto_for_test() else { return };
         let dir = tempfile::tempdir().unwrap();
         let fa = dir.path().join("t.fa");
         let tx1 = "ACGTTGCAAGCTTGACCGTAGGCTAACGTTAGCCATGGTACCGATCGATTGCAAGGCTAGCTAGGCATCGATCGGATCCTAGCTAAGCTTGCA";
@@ -1283,7 +1300,7 @@ mod tests {
     #[test]
     fn test_native_quant_flow() {
         let _lock = native_run_lock();
-        if find_kallisto().is_none() {
+        if kallisto_for_test().is_none() {
             return;
         }
 
@@ -1346,7 +1363,7 @@ mod tests {
     #[test]
     fn test_dhingra_real_data_quant() {
         let _lock = native_run_lock();
-        if find_kallisto().is_none() {
+        if kallisto_for_test().is_none() {
             return;
         }
 
