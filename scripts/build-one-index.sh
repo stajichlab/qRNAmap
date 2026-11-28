@@ -5,6 +5,9 @@
 #   OUTDIR/<acc>.tx2gene.tsv.gz
 #   OUTDIR/<acc>.gene_info.tsv.gz
 #   OUTDIR/<acc>.genes.tsv.gz
+# INDEX_FROM=<URL of an existing <acc>.idx.gz> keeps that index instead of building one (to refresh the annotation tables
+# of a published set, for example after gene_info.tsv gained its description column). The new tx2gene must equal the one
+# next to that index (<acc>.tx2gene.tsv.gz at the same place), else the index and the tables would not match: the run stops.
 set -euo pipefail
 
 ACCESSION="${1:?Usage: build-one-index.sh ACCESSION FNA_URL GFF_URL OUTDIR}"
@@ -36,10 +39,21 @@ qrnamap transcripts \
 # conda kallisto 0.52.0 is "Corrupted" for kallisto.wasm and for macOS Homebrew kallisto 0.52.0).
 # INDEXER=native uses `kallisto index` instead (for a native-only set).
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "Building kallisto index (k=31, ${INDEXER:-wasm})..."
-if [[ "${INDEXER:-wasm}" == native ]]; then
+if [[ -n "${INDEX_FROM:-}" ]]; then
+  echo "Keeping the index $INDEX_FROM (no index build)..."
+  curl -sSL --fail --retry 3 --max-time 600 "$INDEX_FROM" -o "$TMPDIR/kept.idx.gz"
+  gzip -t "$TMPDIR/kept.idx.gz"
+  curl -sSL --fail --retry 3 --max-time 300 "${INDEX_FROM%.idx.gz}.tx2gene.tsv.gz" -o "$TMPDIR/kept.tx2gene.tsv.gz"
+  if ! gzip -dc "$TMPDIR/kept.tx2gene.tsv.gz" | cmp -s - "$TMPDIR/tx2gene.tsv"; then
+    echo "the new tx2gene differs from the one of the kept index: rebuild the index instead (unset INDEX_FROM)" >&2
+    exit 1
+  fi
+  echo "tx2gene equals the kept index's"
+elif [[ "${INDEXER:-wasm}" == native ]]; then
+  echo "Building kallisto index (k=31, native)..."
   kallisto index -i "$TMPDIR/transcripts.idx" -k 31 "$TMPDIR/transcripts.fa"
 else
+  echo "Building kallisto index (k=31, wasm)..."
   node "$HERE/build-index-wasm.mjs" "$TMPDIR/transcripts.fa" "$TMPDIR/transcripts.idx"
   # Self-check in kallisto.wasm: 2,000 single-end reads of 100 bases cut from the transcripts themselves must load and
   # mostly pseudoalign (a genome-independent check; the page's fixture reads are yeast).
@@ -53,7 +67,11 @@ else
 fi
 
 echo "Compressing deliverables with gzip -9..."
-gzip -9 -c "$TMPDIR/transcripts.idx" > "$OUTDIR/${ACCESSION}.idx.gz"
+if [[ -n "${INDEX_FROM:-}" ]]; then
+  cp "$TMPDIR/kept.idx.gz" "$OUTDIR/${ACCESSION}.idx.gz" # byte for byte: the published index stays as it is
+else
+  gzip -9 -c "$TMPDIR/transcripts.idx" > "$OUTDIR/${ACCESSION}.idx.gz"
+fi
 gzip -9 -c "$TMPDIR/tx2gene.tsv" > "$OUTDIR/${ACCESSION}.tx2gene.tsv.gz"
 gzip -9 -c "$TMPDIR/gene_info.tsv" > "$OUTDIR/${ACCESSION}.gene_info.tsv.gz"
 gzip -9 -c "$TMPDIR/genes.tsv" > "$OUTDIR/${ACCESSION}.genes.tsv.gz"
